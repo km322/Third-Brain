@@ -1,0 +1,189 @@
+# ============================================================================
+# Third Brain - Render Blueprint (Infrastructure as Code).
+#
+# One file provisions the whole stack on Render as a managed PaaS:
+#   • a managed Postgres 16 (+ pgvector)      - `third-brain-db`
+#   • a managed Key Value store (Redis)       - `third-brain-redis`
+#   • the API   (Docker web service)          - `third-brain-api`
+#   • the worker (Docker background worker)    - `third-brain-worker`
+#   • the web dashboard (Docker web service)   - `third-brain-web`
+#
+# Deploy: push this repo to GitHub, then Render → "New +" → "Blueprint" and pick
+# the repo. Render reads this file, creates every resource, and wires the linked
+# env vars (DATABASE_URL parts / REDIS_URL) automatically.
+#
+# ----------------------------------------------------------------------------
+# Managed datastores
+# ----------------------------------------------------------------------------
+# Postgres: Render's Postgres 16 ships the `pgvector` extension. It is NOT
+# enabled by default - enable it ONCE after first deploy. The initial Alembic
+# migration runs `CREATE EXTENSION IF NOT EXISTS vector;` where the role has
+# permission (Render's default DB owner does), so `preDeployCommand` below
+# handles it. If your role lacks the grant, run `CREATE EXTENSION vector;`
+# manually via the Render psql console before the first deploy.
+#
+# Redis: Render "Key Value" is Redis-compatible. We set maxmemory-policy to
+# `noeviction` so queued ingestion jobs are never evicted under memory pressure.
+#
+# ----------------------------------------------------------------------------
+# Secrets
+# ----------------------------------------------------------------------------
+# Values marked `sync: false` are NOT stored in git - Render prompts for them at
+# deploy time (set them in the dashboard / API). `generateValue: true` makes
+# Render mint a strong random value once (used here for SECRET_KEY).
+# Rotating SECRET_KEY invalidates all JWTs and makes stored connector creds
+# undecryptable - see SECURITY.md before rotating.
+#
+# ----------------------------------------------------------------------------
+# Migrations on release
+# ----------------------------------------------------------------------------
+# `preDeployCommand: alembic upgrade head` on the API runs ONCE per deploy,
+# after the new image is built and before it receives traffic - the managed
+# equivalent of the compose `migrate` one-shot. The worker shares the image but
+# does NOT run migrations (avoids a race); it just waits for the schema.
+#
+# ----------------------------------------------------------------------------
+# Scaling the worker
+# ----------------------------------------------------------------------------
+# The ingestion pipeline (extract → chunk → embed → index) is the throughput
+# bottleneck. Raise `third-brain-worker` concurrency by bumping `numInstances`
+# below, or switch to the `scaling:` block (min/max + CPU target) shown inline.
+# Each instance pulls from the shared Redis queue, so adding workers is safe and
+# roughly linear. The API scales the same way (stateless) - mind the DB pool
+# budget: (DB_POOL_SIZE + DB_MAX_OVERFLOW) × instances ≤ Postgres max_connections.
+# ============================================================================
+
+databases:
+  - name: third-brain-db
+    plan: standard              # size up for the HNSW index (RAM-hungry)
+    postgresMajorVersion: "16"
+    ipAllowList: []             # private only - reachable from Render services
+
+# Shared env vars for the two services that run the API image (api + worker).
+# fromDatabase / fromService links can't live in a group, so DB/Redis wiring is
+# repeated per service below; everything static/secret lives here once.
+envVarGroups:
+  - name: third-brain-shared
+    envVars:
+      - key: ENVIRONMENT
+        value: production
+      - key: LOG_LEVEL
+        value: INFO
+      # 32+ bytes of entropy, generated once and kept by Render.
+      - key: SECRET_KEY
+        generateValue: true
+      # Embedding model + dimension MUST match; changing the dim needs a re-index.
+      - key: EMBEDDING_PROVIDER
+        value: openai
+      - key: EMBEDDING_MODEL
+        value: text-embedding-3-small
+      - key: EMBEDDING_DIM
+        value: "1536"
+      - key: DEFAULT_COMPLETION_MODEL
+        value: gpt-4o-mini
+      # Lock CORS to the real dashboard origin (update to your custom domain).
+      - key: BACKEND_CORS_ORIGINS
+        value: https://third-brain-web.onrender.com
+      # Uploads must be durable object storage once >1 API/worker instance runs
+      # (local disk is per-instance and ephemeral on Render).
+      - key: STORAGE_BACKEND
+        value: s3
+      - key: S3_BUCKET
+        sync: false
+      - key: S3_REGION
+        sync: false
+      - key: S3_ACCESS_KEY_ID
+        sync: false
+      - key: S3_SECRET_ACCESS_KEY
+        sync: false
+      # OpenAI-compatible provider (or configure per-org Connectors in-app).
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: OPENAI_BASE_URL
+        sync: false
+
+services:
+  # ---- Redis (arq queue / cache / rate limiter) ----
+  - type: keyvalue
+    name: third-brain-redis
+    plan: standard
+    ipAllowList: []             # private only
+    maxmemoryPolicy: noeviction # never evict queued jobs / rate-limit keys
+
+  # ---- API (FastAPI, Docker image) ----
+  - type: web
+    name: third-brain-api
+    runtime: docker
+    dockerfilePath: apps/api/Dockerfile
+    dockerContext: apps/api
+    plan: standard
+    healthCheckPath: /api/v1/health
+    # Run migrations on every release, before traffic shifts to the new image.
+    preDeployCommand: alembic upgrade head
+    autoDeploy: true
+    # The image CMD already runs `uvicorn --workers ${UVICORN_WORKERS:-4}`.
+    envVars:
+      - fromGroup: third-brain-shared
+      # Feed the POSTGRES_* PARTS (not DATABASE_URL) so the app builds its own
+      # postgresql+asyncpg:// URL - Render's connectionString has no +asyncpg
+      # driver and would break the async engine + Alembic.
+      - key: POSTGRES_HOST
+        fromDatabase: { name: third-brain-db, property: host }
+      - key: POSTGRES_PORT
+        fromDatabase: { name: third-brain-db, property: port }
+      - key: POSTGRES_USER
+        fromDatabase: { name: third-brain-db, property: user }
+      - key: POSTGRES_PASSWORD
+        fromDatabase: { name: third-brain-db, property: password }
+      - key: POSTGRES_DB
+        fromDatabase: { name: third-brain-db, property: database }
+      # Key Value connectionString is a plain redis:// URL - used as-is.
+      - key: REDIS_URL
+        fromService: { type: keyvalue, name: third-brain-redis, property: connectionString }
+
+  # ---- Worker (arq, same image, no HTTP port) ----
+  - type: worker
+    name: third-brain-worker
+    runtime: docker
+    dockerfilePath: apps/api/Dockerfile
+    dockerContext: apps/api
+    plan: standard
+    numInstances: 2             # scale ingestion throughput (see header)
+    # Or autoscale on CPU instead of a fixed count:
+    # scaling:
+    #   minInstances: 1
+    #   maxInstances: 5
+    #   targetCPUPercent: 70
+    dockerCommand: arq app.workers.settings.WorkerSettings
+    autoDeploy: true
+    envVars:
+      - fromGroup: third-brain-shared
+      - key: POSTGRES_HOST
+        fromDatabase: { name: third-brain-db, property: host }
+      - key: POSTGRES_PORT
+        fromDatabase: { name: third-brain-db, property: port }
+      - key: POSTGRES_USER
+        fromDatabase: { name: third-brain-db, property: user }
+      - key: POSTGRES_PASSWORD
+        fromDatabase: { name: third-brain-db, property: password }
+      - key: POSTGRES_DB
+        fromDatabase: { name: third-brain-db, property: database }
+      - key: REDIS_URL
+        fromService: { type: keyvalue, name: third-brain-redis, property: connectionString }
+
+  # ---- Web dashboard (Next.js standalone, Docker image) ----
+  - type: web
+    name: third-brain-web
+    runtime: docker
+    dockerfilePath: apps/web/Dockerfile
+    dockerContext: apps/web
+    plan: starter
+    healthCheckPath: /
+    autoDeploy: true
+    envVars:
+      # NEXT_PUBLIC_API_URL is inlined at BUILD time. Render exposes service env
+      # vars as Docker build args, so this reaches the `ARG NEXT_PUBLIC_API_URL`
+      # in apps/web/Dockerfile. Point it at the API's public URL (custom domain
+      # in real deployments).
+      - key: NEXT_PUBLIC_API_URL
+        value: https://third-brain-api.onrender.com

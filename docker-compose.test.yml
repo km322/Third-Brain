@@ -1,0 +1,71 @@
+# Ephemeral test stack: REAL Postgres + pgvector and REAL Redis, plus a one-shot
+# runner that migrates the database and executes the backend integration tier.
+#
+# This mirrors the authoritative CI job (no SQLite / mocks / fakeredis - production
+# parity only). Bring it up with `make test-integration`, or directly:
+#
+#   docker compose -f docker-compose.test.yml up --build \
+#       --abort-on-container-exit --exit-code-from tests
+#
+# The database uses a tmpfs data dir so every run starts from a clean slate and leaves
+# nothing behind.
+
+name: third-brain-test
+
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: thirdbrain
+      POSTGRES_PASSWORD: thirdbrain
+      POSTGRES_DB: thirdbrain
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U thirdbrain"]
+      interval: 3s
+      timeout: 5s
+      retries: 20
+    # Exposed for running the suite against this stack from the host if desired.
+    ports:
+      - "5432:5432"
+
+  redis:
+    image: redis:7
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    ports:
+      - "6379:6379"
+
+  # One-shot runner: install dev deps into the image's venv, migrate, run the
+  # integration tier, then exit with pytest's status.
+  tests:
+    build:
+      context: ./apps/api
+      dockerfile: Dockerfile
+    # Root so pip can write into the venv and setuptools can emit egg-info.
+    user: root
+    working_dir: /app
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+asyncpg://thirdbrain:thirdbrain@db:5432/thirdbrain
+      TEST_DATABASE_URL: postgresql+asyncpg://thirdbrain:thirdbrain@db:5432/thirdbrain
+      REDIS_URL: redis://redis:6379/0
+      TEST_REDIS_URL: redis://redis:6379/0
+      EMBEDDING_PROVIDER: fake
+      SECRET_KEY: test-secret-key-not-for-production
+      ENVIRONMENT: development
+    volumes:
+      # Mount the source so the test suite (not shipped in the image) is available.
+      - ./apps/api:/app
+    command:
+      - sh
+      - -lc
+      - "pip install -e '.[dev]' && alembic upgrade head && pytest -q -m integration"

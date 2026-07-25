@@ -1,0 +1,57 @@
+# ============================================================================
+# Third Brain - reverse proxy (Caddy 2).
+#
+# Terminates TLS in front of the web frontend and the API, obtaining and
+# renewing certificates automatically via ACME. Only this container publishes
+# 80/443; `web` and `api` stay on the internal Docker network.
+#
+# Configure via env (see docker-compose.prod.yml / .env):
+#   WEB_DOMAIN   public hostname for the dashboard   (e.g. third-brain.ai)
+#   API_DOMAIN   public hostname for the API          (e.g. api.third-brain.ai)
+#   ACME_EMAIL   contact address for Let's Encrypt
+#
+# For local testing use `*.localhost` domains - Caddy serves an internal CA
+# cert and no public ACME challenge is attempted.
+# ============================================================================
+
+{
+	# ACME account contact. Remove or leave blank to use Caddy's internal CA.
+	email {$ACME_EMAIL}
+	# Uncomment to exercise issuance against the Let's Encrypt staging CA first:
+	# acme_ca https://acme-staging-v02.api.letsencrypt.org/directory
+}
+
+# ---- Dashboard (Next.js) ----
+{$WEB_DOMAIN} {
+	encode zstd gzip
+
+	# Sane security headers; the app sets its own CSP where needed.
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "SAMEORIGIN"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+
+	reverse_proxy web:3000
+}
+
+# ---- API (FastAPI) ----
+{$API_DOMAIN} {
+	# NOTE: no `encode` here. The chat endpoint streams Server-Sent Events;
+	# compression/buffering would delay tokens. `flush_interval -1` disables
+	# response buffering so SSE reaches clients immediately.
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		-Server
+	}
+
+	reverse_proxy api:8000 {
+		flush_interval -1
+		# Preserve the original host/scheme for correct URL generation + logging.
+		header_up X-Forwarded-Host {host}
+		header_up X-Forwarded-Proto {scheme}
+	}
+}

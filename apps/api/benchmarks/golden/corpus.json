@@ -1,0 +1,289 @@
+{
+  "name": "acme-second-brain",
+  "teams": [
+    { "key": "people-team", "name": "People Team" }
+  ],
+  "collections": [
+    {
+      "key": "engineering",
+      "name": "Engineering Handbook",
+      "visibility": "org",
+      "default_permission": "viewer",
+      "team_key": null
+    },
+    {
+      "key": "people-ops",
+      "name": "People Operations",
+      "visibility": "team",
+      "default_permission": "viewer",
+      "team_key": "people-team"
+    },
+    {
+      "key": "exec",
+      "name": "Executive",
+      "visibility": "private",
+      "default_permission": "none",
+      "team_key": null
+    }
+  ],
+  "principals": [
+    {
+      "key": "owner",
+      "email": "owner@benchmark.thirdbrain.test",
+      "role": "owner",
+      "team_keys": [],
+      "grants": [],
+      "visible_collection_keys": ["engineering", "people-ops", "exec"]
+    },
+    {
+      "key": "engineer",
+      "email": "engineer@benchmark.thirdbrain.test",
+      "role": "editor",
+      "team_keys": [],
+      "grants": [],
+      "visible_collection_keys": ["engineering"]
+    },
+    {
+      "key": "people-admin",
+      "email": "people-admin@benchmark.thirdbrain.test",
+      "role": "editor",
+      "team_keys": ["people-team"],
+      "grants": [],
+      "visible_collection_keys": ["engineering", "people-ops"]
+    },
+    {
+      "key": "viewer",
+      "email": "viewer@benchmark.thirdbrain.test",
+      "role": "viewer",
+      "team_keys": [],
+      "grants": [],
+      "visible_collection_keys": ["engineering"]
+    },
+    {
+      "key": "exec-analyst",
+      "email": "exec-analyst@benchmark.thirdbrain.test",
+      "role": "editor",
+      "team_keys": [],
+      "grants": [{ "collection_key": "exec", "permission": "viewer" }],
+      "visible_collection_keys": ["engineering", "exec"]
+    }
+  ],
+  "documents": [
+    {
+      "doc_id": "eng-oncall-rotation",
+      "title": "On-call rotation",
+      "collection_key": "engineering",
+      "content": "The on-call rotation runs on a weekly cycle. Each week one engineer holds the primary pager while a second engineer serves as the secondary backup. Assignments and swaps are coordinated in PagerDuty, and the schedule is published a month ahead so people can plan around it."
+    },
+    {
+      "doc_id": "eng-deploy-process",
+      "title": "Deploying to production",
+      "collection_key": "engineering",
+      "content": "A merge to the main branch triggers CI. Once CI is green the change is built and a canary deploy sends it to a small slice of production traffic first. If the canary stays healthy for fifteen minutes the release is promoted to a full rollout across every instance."
+    },
+    {
+      "doc_id": "eng-rollback",
+      "title": "Rolling back a bad release",
+      "collection_key": "engineering",
+      "content": "When a release misbehaves, roll it back by redeploying the previous container image. A single command reverts production to the last known-good build, and it is always preferred to revert first and investigate afterwards rather than trying to hotfix forward under pressure."
+    },
+    {
+      "doc_id": "eng-incident-severity",
+      "title": "Incident severity levels",
+      "collection_key": "engineering",
+      "content": "A SEV1 is a full customer-facing outage or data-loss event and pulls in an incident commander immediately. A SEV2 is a serious but partial degradation, and a SEV3 is a minor issue with a workaround. The severity you declare sets the response and communication expectations."
+    },
+    {
+      "doc_id": "eng-postmortem",
+      "title": "Postmortems",
+      "collection_key": "engineering",
+      "content": "Every SEV1 and SEV2 requires a blameless postmortem written within 48 hours of resolution. The document focuses on contributing factors and systemic fixes rather than individual fault, and each action item is assigned an owner and tracked to completion."
+    },
+    {
+      "doc_id": "eng-slo",
+      "title": "Service level objectives",
+      "collection_key": "engineering",
+      "content": "We commit to 99.9% monthly uptime for the core API, with a p95 latency budget of 300 milliseconds. Error budgets are tracked per service, and when a budget is exhausted the team pauses feature work to spend the next cycle on reliability."
+    },
+    {
+      "doc_id": "eng-alerting",
+      "title": "Alerting and escalation",
+      "collection_key": "engineering",
+      "content": "Alerts page the on-call engineer as soon as an error budget starts to burn fast or a health check fails. If the primary does not acknowledge within fifteen minutes the alert escalates automatically to the secondary, and repeated non-acknowledgement pages the engineering manager."
+    },
+    {
+      "doc_id": "eng-secrets",
+      "title": "Managing secrets",
+      "collection_key": "engineering",
+      "content": "Secrets such as database passwords and API keys are stored in the vault and injected at runtime. They are rotated every 90 days, and plaintext credentials must never be committed to a repository or pasted into a ticket. A leaked secret is treated as a security incident."
+    },
+    {
+      "doc_id": "eng-code-review",
+      "title": "Code review policy",
+      "collection_key": "engineering",
+      "content": "Every pull request needs two approvals before it can merge, and self-merging your own change is not allowed. Reviewers are expected to check correctness, tests and readability, and large changes should be split so they can be reviewed carefully."
+    },
+    {
+      "doc_id": "eng-cicd",
+      "title": "CI/CD pipeline",
+      "collection_key": "engineering",
+      "content": "The pipeline runs lint, unit tests and a build stage on every pull request. A failing stage blocks the merge, and the same artifact that passed CI is the one promoted to production so there is no separate untested build."
+    },
+    {
+      "doc_id": "eng-db-migrations",
+      "title": "Database migrations",
+      "collection_key": "engineering",
+      "content": "Schema changes ship as backward-compatible Alembic migrations that can run while the old code is still live. We expand first and contract later: add the new column, deploy code that writes both, backfill, then remove the old column in a follow-up migration."
+    },
+    {
+      "doc_id": "eng-dr",
+      "title": "Disaster recovery",
+      "collection_key": "engineering",
+      "content": "Disaster recovery targets a one-hour recovery time objective. Nightly backups are shipped off-site and continuously replicated, and if the primary region becomes unavailable we fail over to a secondary region. The failover runbook is rehearsed twice a year."
+    },
+    {
+      "doc_id": "eng-oncall-handoff",
+      "title": "On-call handoff",
+      "collection_key": "engineering",
+      "content": "At the end of each shift the outgoing on-call writes handoff notes summarizing what happened. Leave any open incidents, noisy alerts and follow-ups clearly documented for the next engineer so nothing is dropped when the pager changes hands."
+    },
+    {
+      "doc_id": "eng-feature-flags",
+      "title": "Feature flags",
+      "collection_key": "engineering",
+      "content": "New features are shipped dark behind a feature flag and enabled for a gradual rollout, starting with internal users and a small percentage of customers. Every flag has a kill switch so a risky change can be disabled instantly without a redeploy."
+    },
+    {
+      "doc_id": "eng-load-testing",
+      "title": "Load testing",
+      "collection_key": "engineering",
+      "content": "Before a major launch we run load tests against the staging environment with k6, modeling expected peak traffic plus a safety margin. The goal is to find the breaking point and confirm autoscaling behaves before real customers hit the system."
+    },
+    {
+      "doc_id": "eng-monitoring",
+      "title": "Monitoring dashboards",
+      "collection_key": "engineering",
+      "content": "Grafana dashboards show request latency, error rate and throughput for each service, backed by Prometheus metrics. A shared dashboard is the first place to look during an incident, and every new service is expected to ship with its own board before launch."
+    },
+    {
+      "doc_id": "ppl-parental-leave",
+      "title": "Parental leave",
+      "collection_key": "people-ops",
+      "content": "New parents receive 16 weeks of fully paid parental leave, available for the birth or adoption of a child. Leave can be taken in one continuous block or split within the first year, and health benefits continue unchanged for the whole period."
+    },
+    {
+      "doc_id": "ppl-pto-accrual",
+      "title": "PTO accrual",
+      "collection_key": "people-ops",
+      "content": "Employees accrue 15 days of paid vacation per year, added to the balance monthly. Up to 5 unused days carry over into the following year, and any balance beyond that cap is forfeited at year end, so plan time off before December."
+    },
+    {
+      "doc_id": "ppl-expenses",
+      "title": "Expense reimbursement",
+      "collection_key": "people-ops",
+      "content": "Submit work expenses within 30 days of incurring them through the expense tool. A receipt is required for anything over $25, and travel booked through the company account is billed directly so it does not need to be expensed."
+    },
+    {
+      "doc_id": "ppl-benefits-enrollment",
+      "title": "Benefits enrollment",
+      "collection_key": "people-ops",
+      "content": "Open enrollment for benefits runs each November, and elections take effect on January 1st. Outside that window you can only change coverage after a qualifying life event such as marriage, a birth or a move, filed within 30 days."
+    },
+    {
+      "doc_id": "ppl-remote-work",
+      "title": "Remote and hybrid work",
+      "collection_key": "people-ops",
+      "content": "We operate a hybrid model: employees based near an office come in two days a week, typically Tuesday and Thursday, and work remotely the rest of the time. Fully remote arrangements are approved case by case for roles that do not require on-site presence."
+    },
+    {
+      "doc_id": "ppl-health-insurance",
+      "title": "Health insurance",
+      "collection_key": "people-ops",
+      "content": "The company offers a PPO and an HMO medical plan along with dental and vision coverage. The company pays most of the monthly premium for employees and a large share for dependents, and coverage starts on your first day."
+    },
+    {
+      "doc_id": "ppl-401k",
+      "title": "Retirement plan",
+      "collection_key": "people-ops",
+      "content": "The 401(k) plan includes a 4% company match on your contributions, with a three-year vesting schedule on the match. You can enroll or change your contribution rate at any time, and both traditional and Roth options are available."
+    },
+    {
+      "doc_id": "ppl-sick-leave",
+      "title": "Sick leave",
+      "collection_key": "people-ops",
+      "content": "Employees receive 10 paid sick days a year, separate from vacation. No doctor's note is required for absences under three consecutive days, and sick time can also be used to care for an immediate family member who is ill."
+    },
+    {
+      "doc_id": "ppl-performance-review",
+      "title": "Performance reviews",
+      "collection_key": "people-ops",
+      "content": "Performance reviews happen twice a year, in spring and autumn. Managers gather peer feedback, and ratings go through a calibration step across teams so that expectations are applied consistently before compensation decisions are made."
+    },
+    {
+      "doc_id": "ppl-onboarding",
+      "title": "New hire onboarding",
+      "collection_key": "people-ops",
+      "content": "New hires work through a first-week onboarding checklist that covers account setup, laptop provisioning, security training and introductions to their team. A dedicated onboarding buddy is assigned for the first month to answer day-to-day questions."
+    },
+    {
+      "doc_id": "ppl-referral-bonus",
+      "title": "Employee referral bonus",
+      "collection_key": "people-ops",
+      "content": "Refer someone we go on to hire and you earn a 3,000 dollar referral bonus. The bonus is paid after the new hire completes their first 90 days, and there is no limit on how many people you can refer in a year."
+    },
+    {
+      "doc_id": "ppl-holidays",
+      "title": "Company holidays",
+      "collection_key": "people-ops",
+      "content": "The company observes 12 paid holidays over the year plus a company-wide winter break in the last week of December. Two additional floating holidays let people observe days that matter to them without spending vacation time."
+    },
+    {
+      "doc_id": "exec-comp-bands",
+      "title": "Compensation bands",
+      "collection_key": "exec",
+      "content": "Compensation bands span levels L3 through L7, each with a defined salary range and equity target. For example, an L5 senior engineer's band sits well above the L3 entry range, and offers are made within band based on interview performance and current market data."
+    },
+    {
+      "doc_id": "exec-board-reporting",
+      "title": "Board reporting",
+      "collection_key": "exec",
+      "content": "The board meets quarterly to review strategy and performance. Ahead of each meeting leadership circulates a monthly metrics deck covering revenue, growth, burn and hiring, so the quarterly session can focus on decisions rather than status updates."
+    },
+    {
+      "doc_id": "exec-fundraising",
+      "title": "Fundraising status",
+      "collection_key": "exec",
+      "content": "We are currently raising a Series B to fund the next phase of growth. At the current burn we have roughly 24 months of runway, and the raise is intended to extend that while accelerating go-to-market investment."
+    },
+    {
+      "doc_id": "exec-okrs",
+      "title": "Quarterly OKRs",
+      "collection_key": "exec",
+      "content": "This quarter's company objectives center on enterprise expansion and platform reliability. Key results include landing several lighthouse enterprise accounts, cutting onboarding time in half, and holding the core service to its uptime objective for the full quarter."
+    },
+    {
+      "doc_id": "exec-headcount",
+      "title": "Hiring plan",
+      "collection_key": "exec",
+      "content": "The annual hiring plan adds headcount across engineering, sales and customer support, weighted toward the first half of the year. Each new role is tied to a specific objective, and backfills are approved separately from growth headcount."
+    },
+    {
+      "doc_id": "exec-acquisition",
+      "title": "Acquisition strategy",
+      "collection_key": "exec",
+      "content": "Corporate development is evaluating two potential acquisition targets that would add complementary technology and team. Discussions are highly confidential and limited to a small deal team until any letter of intent is signed."
+    },
+    {
+      "doc_id": "exec-revenue-targets",
+      "title": "Revenue targets",
+      "collection_key": "exec",
+      "content": "The revenue target for the year is to reach 20 million dollars of annual recurring revenue, or ARR, by year end. Net revenue retention above 120% is expected to contribute a large share of that growth alongside new logo acquisition."
+    },
+    {
+      "doc_id": "exec-offsite",
+      "title": "Executive offsite",
+      "collection_key": "exec",
+      "content": "The annual executive offsite gathers the leadership team for two days of strategy planning away from daily operations. The agenda covers the long-range plan, organizational design, and the priorities that will anchor next year's OKRs."
+    }
+  ]
+}

@@ -1,0 +1,47 @@
+# Cloudflare Tunnel overlay - run third-brain.ai behind Cloudflare with no open inbound ports.
+#
+# It layers on top of docker-compose.prod.yml. A `cloudflared` container joins the internal
+# Compose network and dials OUT to Cloudflare, which terminates TLS at the edge and forwards
+# requests back down the tunnel to `web:3000` and `api:8000` by service name. Because the
+# tunnel is outbound-only, the host needs no public 80/443 - so Caddy is parked behind the
+# same `with-caddy` profile the selfhost overlay uses and never starts.
+#
+# One-time setup (Cloudflare dashboard -> Zero Trust -> Networks -> Tunnels):
+#   1. Create a tunnel and copy its connector token.
+#   2. Add two Public Hostnames on that tunnel:
+#        third-brain.ai       -> HTTP  http://web:3000
+#        api.third-brain.ai   -> HTTP  http://api:8000
+#      HTTP is correct here: TLS is terminated at Cloudflare's edge, and the hop from
+#      cloudflared to web/api stays inside the Compose network.
+#   3. Put the token in .env:  CLOUDFLARE_TUNNEL_TOKEN=<connector token>
+#   4. Bake the public origins into the web image at BUILD time and lock CORS in .env:
+#        NEXT_PUBLIC_API_URL=https://api.third-brain.ai
+#        NEXT_PUBLIC_SITE_URL=https://third-brain.ai
+#        APP_BASE_URL=https://third-brain.ai
+#        BACKEND_CORS_ORIGINS=https://third-brain.ai
+#
+#   docker compose -f docker-compose.prod.yml -f docker-compose.cloudflare.yml up -d --build
+#
+# See docs/SELF_HOSTING.md ("Deploy behind Cloudflare") for the full walkthrough and the
+# Cloudflare-proxy / origin-certificate alternative.
+
+services:
+  # ---- Cloudflare Tunnel connector: outbound-only, reaches web:3000 / api:8000 by name ----
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    # Entrypoint is `cloudflared`; TUNNEL_TOKEN carries the tunnel identity + credentials.
+    command: ["tunnel", "--no-autoupdate", "run"]
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN}
+    depends_on:
+      web:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+
+  caddy:
+    # Cloudflare terminates TLS at its edge, so the local reverse proxy is not needed. Park it
+    # behind the same profile the selfhost overlay uses so it never binds 80/443. Start it
+    # explicitly with `--profile with-caddy` only if you also want Caddy on this box.
+    profiles: ["with-caddy"]

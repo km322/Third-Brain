@@ -1,0 +1,124 @@
+name: third-brain
+
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-thirdbrain}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-thirdbrain}
+      POSTGRES_DB: ${POSTGRES_DB:-thirdbrain}
+    ports:
+      - "5432:5432"
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-thirdbrain}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    build:
+      context: ./apps/api
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      POSTGRES_HOST: db
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./apps/api:/app
+      - uploads:/data/uploads
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+  worker:
+    build:
+      context: ./apps/api
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    # The worker serves no HTTP, so disable the image's uvicorn healthcheck - otherwise
+    # `docker compose ps` reports it permanently "unhealthy". (Matches docker-compose.prod.yml.)
+    healthcheck:
+      disable: true
+    env_file: .env
+    environment:
+      POSTGRES_HOST: db
+      REDIS_URL: redis://redis:6379/0
+      # arq only appends CWD to sys.path, so the `app` package baked into the image's
+      # site-packages would shadow the bind-mounted source and the worker would run stale
+      # code. Put the mounted /app first so edits take effect on restart (matches the API,
+      # where uvicorn --reload already inserts CWD at the front).
+      PYTHONPATH: /app
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./apps/api:/app
+      - uploads:/data/uploads
+    command: arq app.workers.settings.WorkerSettings
+
+  web:
+    build:
+      context: ./apps/web
+      dockerfile: Dockerfile
+      # The dev stage keeps the full node_modules (incl. the `next` CLI); the default
+      # (production) stage ships only the standalone trace, so `npm run dev` there fails
+      # with `next: not found`.
+      target: dev
+    restart: unless-stopped
+    environment:
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+    depends_on:
+      - api
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./apps/web:/app
+      - /app/node_modules
+      - /app/.next
+    command: npm run dev
+
+  # Local observability backend (Grafana + Tempo + Loki + Prometheus in one image).
+  # Opt-in: enable with `docker compose --profile observability up` (or `make up-obs`),
+  # then set OTEL_EXPORTER_OTLP_ENDPOINT=http://lgtm:4318 (API inside compose) or
+  # http://localhost:4318 (API on the host). Grafana UI: http://localhost:3001.
+  lgtm:
+    image: grafana/otel-lgtm:latest
+    profiles: ["observability"]
+    restart: unless-stopped
+    ports:
+      - "3001:3000"
+      - "4317:4317"
+      - "4318:4318"
+    volumes:
+      - lgtm_data:/data
+
+volumes:
+  db_data:
+  redis_data:
+  uploads:
+  lgtm_data:

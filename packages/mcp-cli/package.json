@@ -1,0 +1,37 @@
+{
+  "name": "third-brain-mcp",
+  "version": "1.0.0",
+  "description": "Connect MCP clients (Claude Desktop, Claude Code, Cursor) to a Third Brain server: device-code sign-in, one-command client install, and a stdio-to-HTTP MCP bridge. Zero dependencies.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "bin": {
+    "third-brain-mcp": "bin/third-brain-mcp.js"
+  },
+  "files": [
+    "bin",
+    "lib",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "lint": "node scripts/lint.js",
+    "test": "node --test"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/km322/Third-Brain.git",
+    "directory": "packages/mcp-cli"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "third-brain",
+    "claude",
+    "cursor",
+    "knowledge-base",
+    "rag"
+  ]
+}

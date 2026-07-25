@@ -1,0 +1,47 @@
+# Automated dependency updates for every manifest in the monorepo.
+# Docs: https://docs.github.com/code-security/dependabot/dependabot-version-updates
+version: 2
+updates:
+  # ---- Backend API (Python / pip via pyproject.toml) ----------------------- #
+  - package-ecosystem: pip
+    directory: /apps/api
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    labels: ["dependencies", "backend"]
+    commit-message:
+      prefix: "chore(deps)"
+    groups:
+      backend-dependencies:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+
+  # ---- Frontend web app (npm) --------------------------------------------- #
+  - package-ecosystem: npm
+    directory: /apps/web
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    labels: ["dependencies", "frontend"]
+    commit-message:
+      prefix: "chore(deps)"
+    groups:
+      frontend-dependencies:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+
+  # ---- GitHub Actions workflows ------------------------------------------- #
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    labels: ["dependencies", "ci"]
+    commit-message:
+      prefix: "chore(ci)"
+    groups:
+      github-actions:
+        patterns: ["*"]

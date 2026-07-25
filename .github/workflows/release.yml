@@ -1,0 +1,211 @@
+name: Release
+
+# Cut a release from a `vX.Y.Z` tag (pushed by `make release VERSION=X.Y.Z`):
+#   * verify the tag matches the repo's version literals and that CI already
+#     passed on the tagged commit,
+#   * build + push multi-arch api/web images to GHCR tagged vX.Y.Z and latest,
+#   * publish a GitHub release with the matching CHANGELOG section as notes.
+
+on:
+  push:
+    tags: ["v*.*.*"]
+
+permissions:
+  contents: write   # create the GitHub release
+  packages: write   # push images to GHCR
+  actions: read     # query CI run status for the tagged commit
+
+# One fixed group so ALL release runs serialize: a half-finished release is
+# never cancelled, and a tag pushed mid-build waits its turn instead of racing
+# the shared :latest image tag (GitHub keeps the newest pending run per group).
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  # --------------------------------------------------------------------------- #
+  # Gate: tag == VERSION == every other version literal, and CI is green.
+  # --------------------------------------------------------------------------- #
+  verify:
+    name: Verify tag, versions and CI status
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+      owner: ${{ steps.meta.outputs.owner }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Check the tag against the repo version literals
+        id: meta
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          file_version="$(tr -d '[:space:]' < VERSION)"
+          if [ "$version" != "$file_version" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match the VERSION file ($file_version). Cut releases with 'make release VERSION=$version' so the tag and version literals move together."
+            exit 1
+          fi
+          ./scripts/check_version_sync.sh
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "owner=$(echo "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
+
+      - name: Require green CI on the tagged commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          conclusion="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?head_sha=$GITHUB_SHA&status=completed" -q '.workflow_runs[0].conclusion')"
+          if [ "$conclusion" != "success" ]; then
+            echo "::error::CI has not passed on $GITHUB_SHA (found: ${conclusion:-no completed run}). Let CI go green on main for this commit, then re-run this workflow."
+            exit 1
+          fi
+
+  # --------------------------------------------------------------------------- #
+  # Publish the third-brain-mcp CLI to npm. Skips gracefully (instead of
+  # failing the release) when the NPM_TOKEN secret is not configured.
+  # --------------------------------------------------------------------------- #
+  npm-publish:
+    name: Publish third-brain-mcp to npm
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: verify
+    env:
+      # Secrets are not readable in step-level `if:`; surface it as env instead.
+      NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+    defaults:
+      run:
+        working-directory: packages/mcp-cli
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Node 22
+        uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          registry-url: https://registry.npmjs.org
+
+      - name: Install dependencies
+        if: env.NPM_TOKEN != ''
+        run: npm ci
+
+      - name: Publish to npm
+        if: env.NPM_TOKEN != ''
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          version=$(node -p "require('./package.json').version")
+          # Idempotent: a re-run of a partially-failed release must not abort on an
+          # already-published version (EPUBLISHCONFLICT). Skip when this exact version
+          # is already on the registry.
+          if npm view "third-brain-mcp@${version}" version >/dev/null 2>&1; then
+            echo "third-brain-mcp@${version} is already published - skipping."
+          else
+            npm publish --access public
+          fi
+
+      - name: Skip note
+        if: env.NPM_TOKEN == ''
+        run: echo "NPM_TOKEN secret is not set - skipping the npm publish."
+
+  # --------------------------------------------------------------------------- #
+  # Build + push the multi-arch images to GHCR (vX.Y.Z + latest).
+  # --------------------------------------------------------------------------- #
+  build-push:
+    name: Build and push ${{ matrix.image }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    needs: verify
+    strategy:
+      matrix:
+        include:
+          - image: third-brain-api
+            context: apps/api
+          - image: third-brain-web
+            context: apps/web
+            # NEXT_PUBLIC_* is inlined at build time - bake the public API origin.
+            # Set the RELEASE_NEXT_PUBLIC_API_URL repository variable for real deploys.
+            extra_build_args: NEXT_PUBLIC_API_URL=${{ vars.RELEASE_NEXT_PUBLIC_API_URL || 'http://localhost:8000' }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Record build time
+        id: build_time
+        run: echo "build_time=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push
+        uses: docker/build-push-action@v7
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.context }}/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          # No provenance attestation: it adds unknown/unknown manifest entries
+          # that confuse `docker pull` by digest and GHCR's package UI.
+          provenance: false
+          tags: |
+            ghcr.io/${{ needs.verify.outputs.owner }}/${{ matrix.image }}:v${{ needs.verify.outputs.version }}
+            ghcr.io/${{ needs.verify.outputs.owner }}/${{ matrix.image }}:latest
+          build-args: |
+            APP_VERSION=${{ needs.verify.outputs.version }}
+            GIT_COMMIT=${{ github.sha }}
+            BUILD_TIME=${{ steps.build_time.outputs.build_time }}
+            ${{ matrix.extra_build_args }}
+          cache-from: type=gha,scope=release-${{ matrix.image }}
+          cache-to: type=gha,scope=release-${{ matrix.image }},mode=max
+
+  # --------------------------------------------------------------------------- #
+  # GitHub release with the CHANGELOG section for this version as the notes.
+  # --------------------------------------------------------------------------- #
+  github-release:
+    name: Publish GitHub release
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: [verify, build-push]
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Extract release notes from CHANGELOG.md
+        env:
+          VERSION: ${{ needs.verify.outputs.version }}
+        # index() string matching, not a regex: version dots and [] stay literal.
+        # Stops at the next "## [" header or at the link-reference block.
+        run: |
+          awk -v version="$VERSION" '
+            index($0, "## [" version "]") == 1 { grab = 1; next }
+            grab && index($0, "## [") == 1 { exit }
+            grab && index($0, "[") == 1 && index($0, "]: http") > 0 { exit }
+            grab { print }
+          ' CHANGELOG.md > "$RUNNER_TEMP/notes.md"
+          if ! grep -q '[^[:space:]]' "$RUNNER_TEMP/notes.md"; then
+            echo "::error::No '## [$VERSION]' section with content found in CHANGELOG.md"
+            exit 1
+          fi
+
+      - name: Create or update the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        # Idempotent so a re-run (e.g. after the verify guard raced a still-running CI)
+        # updates the existing release instead of failing on "tag_name already exists".
+        run: |
+          if gh release view "$GITHUB_REF_NAME" --json name > /dev/null 2>&1; then
+            gh release edit "$GITHUB_REF_NAME" \
+              --title "Third Brain $GITHUB_REF_NAME" \
+              --notes-file "$RUNNER_TEMP/notes.md"
+          else
+            gh release create "$GITHUB_REF_NAME" \
+              --title "Third Brain $GITHUB_REF_NAME" \
+              --notes-file "$RUNNER_TEMP/notes.md" \
+              --verify-tag
+          fi

@@ -1,0 +1,229 @@
+# ============================================================================
+# Third Brain - production topology (single-host, all-in-one).
+#
+# Runs the BAKED images (no source bind mounts, no --reload) behind Caddy, which
+# terminates TLS and is the ONLY service that publishes ports to the host. db,
+# redis, api, worker and web stay on the internal Compose network and are
+# reachable only by service name.
+#
+#   caddy ──▶ web  (Next.js standalone: `node server.js`)
+#         └─▶ api  (FastAPI / uvicorn workers)
+#   api, worker ──▶ db (Postgres 16 + pgvector) + redis (queue / cache / rate limit)
+#   migrate  (one-shot: `alembic upgrade head`) gates api + worker
+#
+# Usage:
+#   cp .env.example .env      # then fill in SECRET_KEY, provider keys, domains…
+#   # Add these to .env for Caddy TLS (see infra/Caddyfile):
+#   #   WEB_DOMAIN=third-brain.ai
+#   #   API_DOMAIN=api.third-brain.ai
+#   #   ACME_EMAIL=admin@third-brain.ai
+#   # And build the web client against the public API origin (+ SEO canonical):
+#   #   NEXT_PUBLIC_API_URL=https://api.third-brain.ai
+#   #   NEXT_PUBLIC_SITE_URL=https://third-brain.ai
+#   # And the API's own public origin (baked into image capability links at ingestion):
+#   #   PUBLIC_API_URL=https://api.third-brain.ai
+#   docker compose -f docker-compose.prod.yml up -d --build
+#
+#   # Or run RELEASED images instead of building locally: set in .env
+#   #   IMAGE_REGISTRY=ghcr.io/km322    (no trailing slash)
+#   #   IMAGE_TAG=vX.Y.Z
+#   docker compose -f docker-compose.prod.yml pull
+#   docker compose -f docker-compose.prod.yml up -d
+#   # Rollback = repoint IMAGE_TAG, pull, up -d again (see docs/RELEASING.md).
+#
+# For MANAGED Postgres/Redis instead of the bundled containers: set DATABASE_URL
+# (must use the +asyncpg driver, e.g. postgresql+asyncpg://…) and REDIS_URL in
+# .env, then drop the `db` / `redis` services and their depends_on entries.
+# ============================================================================
+
+name: third-brain
+
+# --- Shared fragments so api / worker / migrate run the exact same image ---
+x-api-image: &api-image
+  build:
+    context: ./apps/api
+    dockerfile: Dockerfile
+    args:
+      APP_VERSION: ${APP_VERSION:-0.0.0-dev}
+      GIT_COMMIT: ${GIT_COMMIT:-unknown}
+      BUILD_TIME: ${BUILD_TIME:-unknown}
+  # Tag the built image once; worker + migrate reuse it (no rebuild).
+  # Unset IMAGE_REGISTRY: build/tag locally (current behavior). Set IMAGE_REGISTRY=ghcr.io/km322
+  # (no trailing slash) + IMAGE_TAG=vX.Y.Z to pull released images instead.
+  image: ${IMAGE_REGISTRY:+${IMAGE_REGISTRY}/}third-brain-api:${IMAGE_TAG:-latest}
+
+x-api-env: &api-env
+  env_file: .env
+  # Point the app at the in-network datastores. DATABASE_URL/REDIS_URL set in
+  # .env (managed datastores) still win: the app only derives the DB URL from the
+  # POSTGRES_* parts when DATABASE_URL is unset.
+  environment:
+    # Force production mode regardless of what .env (copied from .env.example, which ships
+    # ENVIRONMENT=development) contains, so the SECRET_KEY boot-refusal, sanitized 500s and
+    # HSTS are always active in this topology.
+    ENVIRONMENT: production
+    POSTGRES_HOST: db
+    POSTGRES_PORT: "5432"
+    REDIS_URL: redis://redis:6379/0
+
+services:
+  # ---- Postgres 16 + pgvector (source of truth: docs, chunks, embeddings, ACLs) ----
+  db:
+    image: pgvector/pgvector:pg16
+    restart: always
+    # Deliberately NO `env_file: .env`: Postgres only needs POSTGRES_USER/PASSWORD/DB (set
+    # below via ${...} interpolation, which Compose resolves from the project .env). Loading the
+    # whole app .env here would inject SECRET_KEY, OPENAI_API_KEY, S3/Turnstile secrets, etc.
+    # into the database container's environment for no reason - needless secret sprawl.
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-thirdbrain}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-thirdbrain}
+      POSTGRES_DB: ${POSTGRES_DB:-thirdbrain}
+    # No host port: reachable only as `db` on the internal network.
+    expose:
+      - "5432"
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-thirdbrain} -d ${POSTGRES_DB:-thirdbrain}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  # ---- Redis 7 (arq queue, embedding/search cache, API-key rate limiter) ----
+  redis:
+    image: redis:7-alpine
+    restart: always
+    # AOF persistence so queued ingestion jobs survive a restart.
+    command: ["redis-server", "--appendonly", "yes"]
+    expose:
+      - "6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
+  # ---- Migrations (one-shot): runs to completion, then api/worker start ----
+  migrate:
+    <<: [*api-image, *api-env]
+    restart: "no"
+    command: ["alembic", "upgrade", "head"]
+    depends_on:
+      db:
+        condition: service_healthy
+    # One-shot task - nothing probes it, so silence the image's HTTP healthcheck.
+    healthcheck:
+      disable: true
+
+  # ---- API (FastAPI, multiple uvicorn workers) ----
+  api:
+    <<: [*api-image, *api-env]
+    restart: always
+    # Mirrors the image default; override worker count via UVICORN_WORKERS in .env.
+    command: ["sh", "-c", "exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers ${UVICORN_WORKERS:-4}"]
+    # Internal only; Caddy reverse-proxies to api:8000. Uncomment to expose for debugging.
+    expose:
+      - "8000"
+    # ports:
+    #   - "8000:8000"
+    volumes:
+      - uploads:/data/uploads
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    # Inherits the image HEALTHCHECK (GET /api/v1/health via python urllib).
+
+  # ---- Worker (arq: extract → chunk → embed → index) ----
+  worker:
+    <<: [*api-image, *api-env]
+    restart: always
+    command: ["arq", "app.workers.settings.WorkerSettings"]
+    volumes:
+      - uploads:/data/uploads
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    # The worker serves no HTTP - disable the image's uvicorn healthcheck so it
+    # isn't reported unhealthy. Scale with `--scale worker=N`.
+    healthcheck:
+      disable: true
+
+  # ---- Web (Next.js 15 standalone server) ----
+  web:
+    build:
+      context: ./apps/web
+      dockerfile: Dockerfile
+      args:
+        # NEXT_PUBLIC_* is inlined at build time - bake the public API origin and, for the
+        # marketing pages' canonical/OpenGraph URLs, the public site origin. Defaults keep
+        # dev unchanged; in production set NEXT_PUBLIC_API_URL=https://api.third-brain.ai and
+        # NEXT_PUBLIC_SITE_URL=https://third-brain.ai in .env, then rebuild.
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+        NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:-http://localhost:3000}
+        # Marketing waitlist integrations - inlined into the client bundle at build time.
+        # Unset = feature disabled (no Turnstile widget / no EmailJS notification).
+        NEXT_PUBLIC_TURNSTILE_SITE_KEY: ${NEXT_PUBLIC_TURNSTILE_SITE_KEY:-}
+        NEXT_PUBLIC_EMAILJS_SERVICE_ID: ${NEXT_PUBLIC_EMAILJS_SERVICE_ID:-}
+        NEXT_PUBLIC_EMAILJS_TEMPLATE_ID: ${NEXT_PUBLIC_EMAILJS_TEMPLATE_ID:-}
+        NEXT_PUBLIC_EMAILJS_WAITLIST_TEMPLATE_ID: ${NEXT_PUBLIC_EMAILJS_WAITLIST_TEMPLATE_ID:-}
+        NEXT_PUBLIC_EMAILJS_PUBLIC_KEY: ${NEXT_PUBLIC_EMAILJS_PUBLIC_KEY:-}
+        APP_VERSION: ${APP_VERSION:-0.0.0-dev}
+        GIT_COMMIT: ${GIT_COMMIT:-unknown}
+        BUILD_TIME: ${BUILD_TIME:-unknown}
+    image: ${IMAGE_REGISTRY:+${IMAGE_REGISTRY}/}third-brain-web:${IMAGE_TAG:-latest}
+    restart: always
+    environment:
+      NODE_ENV: production
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+      NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:-http://localhost:3000}
+    # Internal only; Caddy reverse-proxies to web:3000.
+    expose:
+      - "3000"
+    depends_on:
+      api:
+        condition: service_healthy
+    # Inherits the image HEALTHCHECK (GET / on the standalone server).
+
+  # ---- Caddy reverse proxy - terminates TLS, the only published service ----
+  caddy:
+    image: caddy:2-alpine
+    restart: always
+    # Domains + ACME contact drive infra/Caddyfile (see its header for details).
+    environment:
+      WEB_DOMAIN: ${WEB_DOMAIN:-localhost}
+      API_DOMAIN: ${API_DOMAIN:-api.localhost}
+      ACME_EMAIL: ${ACME_EMAIL:-}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"   # HTTP/3 (QUIC)
+    volumes:
+      # Read-only config mount (not source) + persisted certs/ACME state.
+      - ./infra/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      web:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+
+volumes:
+  db_data:
+  redis_data:
+  uploads:
+  caddy_data:
+  caddy_config:
