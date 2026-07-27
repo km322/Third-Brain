@@ -141,7 +141,7 @@ Type hints are expected; `mypy` is configured for gradual typing.
   org-scoping** behavior - these are the product's core guarantees.
 - Integration tests run against real Postgres+pgvector and Redis (there is no SQLite/mock
   tier); they self-skip when that infrastructure is unreachable, so a bare `pytest` stays
-  green. The dev extras include `faker` for fixtures.
+  green.
 - Run with `pytest -q` (or `make test` against the running stack).
 
 A change to permissions, retrieval scope, or auth **must** come with tests.

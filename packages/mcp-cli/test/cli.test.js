@@ -53,6 +53,15 @@ test("--version prints the package.json version", async () => {
   assert.equal(stdout.trim(), PKG_VERSION);
 });
 
+test("published metadata points only at public URLs (the GitHub repo is private)", () => {
+  const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, "package.json"), "utf8"));
+  assert.equal(pkg.repository, undefined);
+  assert.equal(pkg.bugs, undefined);
+  assert.equal(pkg.homepage, "https://third-brain.ai/docs");
+  const readme = fs.readFileSync(path.join(ROOT, "README.md"), "utf8");
+  assert.doesNotMatch(readme, /github\.com\/km322/);
+});
+
 test("--help prints usage", async () => {
   const { code, stdout } = await runCli(["--help"]);
   assert.equal(code, 0);

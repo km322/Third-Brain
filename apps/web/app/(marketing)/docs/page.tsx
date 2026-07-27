@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import type { ReactNode } from "react";
 
 import { Cta } from "@/components/marketing/cta";
@@ -9,9 +10,6 @@ export const metadata: Metadata = {
   description:
     "Get started with Third Brain: connect Claude, Claude Code and Cursor over MCP, bring your own model keys, and let your agents write documentation as they work - all governed by document-level permissions.",
 };
-
-const REPO_URL = "https://github.com/km322/Third-Brain";
-const DOCS_BASE = `${REPO_URL}/tree/main/docs`;
 
 interface SectionMeta {
   id: string;
@@ -26,35 +24,28 @@ const SECTIONS: SectionMeta[] = [
   { id: "agents-write", index: "04", title: "How agents write documentation" },
   { id: "from-code", index: "05", title: "Use it from code" },
   { id: "governance", index: "06", title: "Permissions and governance" },
-  { id: "go-deeper", index: "07", title: "Go deeper" },
 ];
 
-// --- Real commands and API surfaces, cross-checked against README.md, docs/API.md,
-// --- and packages/mcp-cli/README.md. Kept as strings so the code renders verbatim.
+// --- Real commands and API surfaces, cross-checked against docs/API.md and
+// --- packages/mcp-cli/README.md. Kept as strings so the code renders verbatim.
 
-const QUICK_START = `cp .env.example .env
-make up                     # postgres + pgvector, redis, api, worker, web
-make migrate && make seed   # demo org + a seeded knowledge base`;
+const QUICK_START = `npx third-brain-mcp connect           # one-time sign-in via device code
+npx third-brain-mcp install claude    # also: cursor, claude-code`;
 
 const CONNECT = `npx third-brain-mcp connect
 npx third-brain-mcp install claude    # also: cursor, claude-code
 npx third-brain-mcp status`;
 
-const MODELS_ENV = `# The API reads these from .env; bring your own keys, no markup.
-OPENAI_API_KEY=sk-...
-ANTHROPIC_API_KEY=sk-ant-...
-GOOGLE_API_KEY=...`;
-
 const PY_SNIPPET = `from openai import OpenAI
 
-client = OpenAI(base_url="http://localhost:8000/v1", api_key="tb_live_...")
+client = OpenAI(base_url="https://api.third-brain.ai/v1", api_key="tb_live_...")
 resp = client.chat.completions.create(
     model="third-brain",
     messages=[{"role": "user", "content": "What is our on-call escalation policy?"}],
 )
 print(resp.choices[0].message.content)  # grounded in your brain, within your ACLs`;
 
-const REST_SNIPPET = `export TB=http://localhost:8000
+const REST_SNIPPET = `export TB=https://api.third-brain.ai
 export TB_KEY=tb_live_...
 
 curl -X POST "$TB/api/v1/search/chat" \\
@@ -64,7 +55,7 @@ curl -X POST "$TB/api/v1/search/chat" \\
 const MCP_CONFIG = `{
   "mcpServers": {
     "third-brain": {
-      "url": "http://localhost:8000/mcp",
+      "url": "https://api.third-brain.ai/mcp",
       "headers": { "Authorization": "Bearer tb_live_..." }
     }
   }
@@ -114,34 +105,6 @@ const ENDPOINTS: { method: string; path: string; note?: string }[] = [
   { method: "POST", path: "/mcp", note: "JSON-RPC 2.0 for agents" },
 ];
 
-const DEEP_LINKS: { title: string; desc: string; href: string }[] = [
-  {
-    title: "Architecture",
-    desc: "The full system design.",
-    href: `${DOCS_BASE}/ARCHITECTURE.md`,
-  },
-  {
-    title: "API reference",
-    desc: "REST, OpenAI-compatible and MCP surfaces, plus the CLI and device auth.",
-    href: `${DOCS_BASE}/API.md`,
-  },
-  {
-    title: "Permissions",
-    desc: "The permission model in depth.",
-    href: `${DOCS_BASE}/PERMISSIONS.md`,
-  },
-  {
-    title: "Deployment",
-    desc: "Running Third Brain in production.",
-    href: `${DOCS_BASE}/DEPLOYMENT.md`,
-  },
-  {
-    title: "Security",
-    desc: "Threat model, secret scanning and disclosure policy.",
-    href: `${DOCS_BASE}/SECURITY.md`,
-  },
-];
-
 /** Inline monospace token for endpoints, flags and other machine words. */
 function Mono({ children }: { children: ReactNode }) {
   return (
@@ -151,17 +114,15 @@ function Mono({ children }: { children: ReactNode }) {
   );
 }
 
-/** External link in the violet link idiom. */
-function Ext({ href, children }: { href: string; children: ReactNode }) {
+/** Inline link in the violet link idiom - site routes and in-page anchors. */
+function TextLink({ href, children }: { href: string; children: ReactNode }) {
   return (
-    <a
+    <Link
       href={href}
-      target="_blank"
-      rel="noreferrer"
       className="text-primary underline-offset-4 hover:underline"
     >
       {children}
-    </a>
+    </Link>
   );
 }
 
@@ -312,22 +273,24 @@ export default function DocsPage() {
           <div className="min-w-0 divide-y divide-border/60">
             <Section id="quick-start" index="01" title="Quick start" first>
               <p>
-                Third Brain is a monorepo you bring up with Docker Compose: Postgres with{" "}
-                <Mono>pgvector</Mono>, Redis, the API, an ingestion worker, and the web
-                app. It starts with <span className="text-foreground">zero API keys</span>{" "}
-                - a deterministic offline stub provider stands in for a real model so the
-                whole stack builds, seeds, and runs before you add any credentials.
+                Third Brain is a managed service, opening access in waves.{" "}
+                <TextLink href="/#waitlist">Join the waitlist</TextLink> to get a
+                workspace, or <TextLink href="/login">sign in</TextLink> if your team is
+                already on board. Once you are in, two commands wire the tools your team
+                already uses into the brain:
               </p>
               <CodeBlock label="shell" code={QUICK_START} />
               <p>
-                That brings the API up on <Mono>localhost:8000</Mono> (interactive OpenAPI
-                at <Mono>/docs</Mono>) and the dashboard on <Mono>localhost:3000</Mono>.
-                The seeder prints a demo login to your terminal - sign in with that.
+                <Mono>connect</Mono> signs this machine in with a one-time code that an
+                org admin approves from the dashboard; <Mono>install</Mono> writes your
+                client&apos;s config - Claude Desktop, Cursor, or Claude Code.{" "}
+                <TextLink href="#connect-tools">Connect your tools</TextLink> walks
+                through both in detail.
               </p>
               <p className="text-sm">
-                The offline stub&apos;s embeddings are deterministic placeholders, so
-                offline search exercises the full pipeline but is not a measure of
-                retrieval quality. Add a real key (see below) to judge relevance.
+                Building against the API instead? Every workspace also speaks
+                OpenAI-compatible, native REST, and MCP - jump to{" "}
+                <TextLink href="#from-code">Use it from code</TextLink>.
               </p>
             </Section>
 
@@ -368,37 +331,21 @@ export default function DocsPage() {
 
             <Section id="bring-models" index="03" title="Bring your models">
               <p>
-                Third Brain never marks up tokens - you bring your own provider keys.
-                There are two ways to supply them, plus a zero-key offline mode for trying
-                things out.
-              </p>
-              <SubHeading>Platform keys in .env</SubHeading>
-              <p>
-                Set any of these in the API&apos;s environment and every org uses them by
-                default:
-              </p>
-              <CodeBlock label=".env" code={MODELS_ENV} />
-              <p>
-                When a call does not name a provider, one is chosen by key priority.
-                Completions try <Mono>openai</Mono>, then <Mono>anthropic</Mono>, then{" "}
-                <Mono>google</Mono>, then the offline stub; embeddings try{" "}
-                <Mono>openai</Mono>, then <Mono>google</Mono>, then the stub - Anthropic
-                is completions-only and has no embeddings API.
-              </p>
-              <SubHeading>Per-org connectors</SubHeading>
-              <p>
-                Prefer to configure providers per organization? Add a{" "}
-                <span className="text-foreground">Connector</span> on the dashboard.
-                Credentials are encrypted at rest and never returned.
+                Third Brain never marks up tokens - you bring your own provider keys. Add
+                a <span className="text-foreground">Connector</span> on the dashboard to
+                configure a provider for your organization. Credentials are encrypted at
+                rest and never returned.
               </p>
               <DefinitionList
                 termWidth="sm:w-36"
                 rows={CONNECTORS.map((c) => ({ term: c.type, desc: c.note }))}
               />
-              <p className="text-sm">
-                With no key set at all, the deterministic offline stub keeps the entire
-                stack working - ingestion, retrieval, and answers all run - so you can
-                explore before committing a key.
+              <p>
+                When a call does not name a provider, one is chosen by key priority.
+                Completions try <Mono>openai</Mono>, then <Mono>anthropic</Mono>, then{" "}
+                <Mono>google</Mono>; embeddings try <Mono>openai</Mono>, then{" "}
+                <Mono>google</Mono> - Anthropic is completions-only and has no embeddings
+                API.
               </p>
             </Section>
 
@@ -505,31 +452,6 @@ export default function DocsPage() {
                 scoped to a single organization, API keys are least-privilege and
                 rate-limited, and every search, ingest, agent write-back, and admin action
                 is recorded in an immutable audit log with actor, IP, and timestamp.
-              </p>
-            </Section>
-
-            <Section id="go-deeper" index="07" title="Go deeper">
-              <p>The full reference lives in the docs tree on GitHub:</p>
-              <ul className="divide-y divide-border/60 rounded-lg border border-border/60">
-                {DEEP_LINKS.map((l) => (
-                  <li key={l.href}>
-                    <a
-                      href={l.href}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="flex flex-col gap-1 px-4 py-3 transition-colors hover:bg-muted/30 sm:flex-row sm:items-baseline sm:gap-4"
-                    >
-                      <span className="shrink-0 text-[15px] font-medium text-primary sm:w-40">
-                        {l.title}
-                      </span>
-                      <span className="text-sm text-muted-foreground">{l.desc}</span>
-                    </a>
-                  </li>
-                ))}
-              </ul>
-              <p className="text-sm">
-                Or browse the whole tree at{" "}
-                <Ext href={DOCS_BASE}>github.com/km322/Third-Brain/tree/main/docs</Ext>.
               </p>
             </Section>
           </div>

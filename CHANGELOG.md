@@ -9,6 +9,23 @@ version covers the API, the worker, and the web app - they release together, and
 
 ## [Unreleased]
 
+### Changed
+
+- The marketing site and public docs page no longer link to the private GitHub
+  repository: the footer points at the site's own docs, and the public quick start now
+  follows the managed flow (join the waitlist, then `npx third-brain-mcp connect`)
+  instead of a self-host clone visitors cannot perform.
+- The `third-brain-mcp` npm package's homepage points at https://third-brain.ai/docs;
+  its `repository` field (which rendered a dead link on npmjs.com) is gone.
+
+### Removed
+
+- Four inert settings nothing read: `SSO_ENABLED`, `SCIM_ENABLED`, `FEEDBACK_ENABLED`,
+  and `DATA_SOURCE_SYNC_INTERVAL_MINUTES`. The SSO, SCIM, feedback, and connector-sync
+  features themselves are unchanged.
+- Unused dependencies: `mcp`, `tenacity`, and `markdown-it-py` from the API runtime,
+  `faker` from the dev extras.
+
 ## [1.0.1] - 2026-07-26
 
 ### Added

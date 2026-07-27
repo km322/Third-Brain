@@ -2,7 +2,6 @@ import Link from "next/link";
 
 import { LogoMark } from "@/components/brand/logo";
 
-const REPO_URL = "https://github.com/km322/Third-Brain";
 const CONTACT_EMAIL = "admin@third-brain.ai";
 
 interface FooterLink {
@@ -28,11 +27,9 @@ const COLUMNS: FooterColumn[] = [
   {
     title: "Developers",
     links: [
-      { label: "Documentation", href: "/docs" },
+      { label: "Docs", href: "/docs" },
       { label: "OpenAI-compatible API", href: "/#features" },
       { label: "MCP server", href: "/#integrations" },
-      { label: "Docs on GitHub", href: `${REPO_URL}/tree/main/docs`, external: true },
-      { label: "Source on GitHub", href: REPO_URL, external: true },
     ],
   },
   {

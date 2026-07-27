@@ -125,7 +125,6 @@ class Settings(BaseSettings):
     # When a connector syncs a document it materialises the source system's ACL as
     # AccessGrant rows, so the existing permission engine enforces them unchanged.
     DATA_SOURCE_SYNC_ENABLED: bool = True
-    DATA_SOURCE_SYNC_INTERVAL_MINUTES: int = 30  # arq cron cadence for scheduled syncs
     # Filesystem roots the reference local_folder connector may read from (comma-separated
     # absolute paths). EMPTY by default, which DISABLES the connector: it reads raw files off
     # the server's own disk, so without an explicit operator allow-list a tenant admin could
@@ -155,9 +154,6 @@ class Settings(BaseSettings):
     # ---- Verified answers / content freshness ----
     DEFAULT_REVIEW_INTERVAL_DAYS: int = 180
 
-    # ---- Answer feedback / knowledge-gap analytics ----
-    FEEDBACK_ENABLED: bool = True
-
     # ---- Web grounding for the assistant (pluggable, offline by default) ----
     # none  - web grounding unavailable (default; fully offline)
     # stub  - deterministic canned results (dev/CI/tests, no network)
@@ -166,10 +162,6 @@ class Settings(BaseSettings):
     WEB_SEARCH_API_KEY: str | None = None
     WEB_SEARCH_BASE_URL: str | None = None
     WEB_SEARCH_MAX_RESULTS: int = 3
-
-    # ---- Enterprise identity: SSO (OIDC + SAML) + SCIM ----
-    SSO_ENABLED: bool = True
-    SCIM_ENABLED: bool = True
 
     # ---- Transactional email (invites, notifications) ----
     # stub    - capture in-process, never send (default; dev/CI/tests)

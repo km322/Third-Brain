@@ -2,7 +2,7 @@
 
 Connect your MCP clients (Claude Desktop, Claude Code, Cursor, or anything that
 speaks the Model Context Protocol over stdio) to a
-[Third Brain](https://github.com/km322/Third-Brain) server - your company's
+[Third Brain](https://third-brain.ai/docs) server - your company's
 knowledge base with document-level permissions.
 
 Zero dependencies. Node 18 or newer.

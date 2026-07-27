@@ -28,6 +28,11 @@ test.describe("marketing landing", () => {
       page.getByRole("link", { name: /^sign in$/i }).first(),
     ).toBeVisible();
 
+    // The source repo is private: nothing on the page (footer included) may link to
+    // github.com/km322 - that URL 404s for every visitor.
+    await expect(page.locator('a[href*="github.com/km322"]')).toHaveCount(0);
+    expect(await page.content()).not.toContain("github.com/km322");
+
     // Following the primary CTA reveals the waitlist form (email capture).
     await cta.click();
     await expect(page).toHaveURL(/#waitlist$/);
