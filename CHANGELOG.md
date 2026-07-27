@@ -9,6 +9,8 @@ version covers the API, the worker, and the web app - they release together, and
 
 ## [Unreleased]
 
+## [1.0.3] - 2026-07-26
+
 ### Security
 
 - Dependency upgrades to pick up upstream security fixes: Next.js 15.5.21, and the
@@ -116,7 +118,8 @@ Initial release.
 - **Offline deterministic LLM stub** - the whole stack builds, seeds, and passes tests
   with zero provider keys.
 
-[Unreleased]: https://github.com/km322/Third-Brain/compare/v1.0.2...HEAD
+[Unreleased]: https://github.com/km322/Third-Brain/compare/v1.0.3...HEAD
+[1.0.3]: https://github.com/km322/Third-Brain/releases/tag/v1.0.3
 [1.0.2]: https://github.com/km322/Third-Brain/releases/tag/v1.0.2
 [1.0.1]: https://github.com/km322/Third-Brain/releases/tag/v1.0.1
 [1.0.0]: https://github.com/km322/Third-Brain/releases/tag/v1.0.0

@@ -5,7 +5,7 @@
 
 This roadmap is directional, not a commitment of dates. Items ship when they clear our bar for
 correctness - and, for anything in the retrieval path, the permission gate stays provably intact.
-Current version: **1.0.2**.
+Current version: **1.0.3**.
 
 The whole roadmap at a glance - each column is a section below:
 
