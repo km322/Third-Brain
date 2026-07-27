@@ -7,6 +7,7 @@ import readline from "node:readline/promises";
 import { fetchDescriptor, normalizeUrl, verifyKey } from "./client.js";
 import { CONFIG_PATH, saveConfig } from "./config.js";
 import { pollDeviceToken, pollForApproval, startDeviceAuth } from "./device.js";
+import { printAgentWriteNotice } from "./notice.js";
 
 export function parseConnectArgs(args) {
   const opts = { url: "", apiKey: "" };
@@ -141,6 +142,8 @@ export async function runConnect(args, { log = console.log } = {}) {
   // chmod is a no-op on Windows, so only claim the permission where it is enforced.
   const perms = process.platform === "win32" ? "" : " (permissions 600)";
   log(`Saved credentials to ${CONFIG_PATH}${perms}.`);
+  log("");
+  printAgentWriteNotice(log);
   log("");
   log("Next, wire it into your MCP client:");
   log("  npx third-brain-mcp install claude       # Claude Desktop");

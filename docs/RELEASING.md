@@ -10,7 +10,6 @@ audience is a maintainer shipping a release; for operating a released stack, see
 - [Hotfixes](#hotfixes)
 - [Published web image caveat](#published-web-image-caveat)
 - [One-time GHCR setup](#one-time-ghcr-setup)
-- [Render](#render)
 
 ---
 
@@ -117,11 +116,3 @@ GHCR packages are created **private** on first push. After the first release, in
 GitHub UI make `third-brain-api` and `third-brain-web` public and link them to the
 [repository](https://github.com/km322/Third-Brain) so anonymous `docker pull` works and
 the packages appear on the repo page.
-
----
-
-## Render
-
-[`infra/render.yaml`](../infra/render.yaml) tracks `main` with `autoDeploy` and builds
-from source, so Render deployments follow commits to `main` and are independent of GHCR
-release tags.

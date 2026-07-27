@@ -23,9 +23,9 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-# The single-box overlay publishes the web/api ports and parks Caddy, so a localhost or
-# bare-IP self-host is reachable in a browser without a domain. For a public TLS domain,
-# use docker-compose.prod.yml on its own with Caddy (see docs/SELF_HOSTING.md).
+# The single-box overlay publishes the web/api ports, so a localhost or bare-IP self-host
+# is reachable in a browser without a domain. For a public TLS domain, use the Cloudflare
+# Tunnel overlay (docker-compose.cloudflare.yml) or your own proxy (see docs/SELF_HOSTING.md).
 COMPOSE_FILES=(-f docker-compose.prod.yml -f docker-compose.selfhost.yml)
 COMPOSE_DISPLAY="docker-compose.prod.yml + docker-compose.selfhost.yml"
 ENV_FILE=".env"
@@ -86,13 +86,14 @@ API_URL="${TB_API_URL:-http://${TB_HOST}:${API_PORT}}"
 
 # Loud warning when publishing on all interfaces without TLS: the login password, session JWT
 # and API key would then traverse the network in cleartext. This bare-IP/HTTP mode is fine for
-# a trusted LAN only; for public exposure put Third Brain behind TLS (a domain + Caddy - see
-# docs/SELF_HOSTING.md).
+# a trusted LAN only; for public exposure put Third Brain behind TLS (a TLS-terminating proxy
+# or the Cloudflare Tunnel overlay - see docs/SELF_HOSTING.md).
 if [[ "$TB_BIND_IP" == "0.0.0.0" && "$WEB_URL" == http://* ]]; then
   err "WARNING: publishing on all interfaces (0.0.0.0) over plain HTTP - no TLS."
   err "         Admin credentials, session tokens and API keys will be sent in cleartext and"
   err "         are exposed to anyone on the network path. Before exposing Third Brain publicly,"
-  err "         put it behind TLS (a domain + Caddy - see docs/SELF_HOSTING.md)."
+  err "         put it behind TLS (a TLS-terminating proxy or the Cloudflare Tunnel overlay -"
+  err "         see docs/SELF_HOSTING.md)."
 fi
 
 # ---- secret generation (openssl preferred; /dev/urandom fallback) ----
@@ -199,7 +200,7 @@ wait_for_api() {
   local deadline=$(( SECONDS + HEALTH_TIMEOUT_SECONDS ))
   while (( SECONDS < deadline )); do
     # Probe from inside the container, so this works whether or not the api port is
-    # published to the host (the prod topology reaches api only via Caddy).
+    # published to the host (the prod topology does not publish the api port).
     if compose exec -T api python -c \
       "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health', timeout=5).status == 200 else 1)" \
       >/dev/null 2>&1; then

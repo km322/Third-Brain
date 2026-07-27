@@ -3,8 +3,7 @@
 # It layers on top of docker-compose.prod.yml. A `cloudflared` container joins the internal
 # Compose network and dials OUT to Cloudflare, which terminates TLS at the edge and forwards
 # requests back down the tunnel to `web:3000` and `api:8000` by service name. Because the
-# tunnel is outbound-only, the host needs no public 80/443 - so Caddy is parked behind the
-# same `with-caddy` profile the selfhost overlay uses and never starts.
+# tunnel is outbound-only, the host needs no public 80/443 and opens no inbound ports at all.
 #
 # One-time setup (Cloudflare dashboard -> Zero Trust -> Networks -> Tunnels):
 #   1. Create a tunnel and copy its connector token.
@@ -39,9 +38,3 @@ services:
         condition: service_healthy
       api:
         condition: service_healthy
-
-  caddy:
-    # Cloudflare terminates TLS at its edge, so the local reverse proxy is not needed. Park it
-    # behind the same profile the selfhost overlay uses so it never binds 80/443. Start it
-    # explicitly with `--profile with-caddy` only if you also want Caddy on this box.
-    profiles: ["with-caddy"]

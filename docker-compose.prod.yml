@@ -1,34 +1,36 @@
 # ============================================================================
 # Third Brain - production topology (single-host, all-in-one).
 #
-# Runs the BAKED images (no source bind mounts, no --reload) behind Caddy, which
-# terminates TLS and is the ONLY service that publishes ports to the host. db,
-# redis, api, worker and web stay on the internal Compose network and are
-# reachable only by service name.
+# Runs the BAKED images (no source bind mounts, no --reload). This base file
+# publishes NO ports to the host: db, redis, api, worker and web stay on the
+# internal Compose network and are reachable only by service name. Ingress comes
+# from an overlay that fronts web and api - the outbound-only Cloudflare Tunnel
+# (docker-compose.cloudflare.yml) for a public deployment, or the selfhost
+# overlay (docker-compose.selfhost.yml) which publishes the ports directly.
 #
-#   caddy ──▶ web  (Next.js standalone: `node server.js`)
+#   ingress overlay (cloudflared tunnel OR the selfhost port-publish)
+#         ├─▶ web  (Next.js standalone: `node server.js`)
 #         └─▶ api  (FastAPI / uvicorn workers)
 #   api, worker ──▶ db (Postgres 16 + pgvector) + redis (queue / cache / rate limit)
 #   migrate  (one-shot: `alembic upgrade head`) gates api + worker
 #
 # Usage:
 #   cp .env.example .env      # then fill in SECRET_KEY, provider keys, domains…
-#   # Add these to .env for Caddy TLS (see infra/Caddyfile):
-#   #   WEB_DOMAIN=third-brain.ai
-#   #   API_DOMAIN=api.third-brain.ai
-#   #   ACME_EMAIL=admin@third-brain.ai
-#   # And build the web client against the public API origin (+ SEO canonical):
+#   # Build the web client against the public API origin (+ SEO canonical):
 #   #   NEXT_PUBLIC_API_URL=https://api.third-brain.ai
 #   #   NEXT_PUBLIC_SITE_URL=https://third-brain.ai
 #   # And the API's own public origin (baked into image capability links at ingestion):
 #   #   PUBLIC_API_URL=https://api.third-brain.ai
-#   docker compose -f docker-compose.prod.yml up -d --build
+#
+#   # Public deployment (outbound-only Cloudflare Tunnel; the host opens no inbound ports):
+#   docker compose -f docker-compose.prod.yml -f docker-compose.cloudflare.yml up -d --build
+#   # Local/LAN self-host (publishes the web/api ports directly, loopback by default):
+#   docker compose -f docker-compose.prod.yml -f docker-compose.selfhost.yml up -d --build
 #
 #   # Or run RELEASED images instead of building locally: set in .env
 #   #   IMAGE_REGISTRY=ghcr.io/km322    (no trailing slash)
 #   #   IMAGE_TAG=vX.Y.Z
-#   docker compose -f docker-compose.prod.yml pull
-#   docker compose -f docker-compose.prod.yml up -d
+#   # then re-run your file pair with `pull` and `up -d` instead of `up -d --build`.
 #   # Rollback = repoint IMAGE_TAG, pull, up -d again (see docs/RELEASING.md).
 #
 # For MANAGED Postgres/Redis instead of the bundled containers: set DATABASE_URL
@@ -126,7 +128,8 @@ services:
     restart: always
     # Mirrors the image default; override worker count via UVICORN_WORKERS in .env.
     command: ["sh", "-c", "exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers ${UVICORN_WORKERS:-4}"]
-    # Internal only; Caddy reverse-proxies to api:8000. Uncomment to expose for debugging.
+    # Internal only; the ingress overlay reaches api:8000 by service name. Uncomment to
+    # expose for debugging.
     expose:
       - "8000"
     # ports:
@@ -189,7 +192,7 @@ services:
       NODE_ENV: production
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
       NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:-http://localhost:3000}
-    # Internal only; Caddy reverse-proxies to web:3000.
+    # Internal only; the ingress overlay reaches web:3000 by service name.
     expose:
       - "3000"
     depends_on:
@@ -197,33 +200,7 @@ services:
         condition: service_healthy
     # Inherits the image HEALTHCHECK (GET / on the standalone server).
 
-  # ---- Caddy reverse proxy - terminates TLS, the only published service ----
-  caddy:
-    image: caddy:2-alpine
-    restart: always
-    # Domains + ACME contact drive infra/Caddyfile (see its header for details).
-    environment:
-      WEB_DOMAIN: ${WEB_DOMAIN:-localhost}
-      API_DOMAIN: ${API_DOMAIN:-api.localhost}
-      ACME_EMAIL: ${ACME_EMAIL:-}
-    ports:
-      - "80:80"
-      - "443:443"
-      - "443:443/udp"   # HTTP/3 (QUIC)
-    volumes:
-      # Read-only config mount (not source) + persisted certs/ACME state.
-      - ./infra/Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy_data:/data
-      - caddy_config:/config
-    depends_on:
-      web:
-        condition: service_healthy
-      api:
-        condition: service_healthy
-
 volumes:
   db_data:
   redis_data:
   uploads:
-  caddy_data:
-  caddy_config:

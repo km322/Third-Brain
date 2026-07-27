@@ -101,5 +101,5 @@ fine against the current schema. Downgrading the schema (alembic downgrade /
 make db-downgrade) is break-glass only - see docs/RELEASING.md.
 
 Verify the rollback took:
-  curl -fsS https://\$API_DOMAIN/api/v1/version   # version should read ${TAG#v}
+  curl -fsS https://api.<your-domain>/api/v1/version   # version should read ${TAG#v}
 EOF

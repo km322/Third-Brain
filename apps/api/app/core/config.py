@@ -9,7 +9,7 @@ from __future__ import annotations
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import AliasChoices, Field, PostgresDsn, computed_field
+from pydantic import PostgresDsn, computed_field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -26,10 +26,7 @@ class Settings(BaseSettings):
     API_V1_PREFIX: str = "/api/v1"
     ENVIRONMENT: Literal["development", "staging", "production"] = "development"
     # Baked into Docker images at build time; "unknown" outside a built image.
-    # RENDER_GIT_COMMIT is Render's built-in env var, so deploys there report a real commit.
-    GIT_COMMIT: str = Field(
-        default="unknown", validation_alias=AliasChoices("GIT_COMMIT", "RENDER_GIT_COMMIT")
-    )
+    GIT_COMMIT: str = "unknown"
     BUILD_TIME: str = "unknown"
     LOG_LEVEL: str = "INFO"
     SECRET_KEY: str = "change-me"

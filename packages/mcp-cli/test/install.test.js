@@ -14,6 +14,14 @@ import {
 
 const EXPECTED_ENTRY = { command: "npx", args: ["-y", "third-brain-mcp", "serve"] };
 
+// Pinned literally (not via the shared constant) so a wording change or deletion
+// in lib/notice.js fails this suite instead of silently passing through.
+const NOTICE_LINES = [
+  "Heads-up: agents connected through this MCP server can write to your organization's",
+  "knowledge base - as they work they may capture decisions and answers into shared",
+  "collections. Review captures anytime: Dashboard -> Documents -> Written by agents.",
+];
+
 function tmpdir() {
   return fs.mkdtempSync(path.join(os.tmpdir(), "tb-mcp-cli-"));
 }
@@ -124,6 +132,43 @@ test("runInstall for claude-code prints the exact one-liner", () => {
         line.trim() === "claude mcp add third-brain -- npx -y third-brain-mcp serve",
     ),
   );
+});
+
+test("runInstall for claude-code prints the agent-write notice after the one-liner", () => {
+  const lines = [];
+  runInstall("claude-code", { log: (line) => lines.push(line) });
+  const oneLiner = lines.findIndex(
+    (line) =>
+      line.trim() === "claude mcp add third-brain -- npx -y third-brain-mcp serve",
+  );
+  const notice = lines.indexOf(NOTICE_LINES[0]);
+  assert.deepEqual(lines.slice(notice, notice + NOTICE_LINES.length), NOTICE_LINES);
+  assert.ok(notice > oneLiner, "notice must follow the one-liner");
+});
+
+test("runInstall prints the agent-write notice after a successful config write", () => {
+  // Redirect HOME so runInstall writes ~/.cursor/mcp.json under a temp dir, not
+  // this machine's real Cursor config.
+  const saved = { HOME: process.env.HOME, USERPROFILE: process.env.USERPROFILE };
+  const home = tmpdir();
+  process.env.HOME = home;
+  process.env.USERPROFILE = home;
+  const lines = [];
+  try {
+    runInstall("cursor", { log: (line) => lines.push(line) });
+  } finally {
+    for (const key of ["HOME", "USERPROFILE"]) {
+      if (saved[key] === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = saved[key];
+      }
+    }
+  }
+  const restart = lines.indexOf("Restart Cursor to pick up the new server.");
+  const notice = lines.indexOf(NOTICE_LINES[0]);
+  assert.deepEqual(lines.slice(notice, notice + NOTICE_LINES.length), NOTICE_LINES);
+  assert.ok(notice > restart, "notice must follow the restart instruction");
 });
 
 test("runInstall rejects unknown clients", () => {

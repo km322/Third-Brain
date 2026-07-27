@@ -3,14 +3,12 @@
 # It layers on top of docker-compose.prod.yml to make a one-box deployment reachable
 # without a domain: the dashboard and API are published directly to the host, so
 # http://localhost:3000 (or your --host) and http://localhost:8000 work out of the box.
-# Caddy - which only exists to terminate TLS for a public hostname - is parked behind a
-# profile so it does not try to bind 80/443.
 #
 #   docker compose -f docker-compose.prod.yml -f docker-compose.selfhost.yml up -d --build
 #
-# For a public, TLS-terminated deployment behind a domain, use docker-compose.prod.yml on
-# its own (set WEB_DOMAIN / API_DOMAIN / ACME_EMAIL and let Caddy front web:3000 / api:8000).
-# See docs/SELF_HOSTING.md.
+# For a public, TLS-terminated deployment behind a domain, use the Cloudflare Tunnel
+# overlay (docker-compose.cloudflare.yml) instead, or put your own TLS-terminating proxy
+# in front of web:3000 / api:8000. See docs/SELF_HOSTING.md.
 
 services:
   api:
@@ -23,8 +21,3 @@ services:
   web:
     ports:
       - "${TB_BIND_IP:-127.0.0.1}:${WEB_PORT:-3000}:3000"
-
-  caddy:
-    # Only needed to front a public domain with TLS. Start it explicitly with
-    # `--profile with-caddy` if you want the reverse proxy on this box.
-    profiles: ["with-caddy"]

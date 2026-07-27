@@ -30,6 +30,10 @@ npx third-brain-mcp install cursor       # Cursor
 Restart the client and the `third-brain` tools (search, get document, list
 collections, add and update knowledge) appear.
 
+Both `connect` and `install` print a short heads-up: agents connected through
+this server can write to your organization's shared knowledge base, and their
+captures are reviewable in the dashboard under Documents -> Written by agents.
+
 ## Commands
 
 | Command                                         | What it does                                                                                                       |

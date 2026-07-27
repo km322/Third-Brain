@@ -698,6 +698,10 @@ the model why; under the default `label` action, DLP-only hits are indexed with 
 label instead. A flagged `update_knowledge` is rejected outright. The same permission model
 gates *where* an agent may write (editor on the collection, plus an `ingest`/`write` key scope).
 
+Proactive capture is not silent capture: the tool descriptions instruct agents to ask the user
+for permission before saving anything personal, private, or secret-looking, and to tell the user
+what they saved (title and collection) after every capture or update.
+
 `add_knowledge`'s `collection` argument is **optional** - agents capturing proactively can omit
 it and Third Brain files the document automatically:
 

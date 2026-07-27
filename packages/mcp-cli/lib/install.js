@@ -4,6 +4,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
+import { printAgentWriteNotice } from "./notice.js";
+
 export const SERVER_KEY = "third-brain";
 export const CLIENTS = ["claude", "claude-code", "cursor"];
 
@@ -106,6 +108,8 @@ export function runInstall(client, { log = console.log } = {}) {
     log("Claude Code manages its own MCP registry. Run this in your project:");
     log("");
     log("  claude mcp add third-brain -- npx -y third-brain-mcp serve");
+    log("");
+    printAgentWriteNotice(log);
     return;
   }
   const { configPath, backupPath } = installIntoConfigFile(clientConfigPath(client));
@@ -115,4 +119,6 @@ export function runInstall(client, { log = console.log } = {}) {
     log(`  Backup of the previous config: ${backupPath}`);
   }
   log(`Restart ${CLIENT_LABELS[client]} to pick up the new server.`);
+  log("");
+  printAgentWriteNotice(log);
 }

@@ -53,7 +53,8 @@ See [`ARCHITECTURE.md`](./ARCHITECTURE.md) for the full design.
 - A container runtime (Docker + Compose v2, or Kubernetes / ECS / Nomad).
 - PostgreSQL **16** with the `pgvector` extension available.
 - Redis **7** (persistence recommended).
-- A domain + TLS termination (reverse proxy or cloud load balancer).
+- A domain + TLS termination at the edge (Cloudflare Tunnel as shipped, or your own
+  reverse proxy / cloud load balancer).
 - At least one LLM provider key (or a per-org **Connector** configured in-app).
 
 ---
@@ -179,21 +180,33 @@ flowchart LR
 
 The repo **ships** a production topology at `docker-compose.prod.yml` - a self-contained
 single-host stack, so there is no file to author. It runs the baked images (no source
-mounts, no `--reload`) behind **Caddy**, which terminates TLS and is the only service that
-publishes ports; `db`, `redis`, `api`, `worker` and `web` stay on the internal network. A
-one-shot `migrate` service (`alembic upgrade head`) gates `api`/`worker`, and `web` runs the
-Next.js standalone server (`node server.js`):
+mounts, no `--reload`) with `db`, `redis`, `api`, `worker` and `web` all on the internal
+Compose network; the base file publishes **no** host ports, so how traffic gets in is an
+overlay decision (below). A one-shot `migrate` service (`alembic upgrade head`) gates
+`api`/`worker`, and `web` runs the Next.js standalone server (`node server.js`).
+
+For a public deployment - this is how third-brain.ai runs - layer on the **Cloudflare
+Tunnel** overlay: a `cloudflared` container joins the internal network and dials **out** to
+Cloudflare, TLS terminates at the edge, and requests come back down the tunnel to `web:3000`
+and `api:8000` by service name, so the host opens no inbound ports at all:
 
 ```bash
 cp .env.example .env
-# Fill in a strong SECRET_KEY and your provider keys, then add the Caddy TLS settings
-# (see infra/Caddyfile):
-#   WEB_DOMAIN=third-brain.ai
-#   API_DOMAIN=api.third-brain.ai
-#   ACME_EMAIL=admin@third-brain.ai
+# Fill in a strong SECRET_KEY and your provider keys, then add the tunnel token
+# (Cloudflare dashboard -> Zero Trust -> Networks -> Tunnels; see the header of
+# docker-compose.cloudflare.yml for the Public Hostname mappings):
+#   CLOUDFLARE_TUNNEL_TOKEN=<connector token>
 #   NEXT_PUBLIC_API_URL=https://api.third-brain.ai   # the web client is built against this origin
-docker compose -f docker-compose.prod.yml up -d --build
+docker compose -f docker-compose.prod.yml -f docker-compose.cloudflare.yml up -d --build
 ```
+
+Two alternatives, depending on where the deployment lives:
+
+- **Local / LAN self-host** - the `docker-compose.selfhost.yml` overlay (what `make selfhost`
+  runs) publishes the `web`/`api` ports directly on the host, bound to loopback by default.
+  See [`SELF_HOSTING.md`](./SELF_HOSTING.md).
+- **Public, without Cloudflare** - put your own TLS-terminating proxy - nginx or a cloud
+  load balancer - in front of `web:3000` / `api:8000`.
 
 Migrations run automatically via the `migrate` one-shot before `api`/`worker` start; to run
 them manually, `docker compose -f docker-compose.prod.yml run --rm migrate`.
@@ -269,8 +282,10 @@ ephemeral hosts. Migrate to S3 before scaling the API horizontally.
 
 ## TLS, CORS and networking
 
-The target production layout: only the TLS proxy is public, and the app tiers and
-datastores stay on the private network.
+The target production layout: only the TLS-terminating edge is public, and the app tiers
+and datastores stay on the private network. On the repo's own tunnel path that edge is
+Cloudflare's - `cloudflared` dials out from the internal network, so nothing on the host
+publishes 80/443. The diagram shows the generic bring-your-own-proxy shape:
 
 ```mermaid
 flowchart LR
@@ -295,10 +310,13 @@ flowchart LR
     worker --> s3
 ```
 
-- Terminate TLS at your reverse proxy / load balancer (nginx, Caddy, ALB, Cloud LB).
+- Terminate TLS at the edge: Cloudflare's on the tunnel path, or your own reverse proxy /
+  load balancer (nginx or a cloud load balancer) if you front `web:3000` / `api:8000`
+  yourself.
 - Set `BACKEND_CORS_ORIGINS` to your exact web origin(s) - never `*` in production
   (credentials are allowed).
-- Keep Postgres and Redis on a private network; expose only `web` (443) and `api` (443).
+- Keep Postgres and Redis on a private network. On the tunnel path the host opens no
+  inbound ports at all; with your own proxy, expose only 443 for `web` and `api`.
 - The API streams chat via `text/event-stream`; disable proxy buffering on `/api/v1/search/chat`
   (the app already sends `X-Accel-Buffering: no` for nginx).
 
@@ -344,6 +362,9 @@ IMAGE_TAG=vX.Y.Z
 docker compose -f docker-compose.prod.yml pull
 docker compose -f docker-compose.prod.yml up -d
 ```
+
+Include the ingress overlay you deployed with (e.g. `-f docker-compose.cloudflare.yml`) in
+both commands, so Compose recreates services from the full project definition.
 
 The `migrate` one-shot runs `alembic upgrade head` and gates `api`/`worker`, so new code
 only starts once the schema is current.

@@ -38,9 +38,9 @@ usually the data you most want to keep in-house. Self-hosting means:
 
 The whole stack is open and runs on commodity infrastructure: Postgres 16 with `pgvector`,
 Redis 7, and the API / worker / web images. The default single-box `make selfhost` path
-publishes the dashboard and API directly on the host; for a public domain it can instead run
-behind a Caddy reverse proxy that terminates TLS automatically (see
-[TLS and production hardening](#tls-and-production-hardening)).
+publishes the dashboard and API directly on the host; for a public domain, run it behind the
+Cloudflare Tunnel overlay (outbound-only, TLS at the edge) or your own TLS-terminating
+reverse proxy (see [TLS and production hardening](#tls-and-production-hardening)).
 
 ---
 
@@ -48,15 +48,16 @@ behind a Caddy reverse proxy that terminates TLS automatically (see
 
 - **Docker + Docker Compose v2** on a single host (a small VM is enough to start).
 - A **host** you control (bare metal, a VM, or your own VPC).
-- Optional but recommended for real use: a **domain and DNS** you can point at the host,
-  so Caddy can obtain TLS certificates automatically.
+- Optional but recommended for real use: a **domain and DNS** you control, so the
+  deployment can sit behind TLS (a Cloudflare Tunnel, or your own reverse proxy).
 - Optional: an **LLM provider key** (OpenAI, Anthropic, or Google). Without one, the
   deterministic offline stub runs the full pipeline so you can evaluate before committing a
   key. The stub's embeddings are placeholders, so offline answers exercise the pipeline but
   are not a measure of retrieval quality.
 
-Everything else (Postgres, `pgvector`, Redis, and Caddy on the public-domain path) comes up
-as containers from `docker-compose.prod.yml`. No external services are required.
+Everything else (Postgres, `pgvector`, Redis - and `cloudflared` on the Cloudflare Tunnel
+path) comes up as containers from `docker-compose.prod.yml` and its overlays. No external
+services are required.
 
 ---
 
@@ -89,9 +90,10 @@ make selfhost
 To bind to a public host or IP instead of `localhost`, pass `make selfhost` a host:
 `./scripts/selfhost-init.sh --host 203.0.113.10 --email you@yourcompany.com`. Note this
 publishes the dashboard and API over plaintext HTTP with no TLS. Before exposing a public
-host or IP to the internet, put it behind a TLS terminator - use the Caddy path in
-[Manual setup](#manual-setup-step-by-step) for automatic HTTPS on a domain, or your own
-reverse proxy. On `localhost` (the default) the ports bind to loopback only.
+host or IP to the internet, put TLS in front - use the Cloudflare Tunnel overlay in
+[Deploy behind Cloudflare](#deploy-behind-cloudflare-third-brainai) (outbound-only, no
+inbound ports at all), or your own TLS-terminating reverse proxy (nginx or a cloud load
+balancer). On `localhost` (the default) the ports bind to loopback only.
 
 When it finishes it prints something like:
 
@@ -129,7 +131,8 @@ cp .env.example .env
 ```
 
 Then edit `.env` and set, at minimum. Use the plain `http://<host>:<port>` values for a
-single-box deployment, or the `https://<domain>` values for a public domain fronted by Caddy:
+single-box deployment, or the `https://<domain>` values for a public domain (Cloudflare
+Tunnel, or your own reverse proxy):
 
 ```dotenv
 # Refuse-to-boot in production unless SECRET_KEY is real: 32+ random chars,
@@ -153,14 +156,12 @@ NEXT_PUBLIC_API_URL=http://localhost:8000
 # ingestion. Keep it in step with NEXT_PUBLIC_API_URL (selfhost-init sets both).
 PUBLIC_API_URL=http://localhost:8000
 
-# Public-domain path only (Caddy TLS, see infra/Caddyfile): set these and drop the
-# selfhost overlay below, using docker-compose.prod.yml on its own. Also flip the four
-# origins above to the https:// domain values (BACKEND_CORS_ORIGINS=https://third-brain.ai,
-# APP_BASE_URL=https://third-brain.ai, NEXT_PUBLIC_API_URL=https://api.third-brain.ai,
-# PUBLIC_API_URL=https://api.third-brain.ai).
-# WEB_DOMAIN=third-brain.ai
-# API_DOMAIN=api.third-brain.ai
-# ACME_EMAIL=admin@third-brain.ai
+# Public-domain path only: flip the four origins above to the https:// domain values
+# (BACKEND_CORS_ORIGINS=https://third-brain.ai, APP_BASE_URL=https://third-brain.ai,
+# NEXT_PUBLIC_API_URL=https://api.third-brain.ai, PUBLIC_API_URL=https://api.third-brain.ai).
+# On the Cloudflare Tunnel path, also set the tunnel's connector token (see
+# Deploy behind Cloudflare below):
+# CLOUDFLARE_TUNNEL_TOKEN=<connector token>
 ```
 
 The production compose forces `ENVIRONMENT=production` regardless of what `.env` says, so
@@ -172,10 +173,12 @@ short `SECRET_KEY`, or with wildcard (`*`) CORS.
 #     API ports directly, so http://localhost:3000 and :8000 work with no reverse proxy.
 docker compose -f docker-compose.prod.yml -f docker-compose.selfhost.yml up -d --build
 
-# 2b. Public domain with automatic TLS instead: set WEB_DOMAIN / API_DOMAIN / ACME_EMAIL and
-#     the matching https:// URLs above, then use the prod compose on its own so Caddy fronts
-#     web:3000 / api:8000:
-#     docker compose -f docker-compose.prod.yml up -d --build
+# 2b. Public domain instead: set the https:// URLs above, then swap the selfhost overlay
+#     for the Cloudflare Tunnel overlay (outbound-only, no inbound ports - this is how
+#     third-brain.ai runs; see Deploy behind Cloudflare below):
+#     docker compose -f docker-compose.prod.yml -f docker-compose.cloudflare.yml up -d --build
+#     Or keep the selfhost overlay and put your own TLS-terminating reverse proxy (nginx or
+#     a cloud load balancer) in front of the published web and API ports.
 
 # 3. Migrations run automatically via the `migrate` one-shot. To run them by hand:
 docker compose -f docker-compose.prod.yml run --rm migrate
@@ -330,14 +333,17 @@ release's code (expand/contract). The full runbook is in
 
 The production compose is built to run safely on a single host:
 
-- **TLS at the edge (public domain path).** With `docker-compose.prod.yml` on its own, Caddy
-  is the only service that publishes ports (80/443); `db`, `redis`, `api`, `worker`, and
-  `web` stay on the internal network, reachable only by service name. Set `WEB_DOMAIN`,
-  `API_DOMAIN`, and `ACME_EMAIL`, and Caddy obtains and renews certificates automatically
-  (see `infra/Caddyfile`). The `make selfhost` single-box overlay
-  (`docker-compose.selfhost.yml`) instead publishes the web and API ports directly and skips
-  Caddy - convenient for a localhost/LAN trial, but put it behind a TLS terminator (Caddy, or
-  your own proxy) before exposing it to the internet.
+- **TLS at the edge (public domain path).** The stack terminates no TLS itself, and with
+  `docker-compose.prod.yml` on its own no service publishes a port at all: `db`, `redis`,
+  `api`, `worker`, and `web` stay on the internal network, reachable only by service name.
+  For a public domain, either add the Cloudflare Tunnel overlay
+  (`docker-compose.cloudflare.yml`) - `cloudflared` dials out to Cloudflare, the host opens
+  no inbound ports, and TLS terminates at the edge (see
+  [Deploy behind Cloudflare](#deploy-behind-cloudflare-third-brainai)) - or bring your own
+  TLS-terminating reverse proxy (nginx or a cloud load balancer) in front of `web:3000` /
+  `api:8000`. The `make selfhost` single-box overlay (`docker-compose.selfhost.yml`)
+  publishes the web and API ports directly, loopback by default - convenient for a
+  localhost/LAN trial, but put a TLS terminator in front before exposing it to the internet.
 - **Explicit CORS.** `BACKEND_CORS_ORIGINS` must list your real web origin(s). A wildcard
   (`*`) is refused at boot in production because credentials are allowed.
 - **Strong `POSTGRES_PASSWORD`.** `make selfhost` generates one; if you set it by hand, use
@@ -348,8 +354,8 @@ The production compose is built to run safely on a single host:
 - **Secret scanning stays on.** Ingested content is scanned for embedded credentials before
   indexing and quarantined for review if flagged (`SECRET_SCAN_ENABLED=true` by default).
 
-The full hardening checklist lives in [`SECURITY.md`](./SECURITY.md#hardening-checklist). To
-put this on a public domain behind Cloudflare instead of exposing Caddy directly, see
+The full hardening checklist lives in [`SECURITY.md`](./SECURITY.md#hardening-checklist).
+For the full public-domain walkthrough - the setup `third-brain.ai` itself runs - see
 [Deploy behind Cloudflare](#deploy-behind-cloudflare-third-brainai).
 
 ---
@@ -379,7 +385,8 @@ Cloudflare dashboard. A `www` -> apex redirect (a Cloudflare Redirect Rule sendi
 **(a) Cloudflare Tunnel - recommended for a single box.** `cloudflared` dials *out* to
 Cloudflare, so the host opens **no inbound ports** (no 80/443 at all). Cloudflare terminates
 TLS at the edge and forwards requests down the tunnel to `web:3000` and `api:8000` by service
-name. This is the simplest and most secure option, and the repo ships the overlay:
+name. This is the simplest and most secure option, it is what `third-brain.ai` itself runs,
+and the repo ships the overlay:
 
 ```bash
 docker compose -f docker-compose.prod.yml -f docker-compose.cloudflare.yml up -d --build
@@ -395,32 +402,35 @@ tunnel:
 | `api.third-brain.ai` | `http://api:8000` |
 
 Those service URLs are plain `http://` on purpose: TLS ends at Cloudflare's edge, and the
-`cloudflared` -> web/api hop never leaves the internal Compose network. The overlay parks Caddy
-behind the `with-caddy` profile, so the local reverse proxy never starts - Cloudflare is the
-edge. See the header of [`docker-compose.cloudflare.yml`](../docker-compose.cloudflare.yml).
+`cloudflared` -> web/api hop never leaves the internal Compose network. There is no local
+reverse proxy in this setup - Cloudflare is the edge, and nothing on the host listens for
+inbound traffic. See the header of
+[`docker-compose.cloudflare.yml`](../docker-compose.cloudflare.yml).
 
-**(b) Cloudflare proxy in front of the origin.** Publish the origin the normal way
-(`docker-compose.prod.yml` with Caddy) and let Cloudflare sit in front. Two sub-options:
+**(b) Cloudflare proxy in front of your own reverse proxy.** There is no bundled reverse
+proxy, so on this path you publish the origin yourself: put a TLS-terminating reverse proxy
+you operate (nginx or a cloud load balancer) in front of `web:3000` / `api:8000`, and let
+Cloudflare sit in front of that. Two sub-options:
 
 - **Orange-cloud (proxied) with an Origin Certificate.** Set the zone's SSL/TLS mode to **Full
-  (Strict)**, issue a Cloudflare **Origin Certificate**, and install it on Caddy for
+  (Strict)**, issue a Cloudflare **Origin Certificate**, and install it on your proxy for
   `third-brain.ai` / `api.third-brain.ai`. The browser trusts Cloudflare's edge cert;
   Cloudflare trusts your origin cert.
-- **Grey-cloud (DNS-only) with Caddy's ACME.** Turn the proxy **off** (DNS-only) and let Caddy
-  obtain and renew Let's Encrypt certificates automatically over HTTP-01, exactly as in the
-  Caddy path above. You give up Cloudflare's proxy features (WAF, caching, IP hiding) but keep
-  automatic TLS.
+- **Grey-cloud (DNS-only) with publicly trusted certificates.** Turn the proxy **off**
+  (DNS-only) and have your reverse proxy obtain and renew Let's Encrypt certificates itself
+  (HTTP-01 is the usual route). You give up Cloudflare's proxy features (WAF, caching, IP
+  hiding) but keep automatic TLS.
 
 Pitfalls specific to the proxied path:
 
-- **Do not use SSL/TLS mode "Flexible".** It sends plaintext HTTP from Cloudflare to an origin
-  that immediately upgrades to HTTPS, producing an endless redirect loop. Use **Full (Strict)**
-  with an origin cert (or DNS-only).
-- **Caddy's default TLS-ALPN challenge does not work through the Cloudflare proxy** - the
-  challenge terminates at Cloudflare's edge, not at your origin. Use **HTTP-01**, **DNS-01**, or
-  a Cloudflare **Origin Certificate** instead. The stock `caddy:2-alpine` image does **not**
-  bundle the Cloudflare DNS plugin, so DNS-01 would need a custom Caddy build - which is why the
-  **Tunnel** or **origin-certificate** route is preferable.
+- **Do not use SSL/TLS mode "Flexible".** It sends plaintext HTTP from Cloudflare to your
+  origin; a proxy that upgrades HTTP to HTTPS (most configurations do) then produces an
+  endless redirect loop. Use **Full (Strict)** with an origin cert (or DNS-only).
+- **The TLS-ALPN-01 certificate challenge does not work through the Cloudflare proxy** - it
+  terminates at Cloudflare's edge, not at your origin. If your proxy obtains its own
+  certificates behind the orange cloud, use **HTTP-01** or **DNS-01**, or skip challenges
+  entirely with a Cloudflare **Origin Certificate** - one more reason the **Tunnel** or
+  **origin-certificate** route is preferable.
 
 ### Build-time and CORS gotchas (read this)
 

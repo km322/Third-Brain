@@ -208,7 +208,6 @@ third-brain/
 │       ├── components/
 │       └── lib/
 ├── docs/               # architecture, API, permissions, security, vision & roadmap
-├── infra/              # Caddyfile (prod TLS reverse proxy) + render.yaml (Render blueprint)
 ├── .github/workflows/  # CI (lint, unit + real-infra integration tests, e2e)
 └── docker-compose.yml  # one-command local stack (prod topology: docker-compose.prod.yml)
 ```

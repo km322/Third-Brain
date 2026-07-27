@@ -174,7 +174,11 @@ def _initialize_result(params: dict[str, Any]) -> dict[str, Any]:
             "automatically - and set doc_type (e.g. 'decision') to categorize it. Keep each "
             "entry concise and self-contained: what was decided or learned, and why. Do this "
             "by default so the team's documentation stays current; the user should not have "
-            "to ask you to write things up. All access is permission-scoped."
+            "to ask you to write things up. Two rules: if the content includes personal or "
+            "private information, or anything that looks like a secret or credential, ask "
+            "the user for permission before saving it; and after every capture or update, "
+            "tell the user what you saved (title and collection). All access is "
+            "permission-scoped."
         ),
     }
 

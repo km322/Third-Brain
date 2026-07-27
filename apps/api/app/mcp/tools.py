@@ -173,7 +173,10 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
             "Capture knowledge back into the team's brain as you work - proactively, without "
             "being asked. Whenever you make a decision, resolve a tradeoff, solve a problem, "
             "or produce a reusable answer or piece of documentation, record it here so the "
-            "team's documentation stays current. You do NOT need to specify a collection: "
+            "team's documentation stays current. Two rules: if the content includes personal "
+            "or private information, or anything that looks like a secret or credential, ask "
+            "the user for permission before saving it; and after every capture, tell the user "
+            "what you saved (title and collection). You do NOT need to specify a collection: "
             "omit it and Third Brain files the document in the best-matching collection "
             "automatically. Set doc_type to categorize the capture (e.g. 'decision'). "
             "Requires editor permission. Content that appears to contain secrets is "
@@ -209,8 +212,10 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
         "description": (
             "Replace the content of an existing document and re-index it - use this to "
             "keep previously captured knowledge up to date as decisions or details change. "
-            "Requires editor permission on the document. Updates whose new content appears "
-            "to contain secrets are rejected without changing the document."
+            "The same rules apply: ask the user for permission before saving personal, "
+            "private, or secret-looking content, and tell the user which document you "
+            "updated. Requires editor permission on the document. Updates whose new content "
+            "appears to contain secrets are rejected without changing the document."
         ),
         "inputSchema": {
             "type": "object",
