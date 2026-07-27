@@ -9,6 +9,8 @@ version covers the API, the worker, and the web app - they release together, and
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-07-26
+
 ### Added
 
 - **Capture consent and narration** - the MCP `add_knowledge` / `update_knowledge` tool
@@ -90,5 +92,6 @@ Initial release.
 - **Offline deterministic LLM stub** - the whole stack builds, seeds, and passes tests
   with zero provider keys.
 
-[Unreleased]: https://github.com/km322/Third-Brain/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/km322/Third-Brain/compare/v1.0.1...HEAD
+[1.0.1]: https://github.com/km322/Third-Brain/releases/tag/v1.0.1
 [1.0.0]: https://github.com/km322/Third-Brain/releases/tag/v1.0.0
