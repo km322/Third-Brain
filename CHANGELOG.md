@@ -9,6 +9,11 @@ version covers the API, the worker, and the web app - they release together, and
 
 ## [Unreleased]
 
+### Security
+
+- Dependency upgrades to pick up upstream security fixes: Next.js 15.5.21, and the
+  `sharp` image library pinned to >= 0.35.3 via an override.
+
 ## [1.0.2] - 2026-07-26
 
 ### Changed
