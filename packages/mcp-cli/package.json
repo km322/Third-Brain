@@ -1,6 +1,6 @@
 {
   "name": "third-brain-mcp",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Connect MCP clients (Claude Desktop, Claude Code, Cursor) to a Third Brain server: device-code sign-in, one-command client install, and a stdio-to-HTTP MCP bridge. Zero dependencies.",
   "license": "Apache-2.0",
   "homepage": "https://third-brain.ai/docs",

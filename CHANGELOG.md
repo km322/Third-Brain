@@ -9,6 +9,8 @@ version covers the API, the worker, and the web app - they release together, and
 
 ## [Unreleased]
 
+## [1.0.2] - 2026-07-26
+
 ### Changed
 
 - The marketing site and public docs page no longer link to the private GitHub
@@ -109,6 +111,7 @@ Initial release.
 - **Offline deterministic LLM stub** - the whole stack builds, seeds, and passes tests
   with zero provider keys.
 
-[Unreleased]: https://github.com/km322/Third-Brain/compare/v1.0.1...HEAD
+[Unreleased]: https://github.com/km322/Third-Brain/compare/v1.0.2...HEAD
+[1.0.2]: https://github.com/km322/Third-Brain/releases/tag/v1.0.2
 [1.0.1]: https://github.com/km322/Third-Brain/releases/tag/v1.0.1
 [1.0.0]: https://github.com/km322/Third-Brain/releases/tag/v1.0.0
