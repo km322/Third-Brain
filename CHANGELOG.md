@@ -9,6 +9,32 @@ version covers the API, the worker, and the web app - they release together, and
 
 ## [Unreleased]
 
+### Added
+
+- **Capture consent and narration** - the MCP `add_knowledge` / `update_knowledge` tool
+  descriptions and the server's `initialize` instructions now direct agents to ask the
+  user for permission before saving personal, private, or secret-looking content, and to
+  tell the user what was saved (title and collection) after every capture or update.
+  Pinned by unit tests on every surface.
+- **CLI agent-write disclosure** - `third-brain-mcp connect` and `install` print a
+  heads-up that connected agents can write to the organization's knowledge base, with a
+  pointer to the dashboard's *Written by agents* view.
+
+### Changed
+
+- `docker-compose.prod.yml` on its own now publishes no host ports; ingress comes from an
+  overlay - `docker-compose.cloudflare.yml` (Cloudflare Tunnel, what third-brain.ai runs)
+  or `docker-compose.selfhost.yml` (direct local ports) - or your own reverse proxy.
+  Deployment and self-hosting docs rewritten to match.
+- `GIT_COMMIT` is a plain setting; the `RENDER_GIT_COMMIT` alias is gone.
+
+### Removed
+
+- The **Render blueprint** (`infra/render.yaml`) and the **Caddy reverse proxy** path
+  (`infra/Caddyfile`, the `caddy` service and `with-caddy` profile, and the
+  `WEB_DOMAIN` / `API_DOMAIN` / `ACME_EMAIL` settings). Neither was used by any
+  supported deployment.
+
 ## [1.0.0] - 2026-07-25
 
 Initial release.
