@@ -150,6 +150,12 @@ jobs:
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v4
+        with:
+          # Pin a current qemu: the action's default binfmt image has shipped qemu
+          # builds whose V8 JIT emulation dies with SIGILL mid `npm ci` on the
+          # arm64 leg (seen 2026-07-27: the process never exits and the build
+          # hangs silently until the job timeout).
+          image: tonistiigi/binfmt:qemu-v10.2.3
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
@@ -167,6 +173,9 @@ jobs:
 
       - name: Build and push
         uses: docker/build-push-action@v7
+        # Both prior healthy runs took ~20 min; a QEMU hang otherwise burns the
+        # job's full 90-minute budget in silence before anyone notices.
+        timeout-minutes: 30
         with:
           context: ${{ matrix.context }}
           file: ${{ matrix.context }}/Dockerfile
