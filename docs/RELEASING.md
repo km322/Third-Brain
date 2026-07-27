@@ -10,6 +10,7 @@ audience is a maintainer shipping a release; for operating a released stack, see
 - [Hotfixes](#hotfixes)
 - [Published web image caveat](#published-web-image-caveat)
 - [One-time GHCR setup](#one-time-ghcr-setup)
+- [npm publishing (third-brain-mcp)](#npm-publishing-third-brain-mcp)
 
 ---
 
@@ -116,3 +117,19 @@ GHCR packages are created **private** on first push. After the first release, in
 GitHub UI make `third-brain-api` and `third-brain-web` public and link them to the
 [repository](https://github.com/km322/Third-Brain) so anonymous `docker pull` works and
 the packages appear on the repo page.
+
+---
+
+## npm publishing (third-brain-mcp)
+
+The release workflow publishes `packages/mcp-cli` to npm with
+[trusted publishing](https://docs.npmjs.com/trusted-publishers) (OIDC) - no token,
+secret, or one-time password involved. One-time setup on npmjs.com: the
+`third-brain-mcp` package's **Settings -> Trusted Publisher** must list GitHub Actions
+with owner `km322`, repository `Third-Brain`, and workflow filename `release.yml`. The
+publish step is idempotent: an already-published version is skipped, never overwritten.
+
+A tag-push run executes the workflow as of the tagged commit. To re-run a release for an
+existing tag with the **current** workflow definition (e.g. after fixing `release.yml`),
+run `gh workflow run release.yml -f tag=vX.Y.Z` - every job checks out and builds the
+tagged commit either way.

@@ -3,12 +3,24 @@ name: Release
 # Cut a release from a `vX.Y.Z` tag (pushed by `make release VERSION=X.Y.Z`):
 #   * verify the tag matches the repo's version literals and that CI already
 #     passed on the tagged commit,
+#   * publish the third-brain-mcp CLI to npm via OIDC trusted publishing,
 #   * build + push multi-arch api/web images to GHCR tagged vX.Y.Z and latest,
 #   * publish a GitHub release with the matching CHANGELOG section as notes.
+#
+# A tag-push run executes the workflow AS OF THE TAGGED COMMIT. To re-run a
+# release for an existing tag with the current workflow definition (e.g. after
+# fixing this file), use the manual trigger: Actions -> Release -> Run workflow
+# (or `gh workflow run release.yml -f tag=vX.Y.Z`). Every job checks out and
+# builds the tagged commit either way.
 
 on:
   push:
     tags: ["v*.*.*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing vX.Y.Z tag to (re-)release"
+        required: true
 
 permissions:
   contents: write   # create the GitHub release
@@ -33,49 +45,63 @@ jobs:
     outputs:
       version: ${{ steps.meta.outputs.version }}
       owner: ${{ steps.meta.outputs.owner }}
+      tag: ${{ steps.meta.outputs.tag }}
+      sha: ${{ steps.meta.outputs.sha }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          # Tag pushes check out the tag by default; manual runs must ask for it.
+          ref: ${{ inputs.tag || github.ref }}
 
       - name: Check the tag against the repo version literals
         id: meta
+        env:
+          TAG_INPUT: ${{ inputs.tag }}
         run: |
-          version="${GITHUB_REF_NAME#v}"
+          tag="${TAG_INPUT:-$GITHUB_REF_NAME}"
+          version="${tag#v}"
           file_version="$(tr -d '[:space:]' < VERSION)"
           if [ "$version" != "$file_version" ]; then
-            echo "::error::Tag $GITHUB_REF_NAME does not match the VERSION file ($file_version). Cut releases with 'make release VERSION=$version' so the tag and version literals move together."
+            echo "::error::Tag $tag does not match the VERSION file ($file_version). Cut releases with 'make release VERSION=$version' so the tag and version literals move together."
             exit 1
           fi
           ./scripts/check_version_sync.sh
           echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
           echo "owner=$(echo "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
 
       - name: Require green CI on the tagged commit
         env:
           GH_TOKEN: ${{ github.token }}
+          SHA: ${{ steps.meta.outputs.sha }}
         run: |
-          conclusion="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?head_sha=$GITHUB_SHA&status=completed" -q '.workflow_runs[0].conclusion')"
+          conclusion="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?head_sha=$SHA&status=completed" -q '.workflow_runs[0].conclusion')"
           if [ "$conclusion" != "success" ]; then
-            echo "::error::CI has not passed on $GITHUB_SHA (found: ${conclusion:-no completed run}). Let CI go green on main for this commit, then re-run this workflow."
+            echo "::error::CI has not passed on $SHA (found: ${conclusion:-no completed run}). Let CI go green on main for this commit, then re-run this workflow."
             exit 1
           fi
 
   # --------------------------------------------------------------------------- #
-  # Publish the third-brain-mcp CLI to npm. Skips gracefully (instead of
-  # failing the release) when the NPM_TOKEN secret is not configured.
+  # Publish the third-brain-mcp CLI to npm via OIDC trusted publishing - no
+  # token, secret, or OTP involved. One-time setup: on npmjs.com the package's
+  # Settings -> Trusted Publisher must list this repo and this workflow file.
   # --------------------------------------------------------------------------- #
   npm-publish:
     name: Publish third-brain-mcp to npm
     runs-on: ubuntu-latest
     timeout-minutes: 10
     needs: verify
-    env:
-      # Secrets are not readable in step-level `if:`; surface it as env instead.
-      NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+    permissions:
+      contents: read
+      id-token: write # mint the OIDC token npm exchanges for publish credentials
     defaults:
       run:
         working-directory: packages/mcp-cli
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.verify.outputs.tag }}
 
       - name: Set up Node 22
         uses: actions/setup-node@v6
@@ -83,14 +109,11 @@ jobs:
           node-version: "22"
           registry-url: https://registry.npmjs.org
 
-      - name: Install dependencies
-        if: env.NPM_TOKEN != ''
-        run: npm ci
+      # Trusted publishing needs npm >= 11.5.1; Node 22 bundles npm 10.
+      - name: Update npm
+        run: npm install -g npm@11
 
       - name: Publish to npm
-        if: env.NPM_TOKEN != ''
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           version=$(node -p "require('./package.json').version")
           # Idempotent: a re-run of a partially-failed release must not abort on an
@@ -99,12 +122,8 @@ jobs:
           if npm view "third-brain-mcp@${version}" version >/dev/null 2>&1; then
             echo "third-brain-mcp@${version} is already published - skipping."
           else
-            npm publish --access public
+            npm publish
           fi
-
-      - name: Skip note
-        if: env.NPM_TOKEN == ''
-        run: echo "NPM_TOKEN secret is not set - skipping the npm publish."
 
   # --------------------------------------------------------------------------- #
   # Build + push the multi-arch images to GHCR (vX.Y.Z + latest).
@@ -126,6 +145,8 @@ jobs:
             extra_build_args: NEXT_PUBLIC_API_URL=${{ vars.RELEASE_NEXT_PUBLIC_API_URL || 'http://localhost:8000' }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.verify.outputs.tag }}
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v4
@@ -159,7 +180,7 @@ jobs:
             ghcr.io/${{ needs.verify.outputs.owner }}/${{ matrix.image }}:latest
           build-args: |
             APP_VERSION=${{ needs.verify.outputs.version }}
-            GIT_COMMIT=${{ github.sha }}
+            GIT_COMMIT=${{ needs.verify.outputs.sha }}
             BUILD_TIME=${{ steps.build_time.outputs.build_time }}
             ${{ matrix.extra_build_args }}
           cache-from: type=gha,scope=release-${{ matrix.image }}
@@ -175,6 +196,8 @@ jobs:
     needs: [verify, build-push]
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.verify.outputs.tag }}
 
       - name: Extract release notes from CHANGELOG.md
         env:
@@ -196,16 +219,17 @@ jobs:
       - name: Create or update the GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.verify.outputs.tag }}
         # Idempotent so a re-run (e.g. after the verify guard raced a still-running CI)
         # updates the existing release instead of failing on "tag_name already exists".
         run: |
-          if gh release view "$GITHUB_REF_NAME" --json name > /dev/null 2>&1; then
-            gh release edit "$GITHUB_REF_NAME" \
-              --title "Third Brain $GITHUB_REF_NAME" \
+          if gh release view "$TAG" --json name > /dev/null 2>&1; then
+            gh release edit "$TAG" \
+              --title "Third Brain $TAG" \
               --notes-file "$RUNNER_TEMP/notes.md"
           else
-            gh release create "$GITHUB_REF_NAME" \
-              --title "Third Brain $GITHUB_REF_NAME" \
+            gh release create "$TAG" \
+              --title "Third Brain $TAG" \
               --notes-file "$RUNNER_TEMP/notes.md" \
               --verify-tag
           fi
