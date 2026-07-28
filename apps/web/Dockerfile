@@ -86,6 +86,13 @@ ENV HOSTNAME=0.0.0.0
 # Run as the unprivileged `node` user that ships with the base image.
 # The standalone bundle (server.js + traced node_modules), the static assets and
 # the runtime API URL are all this image needs.
+# `next build` does not fold public/ into the standalone output, so the files
+# served from the site root (the demo video and its poster) are copied in
+# explicitly - without this they 404 in production. Kept FIRST: it is by far the
+# largest layer and the least volatile, so it must sit below the bundle layers
+# that change on every commit, or every release re-materialises ~17 MB of media
+# it already had (twice, once per target architecture).
+COPY --from=builder --chown=node:node /app/public ./public
 COPY --from=builder --chown=node:node /app/.next/standalone ./
 COPY --from=builder --chown=node:node /app/.next/static ./.next/static
 

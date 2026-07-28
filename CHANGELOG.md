@@ -9,6 +9,58 @@ version covers the API, the worker, and the web app - they release together, and
 
 ## [Unreleased]
 
+### Added
+
+- A recorded three-minute product walkthrough, embedded on the marketing landing page as a
+  new `#demo` section and reachable from a "Watch the demo" hero button and a "Demo" nav
+  link. It is built not to cost anything until it is wanted: `preload="none"` so a visitor
+  who never presses play never fetches the video, a 50 KB WebP poster as the only byte the
+  page spends on it, and two renditions - 720p for viewports under 1024px, 1080p above -
+  so a phone, whose frame is about 1020 device pixels wide, is not handed 1080p to decode
+  for three minutes. The element is `muted` because the recording has no audio track at
+  all. A second encode of the same walkthrough ships in the repo at
+  [`docs/assets/third-brain-demo.mp4`](docs/assets/third-brain-demo.mp4); it replaces the
+  placeholder image in the README, and [`docs/DEMO.md`](docs/DEMO.md) links to it.
+### Changed
+
+- **Documentation corrected against the code.** A full accuracy pass over the README and
+  every file in `docs/`. The largest gaps: [`docs/API.md`](docs/API.md) documented 71 of
+  the 127 registered REST routes, so ten shipped domains (invites, SSO, SCIM, answers,
+  entities, conversations, data sources, governance, feedback, health) now have sections;
+  the ingestion diagrams in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) omitted the
+  secret-scan, DLP and entity-extraction stages, and the document status machine omitted
+  `quarantined`; SSO/SAML and SCIM were listed as roadmap while shipped; and the stack was
+  still described as Next.js 14 rather than 15. Two corrections change what a client should
+  expect rather than only how it is described: the `third-brain` model alias is understood
+  by `/v1/chat/completions` only (`/search/chat` forwards the id verbatim), and a
+  conversation's `collection_ids` / `web_enabled` are stored preferences that do not scope
+  retrieval.
+- **`.env.example` documents nine settings it previously omitted**, including
+  `APP_BASE_URL` (without which invite links point at `localhost:3000`), the transactional
+  email/SMTP block that gates invite delivery, and the DLP knobs. `DATA_SOURCE_SYNC_ENABLED`
+  is now described accurately: it gates on-demand syncs only, not the scheduled sweep.
+- **Both `LICENSE` files carry the full Apache-2.0 terms.** The root file and the one
+  published inside the `third-brain-mcp` npm package previously contained only the short
+  copyright and AS-IS notice, not the license text. The license is unchanged - Apache-2.0 -
+  but a copy of it is now actually distributed, as section 4(a) requires.
+- **Public site corrections.** SSO and SCIM are presented as a shipped security control
+  rather than roadmap; images are listed among the sources Third Brain can capture; and the
+  public docs page no longer says PII content is quarantined by default (the secret scanner
+  quarantines credentials; DLP classifies sensitivity and only quarantines when configured
+  to).
+- `public/media/*` is served `Cache-Control: public, max-age=31536000, immutable`. Next
+  serves `public/` as `max-age=0`, which made the CDN in front of production revalidate,
+  and re-stream the demo from the origin, on every play. The rendition is in the filename,
+  so freezing it is safe.
+- `make seed` prints plain text; the two emoji in its first-run output are gone.
+
+### Fixed
+
+- The web production image now ships `public/`. `next build`'s standalone output omits
+  that directory, so without the extra `COPY` anything served from the site root - the
+  demo video and its poster included - would have 404'd in production. The copy is the
+  first layer in the runner stage, so the media is not re-materialised on every release.
+
 ## [1.0.3] - 2026-07-26
 
 ### Security
@@ -97,10 +149,29 @@ Initial release.
 - **Three integration surfaces** - native REST API under `/api/v1`, an OpenAI-compatible
   `/v1` endpoint (chat completions + embeddings), and an MCP server at `/mcp` with read
   and write tools.
-- **Ingestion pipeline** - extract → chunk → embed → index, running in arq workers;
-  accepts files (PDF, DOCX, MD, HTML, TXT, CSV), raw text, and URLs.
+- **Ingestion pipeline** - extract → scan (secrets, DLP) → chunk → embed → index → enrich,
+  running in arq workers; accepts files (PDF, DOCX, MD, HTML, TXT, CSV), raw text, and
+  URLs. Uploaded images (PNG/JPEG/GIF/WebP) are described, and their legible text
+  transcribed, by a vision model, then indexed with a capability link back to the original
+  bytes.
+- **Data sources** - external sync that mirrors source-system ACLs into Third Brain
+  grants, so the permission gate holds end to end. Ships a reference `local_folder`
+  connector; Google Drive, Slack, GitHub, Notion and Confluence can be configured but
+  their live fetch is not built yet.
 - **Hybrid retrieval** on Postgres + pgvector - vector ANN fused with keyword search via
   reciprocal rank fusion, with Redis-cached query embeddings.
+- **Curated Answers + verification** - authoritative Q&A surfaced above raw retrieval
+  hits, with review intervals and an hourly sweep that flips anything past its review-by
+  date to stale.
+- **Entity extraction** - named entities indexed at ingestion and browsable, with the
+  permission scope applied so an entity only appears when the caller can see a document
+  mentioning it.
+- **Knowledge graph** - a permission-scoped document-similarity graph, plus per-document
+  nearest neighbors.
+- **Conversations** - multi-turn chat history that grounds follow-up questions without
+  widening what the caller can retrieve.
+- **Optional web grounding** - a pluggable web-search provider (off by default) whose
+  results are cited alongside internal passages.
 - **Dashboard** (Next.js) - usage analytics, API keys, teams, connectors, document
   management, and audit logs.
 - **Authentication** - JWT access/refresh tokens for the dashboard and SHA-256-hashed API
@@ -108,12 +179,23 @@ Initial release.
   API keys per key, dashboard sessions per user (`SESSION_RATE_LIMIT_PER_MINUTE`).
   Self-serve signup is closed by default in production (`SIGNUP_ENABLED`), since a new org
   without its own connector would otherwise bill the deployment's platform provider keys.
+- **SSO + SCIM** - OIDC and signature-verified SAML 2.0 sign-in with just-in-time
+  provisioning, plus SCIM 2.0 provisioning of users and of identity-provider groups as
+  teams, authenticated by per-org SCIM tokens.
+- **Email invites** - an admin invites an address, the recipient accepts through a
+  tokenised link, and delivery goes through a pluggable email provider that defaults to
+  an offline stub.
 - **No well-known demo credential** - `make seed` generates a random password per seed and
   prints it once; the three demo addresses are configurable (`DEMO_ADMIN_EMAIL`,
   `DEMO_ENGINEER_EMAIL`, `DEMO_VIEWER_EMAIL`).
 - **Secret quarantine** - uploaded documents and agent captures are scanned for
   credentials (and optionally PII via the DLP scanner) and parked for human review instead
   of being indexed.
+- **Oversharing report** - an admin view of the documents the DLP scan classified as
+  sensitive that are nonetheless visible org-wide or publicly.
+- **Knowledge gaps and answer feedback** - thumbs up/down on an answer, and an admin
+  report aggregating zero-result and thumbs-down queries. Retaining the raw query text is
+  opt-in and off by default.
 - **Observability** - structured logging via structlog and opt-in OpenTelemetry tracing.
 - **Offline deterministic LLM stub** - the whole stack builds, seeds, and passes tests
   with zero provider keys.

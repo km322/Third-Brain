@@ -69,9 +69,9 @@ What gets traced when the endpoint is set:
   `gen_ai.usage.output_tokens`, `gen_ai.response.finish_reasons` and `server.address`.
   Token usage and latency ride on the span; prompt and completion text never do.
 - **Pipeline stage spans** - retrieval (scope resolution, embed, vector search, keyword
-  search) and ingestion (extract, chunk, embed, index) are wrapped in named spans
-  (`retrieval.*`, `ingest.*`), so "where did the time go" is answered by the trace
-  waterfall.
+  search) and ingestion (extract, secret scan, DLP scan, chunk, embed, index, entity
+  extraction) are wrapped in named spans (`retrieval.*`, `ingest.*`), so "where did the time
+  go" is answered by the trace waterfall.
 - **Sampling** - `OTEL_TRACES_SAMPLE_RATIO` (default `1.0`) ratio-samples new traces with
   a parent-based sampler, so a sampled inbound trace is always continued. Lower it in
   high-traffic production; keep `1.0` locally.
@@ -180,20 +180,22 @@ The matching lines show the failing event with its context (`org_id`, `user_id`,
 `duration_ms`); the trace shows which span - SQL, Redis, provider call - failed or
 stalled.
 
-**Ingestion is stuck.** Documents transition `pending -> processing -> indexed | failed`.
-Filter both api and worker logs by the document:
+**Ingestion is stuck.** Documents transition
+`pending -> processing -> indexed | quarantined | failed`. Filter both api and worker logs
+by the document:
 
 ```bash
 docker compose logs api worker | grep <document_id>
 ```
 
 The matching lines are coarse transitions, not per-stage detail: `ingestion_status`
-(`status=processing|indexed|failed`) plus the worker's `worker_ingest_started` /
+(`status=processing|indexed|quarantined|failed`) plus the worker's `worker_ingest_started` /
 `worker_ingest_finished` bracketing the job, each carrying `job_id` and `document_id`. The
-per-stage breakdown (`ingest.load_extract`, `ingest.chunk`, `ingest.embed`, `ingest.index`)
-lives in the trace, not the logs. Because the `traceparent` is propagated through arq, the
-upload request's trace continues into the job - open it to see which stage is slow,
-including per-batch embedding calls with token counts.
+per-stage breakdown (`ingest.load_extract`, `ingest.secret_scan`, `ingest.dlp_scan`,
+`ingest.chunk`, `ingest.embed`, `ingest.index`, `ingest.entities`) lives in the trace, not
+the logs. Because the `traceparent` is propagated through arq, the upload request's trace
+continues into the job - open it to see which stage is slow, including per-batch embedding
+calls with token counts.
 
 **An LLM call is slow or expensive.** Search traces for `gen_ai.request.model` spans; the
 span shows the provider (`server.address`), token usage and duration, and

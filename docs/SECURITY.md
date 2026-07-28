@@ -11,6 +11,8 @@ secrets are handled, and how to report a vulnerability.
 - [Authentication & sessions](#authentication--sessions)
 - [Authorization](#authorization)
 - [Secret handling](#secret-handling)
+- [Secret scanning & quarantine](#secret-scanning--quarantine)
+- [DLP / sensitivity scanning](#dlp--sensitivity-scanning)
 - [Tenant isolation](#tenant-isolation)
 - [Rate limiting & abuse](#rate-limiting--abuse)
 - [Auditing](#auditing)
@@ -52,7 +54,7 @@ Adversaries we design against:
 
 | Adversary | Example goal | Primary control |
 |---|---|---|
-| Unauthenticated internet user | Read any data | Auth required on every route; no anonymous access. `public` collections are still org-scoped (any org member or org API key), not internet-public. Auth endpoints are per-identifier rate limited against brute force. |
+| Unauthenticated internet user | Read any data | Auth required on every data route. The unauthenticated surface is small and by design: the health/version probes (no tenant data), the two device-auth endpoints (start and poll), the SSO discovery/start/callback/ACS endpoints, the public waitlist endpoints (joining is rate limited, honeypot- and Turnstile-guarded), `POST /api/v1/invites/accept` (rate limited per token and client IP; a valid, unexpired, unused invite token provisions the account and signs in, and it can only ever provision a **new** account - an address that already has one gets `409`, never a session), and `GET /api/v1/files/{token}` - a capability URL serving an image document's original bytes to any holder of an unguessable 256-bit token (rate limited on misses, raster-image media-type whitelist, quarantined documents 404). `public` collections are still org-scoped (any org member or org API key), not internet-public. Auth endpoints are per-identifier rate limited against brute force. |
 | Authenticated org member | Read a document they weren't granted | Permission engine enforced at retrieval time (SQL pushdown). |
 | Cross-tenant attacker | Read another org's data | Every query filters by `org_id`; resources 404 across org boundaries. |
 | Malicious/leaked API key | Escalate privilege via impersonation | Keys carry scopes + fixed org; **keys cannot mint or revoke keys**; `acts_as_user_id` must be an existing org member. |
@@ -91,7 +93,8 @@ Two paths converge on a single `AuthContext`
   are hashed with **bcrypt** (`app/core/security.py`).
 - **API keys** (programmatic / OpenAI-compat / MCP). Generated with a `tb_` prefix; only the
   **prefix + a SHA-256 hash** are stored - the raw secret is shown exactly once at
-  creation and is unrecoverable afterward. Keys carry **scopes**, a fixed **org**, an
+  creation and is unrecoverable afterward (one bounded exception for device-flow keys -
+  see [Secret handling](#secret-handling)). Keys carry **scopes**, a fixed **org**, an
   optional **expiry**, and a per-minute **rate limit**.
 - **Device authorization** (the `third-brain-mcp` CLI sign-in). An OAuth-style device flow
   mints an API key without the user ever pasting one: the two device endpoints (start and
@@ -100,6 +103,10 @@ Two paths converge on a single `AuthContext`
   **admin** approves it from `/activate`. The minted key defaults to the `search`/`read`/`ingest` scopes, acts as
   the approving admin (or a chosen member who may not outrank them, so approval never escalates
   privilege), and is returned exactly once - the same one-shot handling as any API key.
+
+The SCIM provisioning surface sits outside those paths: `/api/v1/scim/v2/*` authenticates with
+its own bearer token (see [Secret handling](#secret-handling)), which resolves to the issuing
+org rather than to an `AuthContext`, and it reaches nothing but the SCIM user/group routes.
 
 The JWT session lifecycle end to end (`app/api/routes/auth.py`, `app/core/deps.py`):
 
@@ -186,9 +193,12 @@ impersonation/privilege-escalation path.
 | Secret | At rest | In transit | Exposure |
 |---|---|---|---|
 | User password | bcrypt hash | TLS | Never returned. |
-| API key | SHA-256 hash + prefix | TLS | Raw secret shown **once** at creation. |
+| API key | SHA-256 hash + prefix (see exposure) | TLS | Raw secret shown **once** at creation. One exception: a device-auth-minted key is held Fernet-encrypted in `device_authorizations.encrypted_secret` between admin approval and the CLI's redeeming poll (at most 15 minutes), then nulled on redemption or expiry - an expired flow also revokes the orphan key. |
 | JWT signing | n/a (`SECRET_KEY`) | TLS | Never returned. |
 | Connector provider credentials | **Fernet-encrypted** blob (key derived from `SECRET_KEY`) | TLS | Never serialized; decrypted transiently only to make a provider call. `has_credentials` indicates presence without revealing the value. |
+| SCIM provisioning token | SHA-256 hash + prefix | TLS | Raw `scim_…` token shown **once** at creation; authenticates `/api/v1/scim/v2/*` only, scoped to the issuing org. |
+| SSO connection `client_secret` | **Fernet-encrypted** (key derived from `SECRET_KEY`) | TLS | Never returned; `has_secret` reports presence only. |
+| Image capability token | plaintext in `documents.metadata.file_token` (256-bit random) | TLS | Embedded in the image document's indexed chunk text so a retrieving LLM can fetch the picture; possession grants unauthenticated read of that one image's bytes. |
 
 Every credential is transformed inside the API process before it reaches Postgres, and
 `SECRET_KEY` sits behind both JWT signing and connector encryption - which is why rotating
@@ -228,8 +238,8 @@ Operational guidance:
 - Set `SECRET_KEY` to **32+ bytes of entropy** from a secret manager. Do **not** use the
   default `change-me`.
 - **`SECRET_KEY` rotation is coupled to connector encryption.** Rotating it invalidates all
-  JWTs *and* renders previously stored connector credentials undecryptable - re-enter
-  connector secrets after rotation. Plan rotations accordingly.
+  JWTs *and* renders previously stored connector credentials and SSO client secrets
+  undecryptable - re-enter those secrets after rotation. Plan rotations accordingly.
 - Never commit `.env` (it is git-ignored) or bake secrets into images. Inject via your
   orchestrator's secret store.
 - Provider keys can be global (env) or per-org **Connectors**; the latter keeps each
@@ -289,13 +299,40 @@ column, API responses, audit entries, or logs. Scanning is on by default; set
 
 ---
 
+## DLP / sensitivity scanning
+
+A second pass classifies ingested content as `none`, `pii`, or `confidential`
+(`app/services/dlp_scan.py`, `DLP_ENABLED` on by default). It follows the same rules as the
+credential scanner - raw values never leave the scanner, samples are redacted, every pattern
+is linear-safe - and it is a heuristic classifier, not a compliance-grade DLP engine.
+
+`DLP_DEFAULT_ACTION` decides what a DLP-only hit does:
+
+- `label` (the default) - index normally and tag the document's `sensitivity`.
+- `quarantine` - park the document for review, under the same checksum-keyed approval as a
+  secret hit.
+- `warn` - index and record the finding, leaving the label unchanged.
+
+A document flagged by the ingestion worker records a `document.sensitive` audit entry with
+the action taken; on the MCP write path only the quarantine outcome is audited. The
+admin-only **Oversharing** report (`GET /api/v1/governance/oversharing`, the dashboard
+Oversharing page) then lists documents classified `pii`/`confidential` whose effective
+visibility is `org` or `public`, so access can be tightened. It is read-only: remediation is
+done by changing visibility or grants through the normal surfaces.
+
+One gap to know about: the review payload's `findings` list is populated by the secret
+scanner only, so a document quarantined by DLP alone reviews with an empty list.
+
+---
+
 ## Tenant isolation
 
-Every table is scoped to an `organization`, and **every query filters by `ctx.org_id`**.
-Cross-org access returns `404` (not `403`) so existence isn't leaked across tenants. The
-retrieval scope is always constructed with the caller's `org_id` first, then narrowed by
-permissions. Uploaded files should live on per-deployment object storage (`STORAGE_BACKEND=s3`)
-with bucket policies scoped to the app role.
+Every tenant table is scoped to an `organization` - `users` is a global identity and
+`waitlist_entries` sits outside any org - and **every query for tenant data filters by
+`ctx.org_id`**. Cross-org access returns `404` (not `403`) so existence isn't leaked across
+tenants. The retrieval scope is always constructed with the caller's `org_id` first, then
+narrowed by permissions. Uploaded files should live on per-deployment object storage
+(`STORAGE_BACKEND=s3`) with bucket policies scoped to the app role.
 
 ---
 

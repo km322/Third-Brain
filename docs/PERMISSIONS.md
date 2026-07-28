@@ -88,10 +88,13 @@ flowchart TD
     grant --> maxOut
 ```
 
-The one subtractive exception lives in retrieval, not in `effective_permission`: a document
-explicitly marked `visibility = private` is hidden from collection-level visibility access
-unless the caller has a *direct* grant on that document (see
-[Retrieval scope](#retrieval-scope)).
+A document's own `visibility` **overrides** its collection's for the visibility baseline, and
+that override applies at **both** enforcement points: `effective_permission` computes the
+baseline from `document.visibility or collection.visibility` (so a `private` document inside
+an `org`/`viewer` collection resolves to `none`, and 403s, for a member with no other source),
+and retrieval mirrors it as its one subtractive step, `denied_document_ids` (see
+[Retrieval scope](#retrieval-scope)). Ownership, explicit grants on the document or its
+collection, and the org-admin baseline still apply on top.
 
 ---
 
@@ -158,7 +161,9 @@ A document's effective permission is the **max** of everything that applies to t
 
 This means a document can be made *more* visible than its collection (its own `visibility`),
 or singled out for a specific principal via a document-level grant - but it always inherits
-at least what the collection grants (except the private-document retrieval carve-out below).
+the collection's ownership and explicit grants; only the visibility baseline is replaced when
+the document sets its own, including when that override is *stricter* (see
+[Retrieval scope](#retrieval-scope)).
 
 ---
 
@@ -201,9 +206,14 @@ chunks the caller may retrieve, as a SQL predicate rather than a post-filter:
    - **granted collections/documents** - anything reached via a user/team `access_grant`
      with permission `>= viewer` (collection grants widen the collection set; document
      grants add specific `extra_document_ids`);
-   - **denied documents** - documents inside otherwise-visible collections that are marked
-     `visibility = private` are **excluded**, *unless* the caller has a direct document
-     grant (this is the one place access is subtractive).
+   - **denied documents** - a document inside an otherwise-visible collection whose *own*
+     `visibility` does not reach the caller (`private`, or `team` when the caller is not in
+     the owning team) is **excluded**, *unless* the caller reaches the whole collection
+     strongly - as its owner or through a collection-level grant - or holds a direct grant
+     on that document (this is the one place access is subtractive);
+   - **upward overrides** - conversely, a document whose own `visibility` reaches the caller
+     while its collection's does not (e.g. an `org` document inside a `private` collection)
+     is added to `extra_document_ids`.
 3. If the search specified `collection_ids`, the visible set is intersected with it.
 
 `RetrievalScope.apply(stmt)` then adds: `org_id` match, an `OR` over allowed collection/
@@ -242,9 +252,12 @@ retrieve only that document's chunks (via `extra_document_ids`), nothing else in
 collection.
 
 **Private document inside an org collection.** Collection `visibility = org` (everyone
-`viewer`), but one document is `visibility = private`. That document's chunks are added to
-`denied_document_ids` for everyone except principals with a direct document grant - so it
-disappears from their search results even though the collection is org-visible.
+`viewer`), but one document is `visibility = private`. That document's chunks land in
+`denied_document_ids` for members who reach the collection only through its visibility - so
+it disappears from their search results even though the collection is org-visible, and
+`GET /api/v1/documents/{id}` 403s for them too. It stays visible to org admins, the
+collection owner, holders of a collection-level grant, and anyone with a direct grant on
+that document.
 
 ---
 
@@ -269,7 +282,8 @@ the CRUD endpoints under `/api/v1/permissions` for managing `access_grants`.
 ## Invariants
 
 - **Additive by default**: no source lowers another source's grant. The single subtractive
-  rule is the private-document retrieval carve-out.
+  step is retrieval's `denied_document_ids`, which enforces a document's own stricter
+  `visibility` - the same override `effective_permission` already applies.
 - **Org-scoped always**: resources in another org resolve to `none`/`404`.
 - **One source of truth**: routes and retrieval both call this module - they can never drift
   apart.

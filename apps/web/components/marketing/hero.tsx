@@ -67,6 +67,14 @@ export function Hero() {
             >
               <Link href="#waitlist">Join the waitlist</Link>
             </Button>
+            <Button
+              asChild
+              size="lg"
+              variant="outline"
+              className="h-12 w-full rounded-full px-7 sm:w-auto"
+            >
+              <Link href="#demo">Watch the demo</Link>
+            </Button>
           </div>
 
           <p className="animate-fade-up mt-6 text-xs text-muted-foreground">
@@ -128,7 +136,7 @@ export function Hero() {
 
           {/* Figure caption - left-aligned to the frame edge. */}
           <p className="mt-4 flex items-baseline gap-2 text-sm text-muted-foreground">
-            <span className="font-mono text-xs text-muted-foreground/70">
+            <span className="shrink-0 font-mono text-xs text-muted-foreground/70">
               Fig. 1
             </span>
             An agent captures a decision as it works - a teammate finds it

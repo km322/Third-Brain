@@ -42,10 +42,12 @@ the development guide.
 ## Repository layout
 
 ```
-apps/api      FastAPI backend + arq workers   (Python 3.11, async SQLAlchemy 2.0)
-apps/web      Next.js 14 dashboard            (TypeScript, Tailwind, shadcn/ui)
-docs/         architecture, API, permissions, security, deployment
-.github/      CI workflows
+apps/api          FastAPI backend + arq workers   (Python 3.11, async SQLAlchemy 2.0)
+apps/web          Next.js 15 dashboard            (TypeScript, React 19, Tailwind, shadcn/ui)
+packages/mcp-cli  third-brain-mcp npm CLI         (Node >= 18, zero runtime deps)
+docs/             architecture, API, permissions, security, deployment
+scripts/          version bump, release, rollback, self-host bootstrap
+.github/          CI workflows
 ```
 
 See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the system design.
@@ -61,9 +63,9 @@ See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the system design.
 4. **Open a PR** against `main` with a clear description; link any related issue.
 5. Address review; keep the branch up to date with `main`.
 
-Every push and PR runs [CI](.github/workflows/ci.yml): backend lint + tests (against real
-Postgres+pgvector and Redis), frontend lint + build, Docker image builds, and a
-docker-compose end-to-end smoke test. PRs must be green.
+Every push and PR runs [CI](.github/workflows/ci.yml): version consistency, backend lint +
+tests (against real Postgres+pgvector and Redis), frontend lint + build, MCP CLI lint +
+tests, Docker image builds, and a docker-compose end-to-end smoke test. PRs must be green.
 
 ---
 
@@ -87,9 +89,15 @@ cd apps/web
 npm run lint
 npm run build
 npm run format          # prettier
+
+# MCP CLI
+cd packages/mcp-cli
+npm run lint
+npm test
 ```
 
-`make lint` and `make fmt` run the backend + frontend checks together.
+`make lint` runs the backend, frontend and MCP CLI checks together; `make fmt` formats the
+backend + frontend.
 
 ---
 
@@ -128,9 +136,11 @@ Type hints are expected; `mypy` is configured for gradual typing.
   `bg-primary`, …) and the `@/components/ui/*` primitives; support light + dark mode.
 - Data fetching goes through TanStack Query. Prefer server-provided shapes over reshaping
   in components.
-- Dashboard routes and sidebar entries must match the documented set (Overview, Ask,
-  Knowledge Bases, Documents, Connectors, API Keys, Members, Teams, Access, Usage, Audit
-  Log, Settings).
+- Dashboard routes and sidebar entries must stay in sync with `NAV_GROUPS` in
+  `components/dashboard/sidebar.tsx` - that array is the canonical navigation: Knowledge
+  (Overview, Ask, Knowledge Bases, Documents, Data Sources, Answers, Entities, Graph),
+  Governance (Members, Invites, Teams, Access, Oversharing, Audit Log), and Platform
+  (Connectors, SSO & SCIM, API Keys, Knowledge Gaps, Usage, Settings).
 
 ---
 

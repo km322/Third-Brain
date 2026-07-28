@@ -20,14 +20,18 @@ Monorepo.
     `chunking.py`, `extractors.py`, `storage.py`, `metering.py`. `vectorstore/` is pgvector-backed
     (abstracted behind a `VectorStore` interface so Qdrant/Pinecone can drop in later).
   - `app/api/routes/*` - one module per domain; each exports `router = APIRouter(prefix=..., tags=[...])`
-    and is auto-included by `app/api/router.py`. `app/api/openai_compat.py` = OpenAI-compatible `/v1`.
+    and is included by `app/api/router.py` once its module name is added to the explicit
+    `_ROUTE_MODULES` list there. `app/api/openai_compat.py` = OpenAI-compatible `/v1`.
   - `app/mcp` - Model Context Protocol server (`mount_mcp(app)`), mounted at `/mcp`.
   - `app/workers` - arq ingestion workers (`app.workers.settings.WorkerSettings`).
   - `alembic/` migrations, `tests/`.
-- `apps/web` - **Next.js 14** (App Router, TS, Tailwind + shadcn/ui, TanStack Query).
+- `apps/web` - **Next.js 15** (App Router, React 19, TS, Tailwind + shadcn/ui, TanStack Query).
   - `app/(marketing)` landing · `app/(auth)` login/signup · `app/dashboard/*` the app.
   - `components/ui/*` shadcn primitives · `components/dashboard/*` shell · `lib/api.ts` typed client ·
     `lib/types.ts` mirrors backend schemas · `lib/auth-context.tsx`.
+- `packages/mcp-cli` - the `third-brain-mcp` npm CLI (`connect` / `install` / `serve` / `status`),
+  zero runtime deps, Node >= 18. Linted + tested by its own CI job and by `make lint`; its
+  `package.json` version is kept in lockstep with the root `VERSION`.
 - `docs/` - architecture, API, permissions, deploy.
 
 ## Run it

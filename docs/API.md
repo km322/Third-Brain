@@ -2,8 +2,10 @@
 
 Third Brain exposes three integration surfaces:
 
-- **Native REST API** - `/api/v1/*`, the full product surface (auth, collections,
-  documents, search, chat, admin, analytics, knowledge graph).
+- **Native REST API** - `/api/v1/*`, the full product surface (auth, users & orgs, invites,
+  teams, SSO/SCIM, API keys, collections, documents, curated answers, entities, search,
+  chat & conversations, connectors, data sources, permissions, governance, feedback,
+  analytics, knowledge graph).
 - **OpenAI-compatible API** - `/v1/*`, so any OpenAI SDK/tool can get grounded,
   permission-filtered answers with no code changes.
 - **MCP server** - `/mcp`, so Claude Desktop, Claude Code, Cursor and agents can read the
@@ -18,14 +20,23 @@ at `/docs`, and the raw schema at `/openapi.json`. In production the API is serv
 - [Conventions](#conventions)
 - [Auth endpoints](#auth-endpoints)
 - [Users & orgs](#users--organizations)
+- [Invites](#invites)
 - [Teams](#teams)
+- [SSO & SCIM](#sso--scim)
 - [API keys](#api-keys)
 - [Collections](#collections)
 - [Documents](#documents)
+- [Answers](#answers)
+- [Entities](#entities)
 - [Search & chat](#search--chat)
+- [Conversations](#conversations)
 - [Connectors](#connectors)
+- [Data sources](#data-sources)
 - [Permissions](#permissions)
+- [Governance & feedback](#governance--feedback)
 - [Analytics](#analytics)
+- [Knowledge graph](#knowledge-graph)
+- [Health & version](#health--version)
 - [OpenAI-compatible API](#openai-compatible-api)
 - [MCP server](#mcp-server)
 
@@ -209,28 +220,38 @@ curl -X POST "$TB/api/v1/auth/change-password" -H "Authorization: Bearer $ACCESS
 
 ## Users & organizations
 
+`/users/me` and the org list/create/switch routes need a **human session**: an API key gets
+`403 This endpoint requires a user session`, because a key belongs to an org rather than to a
+person. `GET /orgs/current` accepts any valid API key. `PATCH /orgs/current` and the
+`/orgs/members` admin routes also accept a key, but only one that holds the admin role: either
+it carries `manage` or `*`, or it acts as a user (`acts_as_user_id`) who is an org admin or
+owner. `reset-password` is session-only as well.
+
 ```bash
-# Who am I: the user, every org, the active org and my role in it.
-curl "${auth[@]}" "$TB/api/v1/users/me"
+# Who am I: the user, every org, the active org and my role in it. Session only.
+curl -H "Authorization: Bearer $ACCESS_TOKEN" "$TB/api/v1/users/me"
 
 # Update my profile
-curl -X PATCH "${auth[@]}" -H 'Content-Type: application/json' \
+curl -X PATCH -H "Authorization: Bearer $ACCESS_TOKEN" -H 'Content-Type: application/json' \
   "$TB/api/v1/users/me" -d '{"full_name": "Ada L."}'
 
-# Orgs
-curl "${auth[@]}" "$TB/api/v1/orgs"                      # list my orgs
-curl -X POST "${auth[@]}" -H 'Content-Type: application/json' \
+# Orgs (the first three are session only)
+curl -H "Authorization: Bearer $ACCESS_TOKEN" "$TB/api/v1/orgs"   # list my orgs
+curl -X POST -H "Authorization: Bearer $ACCESS_TOKEN" -H 'Content-Type: application/json' \
   "$TB/api/v1/orgs" -d '{"name": "Side Project"}'        # create
-curl -X POST "${auth[@]}" -H 'Content-Type: application/json' \
+curl -X POST -H "Authorization: Bearer $ACCESS_TOKEN" -H 'Content-Type: application/json' \
   "$TB/api/v1/orgs/switch" -d '{"org_id": "<uuid>"}'     # -> new tokens for that org
 curl "${auth[@]}" "$TB/api/v1/orgs/current"              # active org
 curl -X PATCH "${auth[@]}" -H 'Content-Type: application/json' \
   "$TB/api/v1/orgs/current" -d '{"name": "Acme, Inc."}'
 
-# Members (admin)
+# Members (admin). The invite route below adds an EXISTING Third Brain user (404 if no
+# account has that email) and the membership starts INVITED, so activate it with the PATCH
+# below and {"status": "active"}. To invite someone with no account yet, use /invites.
 curl "${auth[@]}" "$TB/api/v1/orgs/members"
 curl -X POST "${auth[@]}" -H 'Content-Type: application/json' \
   "$TB/api/v1/orgs/members/invite" -d '{"email": "teammate@example.com", "role": "editor"}'
+# PATCH takes role and/or status (active|invited|suspended).
 curl -X PATCH "${auth[@]}" -H 'Content-Type: application/json' \
   "$TB/api/v1/orgs/members/<membership_id>" -d '{"role": "admin"}'
 curl -X DELETE "${auth[@]}" "$TB/api/v1/orgs/members/<membership_id>"
@@ -244,6 +265,39 @@ curl -X POST -H "Authorization: Bearer $ACCESS_TOKEN" \
 ```
 
 `org_role` is one of `owner`, `admin`, `editor`, `viewer`.
+
+---
+
+## Invites
+
+Email invitations for people who do **not** have a Third Brain account yet (this is what the
+dashboard's Invites page uses). Creating, listing and revoking require **admin**; accepting
+is unauthenticated.
+
+```bash
+# Invite an email -> 201 and a tokenised link mailed to {APP_BASE_URL}/accept-invite?token=…
+# `role` defaults to viewer, and only an owner may invite a new owner. 409 when that email
+# already has an account - add them from Members instead. Links expire after
+# INVITE_EXPIRE_HOURS (default 168).
+curl -X POST "${auth[@]}" -H 'Content-Type: application/json' \
+  "$TB/api/v1/invites" -d '{"email": "teammate@example.com", "role": "editor"}'
+
+# Pending invites / revoke
+curl "${auth[@]}" "$TB/api/v1/invites"
+curl -X DELETE "${auth[@]}" "$TB/api/v1/invites/<invite_id>"
+
+# Accept (unauthenticated): provisions the account, activates the membership and signs in.
+# -> {access_token, refresh_token, token_type}
+curl -X POST "$TB/api/v1/invites/accept" -H 'Content-Type: application/json' -d '{
+  "token": "<token from the emailed link>",
+  "full_name": "Grace Hopper",
+  "password": "supersecret"
+}'
+```
+
+Accepting only ever creates a **new** account. If one was registered for that address in the
+meantime, acceptance returns `409` rather than handing the token holder a session for an
+existing account.
 
 ---
 
@@ -263,6 +317,96 @@ curl -X POST "${auth[@]}" -H 'Content-Type: application/json' \
   "$TB/api/v1/teams/<team_id>/members" -d '{"user_id": "<uuid>"}'
 curl -X DELETE "${auth[@]}" "$TB/api/v1/teams/<team_id>/members/<user_id>"
 ```
+
+---
+
+## SSO & SCIM
+
+Enterprise identity: an SSO connection federates an IdP (OIDC or SAML) into your org, and
+SCIM 2.0 lets that IdP provision users and groups. Both are configured from the dashboard's
+**SSO & SCIM** page.
+
+### SSO connections (admin)
+
+```bash
+curl "${auth[@]}" "$TB/api/v1/sso-connections"
+
+# OIDC requires authorization_endpoint, token_endpoint and client_id in `config`; SAML
+# requires idp_sso_url and idp_x509_cert. `client_secret` is encrypted at rest and never
+# returned (`has_secret` reports whether one is stored). `email_domain` is what the login
+# page matches on; `default_role` is the org role a just-in-time user gets.
+curl -X POST "${auth[@]}" -H 'Content-Type: application/json' \
+  "$TB/api/v1/sso-connections" -d '{
+    "protocol": "oidc",
+    "name": "Okta",
+    "enabled": true,
+    "email_domain": "acme.com",
+    "config": {
+      "authorization_endpoint": "https://acme.okta.com/oauth2/v1/authorize",
+      "token_endpoint": "https://acme.okta.com/oauth2/v1/token",
+      "client_id": "0oa…"
+    },
+    "client_secret": "…",
+    "default_role": "viewer"
+  }'
+
+curl -X PATCH  "${auth[@]}" -H 'Content-Type: application/json' \
+  "$TB/api/v1/sso-connections/<id>" -d '{"enabled": false}'
+curl -X DELETE "${auth[@]}" "$TB/api/v1/sso-connections/<id>"
+```
+
+### Sign-in flow (unauthenticated)
+
+```bash
+# Which enabled connections serve this email's domain. Without an email this returns []
+# rather than enumerating every organization's SSO setup.
+curl "$TB/api/v1/auth/sso/available?email=ada@acme.com"
+
+# -> {url, state, protocol}: send the browser to `url`.
+curl "$TB/api/v1/auth/sso/start?connection_id=<id>"
+
+# OIDC: exchange the code -> the same {access_token, refresh_token, token_type} as login.
+curl -X POST "$TB/api/v1/auth/sso/callback" -H 'Content-Type: application/json' \
+  -d '{"code": "…", "state": "…"}'
+
+# SAML: the IdP posts its signed assertion here (form-encoded) -> tokens.
+curl -X POST "$TB/api/v1/auth/sso/saml/acs?connection_id=<id>" \
+  --data-urlencode "SAMLResponse=<base64 assertion>"
+```
+
+A first SSO login provisions the user just in time with the connection's `default_role`. An
+existing account is never adopted on the strength of an assertion: if the asserted email
+already has its own password, belongs to another organization, or is not a member of this
+one, sign-in is refused with `403` and that person signs in with their password instead.
+
+### SCIM 2.0 provisioning
+
+Mint a token as an admin, then point your IdP at `/api/v1/scim/v2`. The raw token is shown
+once and stored only as a SHA-256 hash.
+
+```bash
+curl "${auth[@]}" "$TB/api/v1/scim-tokens"
+curl -X POST "${auth[@]}" -H 'Content-Type: application/json' \
+  "$TB/api/v1/scim-tokens" -d '{"name": "Okta provisioning"}'   # -> {..., "token": "scim_…"}
+curl -X DELETE "${auth[@]}" "$TB/api/v1/scim-tokens/<id>"
+
+# The provisioning surface authenticates with that token, not with an API key.
+export SCIM_TOKEN="scim_..."
+curl -H "Authorization: Bearer $SCIM_TOKEN" "$TB/api/v1/scim/v2/Users"
+curl -X POST -H "Authorization: Bearer $SCIM_TOKEN" -H 'Content-Type: application/json' \
+  "$TB/api/v1/scim/v2/Users" -d '{
+    "userName": "ada@acme.com",
+    "name": {"givenName": "Ada", "familyName": "Lovelace"},
+    "active": true
+  }'
+```
+
+`GET|POST /scim/v2/Users`, `GET|PATCH|DELETE /scim/v2/Users/{id}`, `GET|POST /scim/v2/Groups`
+and `DELETE /scim/v2/Groups/{id}` are implemented, and responses use the
+`application/scim+json` media type. A SCIM Group is a Third Brain [team](#teams). Everything
+is scoped to the token's org, `GET /Users` supports the `userName eq "…"` filter, and
+deprovisioning (`DELETE`, or a `PATCH` setting `active: false`) **suspends the membership**
+rather than deleting the global user.
 
 ---
 
@@ -323,17 +467,22 @@ curl -X DELETE "${auth[@]}" "$TB/api/v1/collections/<id>"
 ## Documents
 
 Documents are ingested asynchronously: creation returns immediately with
-`status: "pending"`, and a worker runs extract → chunk → embed → index, moving through
-`processing` → `indexed` (or `failed`). Content that appears to contain secrets is
-parked at `quarantined` for human review instead of being indexed (see
-[SECURITY.md](./SECURITY.md#secret-scanning--quarantine)). Poll `GET /documents/{id}`
-for status.
+`status: "pending"`, and a worker runs extract → scan (secrets, DLP) → chunk → embed →
+index → enrich, moving through `processing` → `indexed | quarantined | failed`. Content
+that trips the secret scanner - or the DLP scan when the deployment sets
+`DLP_DEFAULT_ACTION=quarantine` - is parked at `quarantined` for human review instead of
+being indexed (see [SECURITY.md](./SECURITY.md#secret-scanning--quarantine)). Poll
+`GET /documents/{id}` for status.
 
 Every list item carries a `via` field: it is `"mcp"` when an agent wrote the document
 through the MCP `add_knowledge` tool, and `null` otherwise. Filter to agent-written
 documentation with `?via=mcp` (this is what the dashboard's "Written by agents" view uses).
 Agent-written documents also carry a `doc_type` field when the agent categorized the
 capture (`decision`, `solution`, `answer`, `note`, or `reference`); it is `null` otherwise.
+
+Each item also carries its trust and governance signals: `verification_status`
+(`unverified|verified|stale`) with `verified_at` and `expires_at` (see the verify routes
+below), and `sensitivity` (`none|pii|confidential`) as classified by the DLP scan.
 
 ```bash
 # List (paginated, filterable). Add &via=mcp to show only agent-written documents.
@@ -384,6 +533,13 @@ curl "${auth[@]}" "$TB/api/v1/documents/<id>/chunks"
 curl -X POST   "${auth[@]}" "$TB/api/v1/documents/<id>/reprocess"   # 409 if quarantined
 curl -X DELETE "${auth[@]}" "$TB/api/v1/documents/<id>"
 
+# Verification (editor + a write/ingest scope; both return the DocumentItem). Marks a
+# document authoritative and sets a review-by date: omit review_interval_days for the
+# server default (DEFAULT_REVIEW_INTERVAL_DAYS, 180), or send 0 for no expiry.
+curl -X POST "${auth[@]}" -H 'Content-Type: application/json' \
+  -d '{"review_interval_days": 180}' "$TB/api/v1/documents/<id>/verify"
+curl -X POST "${auth[@]}" "$TB/api/v1/documents/<id>/unverify"
+
 # Quarantine (documents flagged by the secret scanner; both require editor and 409
 # unless status is "quarantined"; discard = the normal DELETE above)
 # Review -> {document {..., visibility}, findings (redacted samples), scanned_at,
@@ -404,6 +560,66 @@ ACLs): a key must carry a `write` or `ingest` scope to create/modify/delete docu
 `read`, `search`, `write`, `ingest` or `manage` scope to read them - so a search-only key can
 never write, and a scopeless key can neither read nor write. Human (JWT) sessions are unscoped
 and act with their org role.
+
+---
+
+## Answers
+
+Curated, verifiable Q&A. A **verified** answer whose question overlaps a query is returned
+alongside retrieval hits by `POST /search`, so the canonical wording wins over whatever a
+chunk happens to say.
+
+An answer is either scoped to a collection - in which case that collection governs it
+(viewer to read, editor to write, **manager** to verify) - or org-level, governed by its own
+`visibility` for reads and by your org role for writes (`editor`+, admin to verify). Reads
+need a read scope; writes need a `write`/`ingest` scope.
+
+```bash
+curl "${auth[@]}" "$TB/api/v1/answers"            # answers you can see, most recently updated first
+curl "${auth[@]}" "$TB/api/v1/answers/<id>"
+
+# collection_id null = an org-level answer governed by `visibility`.
+curl -X POST "${auth[@]}" -H 'Content-Type: application/json' \
+  "$TB/api/v1/answers" -d '{
+    "question": "How much PTO do new hires get?",
+    "answer": "15 days, accrued monthly.",
+    "collection_id": null,
+    "visibility": "org"
+  }'
+
+# Editing the question or answer clears verification - it has to be reviewed again.
+curl -X PATCH "${auth[@]}" -H 'Content-Type: application/json' \
+  "$TB/api/v1/answers/<id>" -d '{"answer": "15 days in year one, 20 thereafter."}'
+
+# Verify -> verification_status "verified" plus a review-by date. Omit review_interval_days
+# for the server default (DEFAULT_REVIEW_INTERVAL_DAYS, 180), or send 0 for no expiry.
+curl -X POST "${auth[@]}" -H 'Content-Type: application/json' \
+  "$TB/api/v1/answers/<id>/verify" -d '{"review_interval_days": 180}'
+
+curl -X DELETE "${auth[@]}" "$TB/api/v1/answers/<id>"
+```
+
+An hourly sweep flips any document or answer past its review-by date from `verified` to
+`stale`, so the dashboard can prompt for a re-review.
+
+---
+
+## Entities
+
+The entity index built during ingestion: the people, organizations, products, projects and
+places mentioned across your documents. Both routes reuse the same visibility predicate as
+search, so an entity is listed only when the caller can see at least one document mentioning
+it, and `document_count` counts only those documents.
+
+```bash
+# kind ∈ person|org|product|project|location|other; q substring-matches the name;
+# limit defaults to 50 (max 200). Most-mentioned first.
+curl "${auth[@]}" "$TB/api/v1/entities?kind=person&q=ada&limit=50"
+# -> [{id, kind, name, document_count}]
+
+# The caller-visible documents mentioning one entity, newest first (limit default 100).
+curl "${auth[@]}" "$TB/api/v1/entities/<entity_id>/documents"
+```
 
 ---
 
@@ -467,23 +683,37 @@ Response:
       "collection_id": "…", "chunk_index": 0,
       "score": 0.83, "snippet": "New hires accrue 15 days…"
     }
-  ]
+  ],
+  "answers": [
+    {
+      "id": "…", "question": "How much PTO do new hires get?",
+      "answer": "15 days, accrued monthly.", "verification_status": "verified"
+    }
+  ],
+  "insight_id": "…"
 }
 ```
 
 `hybrid: true` fuses vector + keyword (BM25-style) results via Reciprocal Rank Fusion. Omit
 `top_k` to use the server default (`RETRIEVAL_TOP_K`).
 
+`answers` carries up to three caller-visible [curated Answers](#answers), verified ones only,
+whose question shares a word with the query; clients surface them above the raw hits, and it
+is `[]` when none match. `insight_id` identifies the recorded query, and is what you submit
+to [`POST /feedback`](#governance--feedback) to rate the result.
+
 ### Chat (retrieval-augmented generation)
 
 ```bash
-# Non-streaming -> {answer, citations}
+# Non-streaming -> {answer, citations, insight_id, conversation_id, web_sources}
 curl -X POST "${auth[@]}" -H 'Content-Type: application/json' \
   "$TB/api/v1/search/chat" -d '{
     "query": "Summarize our PTO policy for a new hire.",
     "collection_ids": null,
     "top_k": 8,
     "model": null,
+    "conversation_id": null,
+    "web": false,
     "stream": false
   }'
 ```
@@ -491,14 +721,26 @@ curl -X POST "${auth[@]}" -H 'Content-Type: application/json' \
 ```json
 {
   "answer": "New hires accrue 15 days of PTO per year…",
-  "citations": [ { "document_title": "PTO Policy", "chunk_index": 0, "score": 0.83, "...": "..." } ]
+  "citations": [ { "document_title": "PTO Policy", "chunk_index": 0, "score": 0.83, "...": "..." } ],
+  "insight_id": "…",
+  "conversation_id": null,
+  "web_sources": []
 }
 ```
 
+`conversation_id` continues a [conversation](#conversations) - its recent turns ground the
+answer, both sides of this exchange are appended, and the id is echoed back (`404` when the
+thread isn't yours). `web: true` additionally grounds the answer in web-search results and
+returns them as `web_sources`; it is inert unless the deployment sets `WEB_SEARCH_PROVIDER`
+(default `none`; `stub` gives deterministic offline results, or name a real provider such as
+`tavily` and set `WEB_SEARCH_API_KEY`), and web results never widen document access.
+`insight_id` is the handle for [`POST /feedback`](#governance--feedback), as on `/search`.
+
 Streaming (`"stream": true`) returns `text/event-stream`. Each event is a `data:` line
 carrying a JSON frame: `{"type":"token","text":"…"}` for each answer delta, then a single
-`{"type":"citations","citations":[…]}` frame, and finally `data: [DONE]`. Concatenate the
-`token` frames to reconstruct the answer; the `citations` frame carries the sources:
+`citations` frame, and finally `data: [DONE]`. Concatenate the `token` frames to reconstruct
+the answer; the `citations` frame carries the sources plus the same `insight_id`,
+`conversation_id` and `web_sources` the non-streaming body returns:
 
 ```bash
 curl -N -X POST "${auth[@]}" -H 'Content-Type: application/json' \
@@ -508,16 +750,52 @@ curl -N -X POST "${auth[@]}" -H 'Content-Type: application/json' \
 ```text
 data: {"type": "token", "text": "New "}
 data: {"type": "token", "text": "hires "}
-data: {"type": "citations", "citations": [{"document_title": "PTO Policy", "score": 0.83, "...": "..."}]}
+data: {"type": "citations", "citations": [{"document_title": "PTO Policy", "score": 0.83, "...": "..."}], "insight_id": "…", "conversation_id": null, "web_sources": []}
 data: [DONE]
 ```
 
 The OpenAI-compatible `/v1/chat/completions` endpoint instead uses OpenAI's own
-`chat.completion.chunk` SSE shape (with a `citations` field on the terminal chunk).
+`chat.completion` / `chat.completion.chunk` shapes, with the `citations` array added to the
+non-streaming response object and to the terminal streaming chunk.
 
-`model` selects the completion model: the product alias `third-brain` (or an omitted
-`model`) resolves to `DEFAULT_COMPLETION_MODEL`; any other id (e.g. a connector's) is passed
-through to the provider.
+`model` overrides the completion model for this request. Omit it (or send `null`) to use your
+org's configured completion connector, falling back to `DEFAULT_COMPLETION_MODEL` when the
+org has none. The `third-brain` alias is understood only by the OpenAI-compatible
+`/v1/chat/completions`; `/api/v1/search/chat` forwards whatever id you send straight to your
+provider.
+
+---
+
+## Conversations
+
+Multi-turn threads for the assistant. These require a **user session**: an API key gets
+`403 This endpoint requires a user session`, since a key with no acting user owns nothing.
+Threads are strictly per-user - there is no admin carve-out, so nobody else in the org can
+read, append to or delete a member's history.
+
+```bash
+# Newest activity first
+curl -H "Authorization: Bearer $ACCESS_TOKEN" "$TB/api/v1/conversations"
+
+curl -X POST -H "Authorization: Bearer $ACCESS_TOKEN" -H 'Content-Type: application/json' \
+  "$TB/api/v1/conversations" -d '{
+    "title": "Onboarding questions",
+    "collection_ids": null,
+    "web_enabled": false
+  }'
+
+# Detail adds the thread's messages in order; each assistant turn carries its citations.
+curl -H "Authorization: Bearer $ACCESS_TOKEN" "$TB/api/v1/conversations/<id>"
+curl -X DELETE -H "Authorization: Bearer $ACCESS_TOKEN" "$TB/api/v1/conversations/<id>"
+```
+
+`collection_ids` and `web_enabled` are stored on the thread as preferences for a client to
+read back; they do not scope retrieval. The scope and web grounding of each turn come from
+the `collection_ids` / `web` fields on that `POST /search/chat` request.
+
+Pass the id as `conversation_id` on `POST /search/chat` to continue the thread. Each
+retrieval still runs through the permission engine, so history never widens what the caller
+can see.
 
 ---
 
@@ -562,6 +840,74 @@ rejected; Google Gemini does both (embeddings via `gemini-embedding-001` at the 
 
 ---
 
+## Data sources
+
+**Not the same thing as the Connectors above.** A connector points your org at an LLM
+provider endpoint; a *data source* syncs documents **and their source-system ACLs** from an
+external system into a target collection. Each source principal is mapped to a Third Brain
+user or team and materialised as ordinary `access_grants`, so the one permission engine
+enforces them with no special cases.
+
+Listing and reading a data source is open to any member; the principals/identities reads, every
+mutation (create, update, delete, sync) and all identity mapping require **admin**.
+
+```bash
+curl "${auth[@]}" "$TB/api/v1/data-sources"
+curl "${auth[@]}" "$TB/api/v1/data-sources/<id>"
+
+# kind ∈ local_folder|google_drive|slack|github|notion|confluence. `secret` is write-only
+# (encrypted at rest, never returned; `has_secret` reports whether one is stored).
+# sync_interval_minutes schedules the source; omit it to sync only on demand.
+curl -X POST "${auth[@]}" -H 'Content-Type: application/json' \
+  "$TB/api/v1/data-sources" -d '{
+    "name": "Handbook folder",
+    "kind": "local_folder",
+    "collection_id": "<id>",
+    "config": {"root": "/srv/knowledge/handbook"},
+    "default_visibility": "private",
+    "sync_interval_minutes": 60
+  }'
+
+# status ∈ active|paused|syncing|error; set paused/active to stop or resume scheduling.
+curl -X PATCH  "${auth[@]}" -H 'Content-Type: application/json' \
+  "$TB/api/v1/data-sources/<id>" -d '{"status": "paused"}'
+curl -X DELETE "${auth[@]}" "$TB/api/v1/data-sources/<id>"
+
+# Sync now, inline -> {created, updated, deleted, skipped}.
+# 403 when the deployment sets DATA_SOURCE_SYNC_ENABLED=false.
+curl -X POST "${auth[@]}" "$TB/api/v1/data-sources/<id>/sync"
+
+# The distinct source principals seen across this source's documents, with mapping status
+# -> [{provider, external_id, kind, document_count, mapped, mapped_user_id, mapped_team_id}]
+curl "${auth[@]}" "$TB/api/v1/data-sources/<id>/principals"
+
+# Identity mapping. Provide exactly one of user_id / team_id; kind ∈ user|group. Mapping
+# backfills grants for documents already synced -> {identity, grants_backfilled}.
+curl "${auth[@]}" "$TB/api/v1/data-sources/identities/all"
+curl -X POST "${auth[@]}" -H 'Content-Type: application/json' \
+  "$TB/api/v1/data-sources/identities" -d '{
+    "provider": "local_folder",
+    "external_id": "ada@example.com",
+    "kind": "user",
+    "user_id": "<uuid>"
+  }'
+curl -X DELETE "${auth[@]}" "$TB/api/v1/data-sources/identities/<identity_id>"
+```
+
+`local_folder` is the reference connector and the one that is live: it reads a server-side
+folder tree plus an optional `.acl.json` sidecar mapping paths to principals. Because it
+reads raw files off the server's own disk it stays disabled until an operator allow-lists
+absolute paths in `LOCAL_CONNECTOR_ROOTS`; a `root` that resolves outside them is rejected
+with `400`. The `google_drive`, `slack`, `github`, `notion` and `confluence` connectors
+validate and store their configuration today, but their live fetch is not enabled in this
+build - the sync engine, ACL mapping and identity resolution behind them are
+provider-agnostic and already done.
+
+Active sources that set `sync_interval_minutes` are swept by a worker cron every five
+minutes, and each source honours its own interval.
+
+---
+
 ## Permissions
 
 Manage `access_grants` and inspect effective permission. See
@@ -589,7 +935,46 @@ curl "${auth[@]}" "$TB/api/v1/permissions/effective?resource_type=document&resou
 
 ---
 
+## Governance & feedback
+
+Oversharing findings from the DLP scan, plus the feedback loop that turns ratings and
+zero-result queries into a knowledge-gap report.
+
+```bash
+# Oversharing report (admin): documents the DLP scan classified as sensitive that are also
+# broadly visible - org/public, whether by their own visibility or their collection's.
+curl "${auth[@]}" "$TB/api/v1/governance/oversharing"
+# -> {items: [{document_id, title, sensitivity, effective_visibility,
+#              collection_id, collection_name}],
+#     summary: {pii, confidential}, total_oversharing}
+
+# Rate a result. insight_id comes from the search/chat response; rating ∈ up|down.
+curl -X POST "${auth[@]}" -H 'Content-Type: application/json' \
+  "$TB/api/v1/feedback" -d '{"insight_id": "<id>", "rating": "down", "reason": "too vague"}'
+
+# Knowledge gaps (admin): zero-result and thumbs-down queries over a window.
+# days defaults to 30 and is clamped to 1-365.
+curl "${auth[@]}" "$TB/api/v1/feedback/gaps?days=30"
+# -> {window_days, total_queries, answered, unanswered, positive, negative,
+#     answered_rate, query_text_retained, top_gaps}
+
+# Raw query text is NOT stored by default, so top_gaps stays empty until an admin opts in.
+curl "${auth[@]}" "$TB/api/v1/feedback/retention"
+curl -X PUT "${auth[@]}" -H 'Content-Type: application/json' \
+  "$TB/api/v1/feedback/retention" -d '{"enabled": true}'
+```
+
+Remediating an oversharing finding is done through the existing surfaces - change the
+document's or collection's visibility, or its grants - the report itself is read-only.
+
+---
+
 ## Analytics
+
+All three routes are admin-level for API keys: `/overview` and `/usage` require a key with
+the `manage` scope (otherwise `403 API key missing required scope 'manage'`), and `/audit`
+requires the admin org role, which a key only holds when it carries `manage` or `*`.
+Dashboard sessions are unscoped, so scope gating applies to keys only.
 
 ```bash
 # Headline KPIs
@@ -613,13 +998,29 @@ the `search` scope and return only chunks/documents the caller may view.
 ```bash
 # Similarity graph of the caller's visible documents (nodes + weighted edges).
 # Query params: collection_id (optional), limit (default 400, max 1000),
-# min_similarity (0-1), max_neighbors (per-node edge cap).
+# min_similarity (0-1, default 0.15), max_neighbors (per-node edge cap, default 8, max 20).
 curl "${auth[@]}" "$TB/api/v1/graph?limit=400&min_similarity=0.2"
-# -> GraphResponse { nodes: [...], edges: [{source, target, weight}] }
+# -> GraphResponse { nodes: [...], edges: [{source, target, weight}],
+#                    truncated, total_visible, limit, min_similarity }
 
 # One document's nearest visible neighbors (404 if the document isn't visible).
 curl "${auth[@]}" "$TB/api/v1/graph/documents/<id>/neighbors?limit=12"
-# -> GraphNeighbors { document_id, neighbors: [{document_id, title, similarity}] }
+# -> GraphNeighbors { center_id, nodes: [...], edges: [{source, target, weight}] }
+#    nodes[0] is the center document; each edge's `weight` is its cosine similarity to it.
+```
+
+---
+
+## Health & version
+
+Unauthenticated operational endpoints. [DEPLOYMENT.md](./DEPLOYMENT.md) covers how to wire
+them into a load balancer and uptime checks.
+
+```bash
+curl "$TB/api/v1/health"        # always 200 -> {status: "ok"|"degraded", version, checks}
+curl "$TB/api/v1/health/live"   # cheap liveness, no dependency checks -> {status: "alive"}
+curl "$TB/api/v1/health/ready"  # 200 only when every dependency is reachable, else 503
+curl "$TB/api/v1/version"       # -> {version, git_commit, build_time, environment}
 ```
 
 ---
@@ -654,6 +1055,12 @@ curl -X POST "$TB/v1/embeddings" \
 # Models
 curl -H "Authorization: Bearer $TB_KEY" "$TB/v1/models"
 ```
+
+Two Third Brain extensions are accepted on `/v1/chat/completions` alongside the standard
+OpenAI fields: `collection_ids` (an array of collection UUID strings, to narrow retrieval)
+and `top_k` (1-50 grounding passages; defaults to `RETRIEVAL_TOP_K`). Responses carry one
+extension in return: a `citations` array, on the non-streaming `chat.completion` object and
+on the terminal streaming chunk.
 
 With the official OpenAI Python SDK:
 

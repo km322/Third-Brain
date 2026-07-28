@@ -27,7 +27,8 @@ There is **one product version** across the API, the worker, and the web app - t
 built, tagged, and released together.
 
 The root [`VERSION`](../VERSION) file is the **single source of truth**. The same version
-also appears as literals in `apps/api/app/__init__.py`, `apps/web/package.json`, and the
+also appears as literals in `apps/api/app/__init__.py`, `apps/web/package.json`,
+`packages/mcp-cli/package.json` (the published `third-brain-mcp` CLI), and the
 "Current version" line of [`ROADMAP.md`](./ROADMAP.md) - never edit any of them by hand.
 Run:
 

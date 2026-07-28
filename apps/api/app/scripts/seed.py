@@ -324,7 +324,7 @@ async def seed() -> None:
 
         await db.commit()
 
-    print("\n✅ Seed complete - Acme Inc. is ready to demo.\n")
+    print("\nSeed complete - Acme Inc. is ready to demo.\n")
     print("   Sign in (all share the same password):")
     print(f"     • {ADMIN_EMAIL}     (Owner)   - sees everything")
     print(f"     • {ENGINEER_EMAIL}  (Editor)  - handbook + engineering, NOT board/finance")
@@ -336,7 +336,7 @@ async def seed() -> None:
     print()
     print(f"   Admin API key: {full_key}")
     print("     ^ store this now; it is not shown again.\n")
-    print("   👉 Try the same question as different users in the Ask playground:")
+    print("   Try the same question as different users in the Ask playground:")
     print('        "What is the CEO\'s compensation and are we planning an acquisition?"')
     print("      Ada (admin) gets the answer from Board & Finance; Vera (viewer) gets nothing -")
     print("      permission-aware retrieval never leaks a chunk the asker can't see.\n")

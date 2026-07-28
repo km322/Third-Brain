@@ -371,10 +371,11 @@ export default function DocsPage() {
                 Every write is governed. An agent can only write where its key is allowed
                 - editor on the collection, plus an <Mono>ingest</Mono> or{" "}
                 <Mono>write</Mono> scope - and every write passes through the same secret
-                and PII scanner as a manual upload. A flagged <Mono>add_knowledge</Mono>{" "}
-                is parked as <Mono>quarantined</Mono> for human review and tells the model
-                why; a flagged <Mono>update_knowledge</Mono> is rejected outright, so a
-                leaked credential never reaches the index.
+                and PII scanners as a manual upload. An <Mono>add_knowledge</Mono> that
+                trips the secret scanner is parked as <Mono>quarantined</Mono> for human
+                review and tells the model why; an <Mono>update_knowledge</Mono> that
+                trips it is rejected outright, so a leaked credential never reaches the
+                index.
               </p>
               <p>
                 You can see exactly what your agents captured on the dashboard: the
@@ -447,11 +448,14 @@ export default function DocsPage() {
                 indirectly. The same gate governs what agents write back.
               </p>
               <p>
-                Content that looks like it holds secrets or PII is quarantined for human
-                review on the Documents page instead of being indexed. Every query is
-                scoped to a single organization, API keys are least-privilege and
-                rate-limited, and every search, ingest, agent write-back, and admin action
-                is recorded in an immutable audit log with actor, IP, and timestamp.
+                Content that looks like it holds credentials is quarantined for human
+                review on the Documents page instead of being indexed. Content classified
+                as PII or confidential is tagged with a sensitivity label and, when it is
+                visible org-wide, listed on the admin-only Oversharing page; a deployment
+                can opt to quarantine it instead. Every query is scoped to a single
+                organization, API keys are least-privilege and rate-limited, and every
+                search, ingest, agent write-back, and admin action is recorded in an
+                immutable audit log with actor, IP, and timestamp.
               </p>
             </Section>
           </div>

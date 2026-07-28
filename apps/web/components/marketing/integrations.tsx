@@ -15,7 +15,7 @@ const MANIFEST: ManifestRow[] = [
   },
   {
     label: "Capture from",
-    value: "Agents via add_knowledge · Files · Text · URLs",
+    value: "Agents via add_knowledge · Files · Images · Text · URLs",
   },
 ];
 

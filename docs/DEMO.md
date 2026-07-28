@@ -4,6 +4,11 @@ This is a scripted walkthrough that lands the core promise: **the documentation 
 Connect your agents, watch them capture a decision as they work, and see a teammate find it
 seconds later - all while permissions actually hold. It uses the seeded `Acme Inc.` demo data.
 
+Prefer to watch? The recorded walkthrough is
+[`assets/third-brain-demo.mp4`](assets/third-brain-demo.mp4) - 3 minutes, captioned on screen
+(there is no narration audio). It covers this script plus ingestion, the knowledge graph and the
+`third-brain-mcp` CLI run.
+
 The whole demo at a glance:
 
 ```mermaid
@@ -60,7 +65,7 @@ The three collections have contrasting visibility: **Company Handbook** (org-wid
 ### 1. The dashboard (~15s)
 Open <http://localhost:3000>, sign in as **admin@example.com**. Land on the dashboard:
 usage stats, then **Knowledge Bases** → three collections with visibility badges
-(Org / Team / Private). Open **Board & Finance** - the sensitive stuff lives here.
+(Organization / Team / Private). Open **Board & Finance** - the sensitive stuff lives here.
 
 ### 2. Ask the brain (~30s)
 Go to **Ask**. Ask:
@@ -113,9 +118,10 @@ The agent calls **`add_knowledge`**. Now switch to a browser signed in as
 > *"What's our new on-call rotation?"*
 
 The answer comes back **citing the decision the agent just wrote** - a document nobody sat down
-to author. Open **Documents** and turn on the **Agent-written** filter: the new entry is right
-there with its Agent-written badge, and the Overview's **Written by agents** card now lists it
-among the documents the agents captured. The knowledge was captured as a byproduct of the work.
+to author. Open **Documents** and switch the author filter from *Everyone* to **Written by
+agents**: the new entry is right there with its **Agent-written** badge, and the Overview's
+**Written by agents** card now lists it among the documents the agents captured. The knowledge
+was captured as a byproduct of the work.
 
 And it's still governed: the write landed in Engineering, so the **viewer** (Handbook-only) never
 sees it, and had the agent tried to paste a live credential, the secret scanner would have parked

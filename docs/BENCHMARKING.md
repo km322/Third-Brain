@@ -164,7 +164,7 @@ keep the harness itself from rotting.
   MRR, nDCG@k and hit-rate@k averaged over the query set. Read the numbers against the provider
   mode. **Offline** (the deterministic hash-based stub - the default with no keys) is *not*
   semantic, and many golden queries are deliberate paraphrases of their target documents, so
-  expect a modest baseline: roughly **hit-rate@5 / recall@5 ≈ 0.4–0.6 and MRR ≈ 0.4** on the
+  expect a modest baseline: roughly **hit-rate@5 / recall@5 ≈ 0.4-0.6 and MRR ≈ 0.4** on the
   shipped golden set, with the weakest ~third of (paraphrased) queries scoring near zero. That
   baseline exercises the lexical + fusion path and pins the permission-correctness gate; it is
   **not** a retrieval-quality claim. **Live** (real embeddings) is where semantic recall should

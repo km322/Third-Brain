@@ -4,8 +4,8 @@ How to run Third Brain locally. The fastest path is Docker Compose; this guide a
 covers running each piece **without Docker** for tight iteration and debugging.
 
 - [Prerequisites](#prerequisites)
-- [Option A - Docker Compose (recommended)](#option-a--docker-compose-recommended)
-- [Option B - run without Docker](#option-b--run-without-docker)
+- [Option A - Docker Compose (recommended)](#option-a---docker-compose-recommended)
+- [Option B - run without Docker](#option-b---run-without-docker)
 - [Environment variables](#environment-variables)
 - [Common tasks](#common-tasks)
 - [Project layout](#project-layout)
@@ -43,7 +43,7 @@ make up                 # == docker compose up --build
 
 # 3. In another shell, run migrations and seed a demo org.
 make migrate            # alembic upgrade head
-make seed               # creates a demo org, user and knowledge base
+make seed               # creates a demo org, three users and three knowledge bases
 ```
 
 Services:
@@ -56,8 +56,10 @@ Services:
 | localhost:5432 | Postgres |
 | localhost:6379 | Redis |
 
-The demo seed prints a login (`admin@example.com`), its randomly generated password, and
-a one-time API key - copy the password and the key; they are shown only once.
+The demo seed prints three logins that share one randomly generated password -
+`admin@example.com` (owner), `engineer@example.com` (editor) and `viewer@example.com`
+(viewer) - plus a one-time admin API key. Copy the password and the key; they are shown
+only once. Asking the same question as each user shows permission-aware retrieval.
 
 Handy Make targets: `make logs`, `make down`, `make shell` (api container), `make test`,
 `make lint`, `make fmt`. Run `make` with no arguments for the full list.
@@ -120,8 +122,9 @@ over the `.env` file.
 
 ### Background worker
 
-Ingestion (extract → chunk → embed → index) runs in an [`arq`](https://arq-docs.helpmanual.io/)
-worker so uploads return immediately. Run it in a second terminal (same virtualenv/env):
+Ingestion (extract → scan (secrets, DLP) → chunk → embed → index → enrich) runs in an
+[`arq`](https://arq-docs.helpmanual.io/) worker so uploads return immediately. Run it in a
+second terminal (same virtualenv/env):
 
 ```bash
 cd apps/api
@@ -157,7 +160,7 @@ Everything is configured through the root `.env` (template:
 | `REDIS_URL` | `redis://redis:6379/0` | Cache / rate-limit / queue. |
 | `EMBEDDING_MODEL` / `EMBEDDING_DIM` | `text-embedding-3-small` / `1536` | Must match - changing the dimension requires a re-index. |
 | `DEFAULT_COMPLETION_MODEL` | `gpt-4o-mini` | Default chat model. |
-| `CHUNK_SIZE_TOKENS` / `CHUNK_OVERLAP_TOKENS` | `512` / `64` | Token-aware chunking. |
+| `CHUNK_TARGET_TOKENS` / `CHUNK_SIZE_TOKENS` / `CHUNK_OVERLAP_TOKENS` | `768` / `1024` / `64` | Boundary-aware chunking: TARGET is the preferred size (a chunk closes at the next heading/paragraph/sentence boundary past it), SIZE is the hard ceiling, OVERLAP applies only to the forced split of a single oversized sentence. |
 | `RETRIEVAL_TOP_K` | `8` | Default number of hits. |
 | `OPENAI_API_KEY` / `OPENAI_BASE_URL` | _(blank)_ / `https://api.openai.com/v1` | OpenAI-compatible endpoint (OpenAI, Azure, Ollama, vLLM, …). Per-org overrides live in **Connectors**. |
 | `ANTHROPIC_API_KEY` / `GOOGLE_API_KEY` | _(blank)_ | Native Anthropic (completions only) and Google Gemini providers. All provider keys blank = offline stub. |
@@ -232,7 +235,7 @@ flowchart TD
 third-brain/
 ├── apps/
 │   ├── api/          # FastAPI backend (REST + OpenAI-compat + MCP) + arq workers
-│   └── web/          # Next.js 14 dashboard
+│   └── web/          # Next.js 15 dashboard
 ├── docs/             # this directory
 ├── .github/workflows # CI
 └── docker-compose.yml
@@ -253,8 +256,8 @@ the HTTP surface, and [`PERMISSIONS.md`](./PERMISSIONS.md) for the access model.
 - **Documents stuck in `pending`** - the `arq` worker isn't running. Start it (Option B)
   or check the `worker` container's logs (`make logs`).
 - **Alembic can't connect** - migrations use the **sync** psycopg URL derived from your
-  env. Ensure `psycopg[binary]` is installed (it's in the dev extras) and the DB host is
-  right.
+  env. Ensure `psycopg[binary]` is installed (it is a required runtime dependency, pulled
+  in by `pip install -e .`) and the DB host is right.
 - **`Can't locate revision identified by '0002_waitlist'`** - the pre-1.0 migrations were
   squashed into the single `0001_initial` baseline while the product was unreleased. Reset
   the dev DB (`docker compose down -v && make up-d && make migrate && make seed`) or keep

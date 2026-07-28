@@ -38,7 +38,7 @@ generation - it's *capturing what the work produces and governing who can see it
   buildable without per-client integrations.
 - **Embeddings + pgvector got cheap and good enough.** Permission-filtered semantic search over
   millions of chunks now runs on commodity Postgres, not a specialized vector DB fleet.
-- **Every company is standing up "AI" and hitting the governance wall.** 2024–2026 turned "let's
+- **Every company is standing up "AI" and hitting the governance wall.** 2024-2026 turned "let's
   try an LLM" into "we have eight of them and no policy." The pain is acute, budgeted, and
   board-level.
 - **Model churn is permanent.** Teams switch models monthly. Nobody wants their knowledge locked
@@ -96,7 +96,7 @@ agents captured), but the thing it governs is *knowledge* instead of tokens.
 
 ## Who it's for
 
-- **Beachhead: 50–1,000-person tech companies** already running multiple LLM tools who have hit
+- **Beachhead: 50-1,000-person tech companies** already running multiple LLM tools who have hit
   the governance wall. They have scattered knowledge, real ACL requirements, and a security team
   with veto power.
 - **Buyer:** Head of Platform / Eng / IT, increasingly a "Head of AI." **Champions:** the
@@ -134,13 +134,15 @@ we never mark up inference). We monetize the *governance and knowledge layer*, n
 | **Pro** | $49/mo | Teams putting knowledge to work | Unlimited members/teams · 100k docs · document-level permissions · hybrid search · analytics + audit · scoped API keys |
 | **Enterprise** | Custom | Scale & compliance | SSO/SAML + SCIM · self-host / private VPC · custom connectors · data residency · advanced governance · SLA |
 
-> Pricing tiers mirror the in-app pricing page (`apps/web`); the numeric caps in the table above
-> are target limits, **not yet defined or enforced in code**, so today every workspace gets the
+> Pricing tiers are directional and live only in this document - the marketing site is
+> waitlist-first and ships no pricing page; the numeric caps in the table above are target
+> limits, **not yet defined or enforced in code**, so today every workspace gets the
 > full governance/search/dashboard feature set regardless of tier. Several tier features are also
-> **on the [roadmap](./ROADMAP.md), not yet shipped**: billing collection (Stripe), SSO/SAML + SCIM,
-> transactional email, self-host / private VPC, live data-source connectors (Slack/Drive/Notion),
-> data residency, and reranking. Today the RBAC/ACL governance, hybrid search, and dashboard are
-> real; per-tier limits and automated charging are the next monetization unlocks.
+> **on the [roadmap](./ROADMAP.md), not yet shipped**: billing collection (Stripe), transactional
+> email beyond invites (an SMTP backend exists, but it defaults to the offline stub), self-host /
+> private VPC, live data-source connectors (Slack/Drive/Notion), data residency, and reranking.
+> Today the RBAC/ACL governance, hybrid search, SSO/SAML + SCIM, and dashboard are real; per-tier
+> limits and automated charging are the next monetization unlocks.
 
 Expansion levers (largely planned): seats, document/knowledge-base volume, premium connectors,
 reranking/eval add-ons, and Enterprise governance (residency, retention, dedicated support).
@@ -182,7 +184,8 @@ reranking/eval add-ons, and Enterprise governance (residency, retention, dedicat
    into the tools engineers already run. Ship a great Claude Desktop / Claude Code / Cursor
    experience and ride the MCP ecosystem as a discovery channel.
 3. **Expand to the org.** Free → Pro when a second team joins; Pro → Enterprise when security
-   asks for SSO, self-host, and audit - needs we've deliberately queued as monetization triggers.
+   asks for self-host, data residency, and an SLA - SSO/SAML + SCIM and audit already ship; the
+   remaining Enterprise needs are deliberately queued as monetization triggers.
 4. **Content on the auto-documentation wedge.** "The documentation writes itself while your team
    works" is the visceral, shareable hook; "and your internal LLM still can't see the comp doc" is
    the trust proof that closes it. Lead with capture, back it with governance.
@@ -192,11 +195,12 @@ reranking/eval add-ons, and Enterprise governance (residency, retention, dedicat
 > **No customers yet - this is the plan, not reported traction.** The numbers below are goals to
 > aim at, not metrics we have hit.
 
-- **0–6 mo:** OSS launch; 30-second quickstart; land the first self-serve teams; ship Stripe
+- **0-6 mo:** OSS launch; 30-second quickstart; land the first self-serve teams; ship Stripe
   billing and the first live connector (Slack) to convert Free → Pro.
-- **6–12 mo:** SSO/SAML + audit maturity to unlock the first Enterprise design partners;
-  reranking + eval harness to prove retrieval quality; publish permission-correctness benchmarks.
-- **12–24 mo:** self-host / private-VPC GA; connector marketplace; land regulated mid-market;
+- **6-12 mo:** land the first Enterprise design partners on the shipped SSO/SAML + SCIM and audit
+  surface; reranking + eval harness to prove retrieval quality; publish permission-correctness
+  benchmarks.
+- **12-24 mo:** self-host / private-VPC GA; connector marketplace; land regulated mid-market;
   grow ARR through strong net revenue retention driven by seats + volume.
 
 ## Risks & mitigations
@@ -208,8 +212,9 @@ reranking/eval add-ons, and Enterprise governance (residency, retention, dedicat
   developer-first. Incumbents are read-only search over what someone already wrote down; we
   capture what would never have been written down at all.
 - **Permission bugs are existential** (leaking a chunk destroys trust). → Single source of truth
-  in `services/permissions.py`, enforcement pushed into SQL, and a planned permission-correctness
-  eval harness gating every release.
+  in `services/permissions.py`, enforcement pushed into SQL, and a permission-correctness eval
+  harness that already ships (`make benchmark`, see [`BENCHMARKING.md`](./BENCHMARKING.md)) -
+  wiring it in as a hard release gate is near-term.
 - **Commoditization of RAG.** → Read-only RAG *is* the commodity - everyone has it. The moat is
   the write side: agents auto-documenting into a *governed, compounding* brain, plus the
   accumulated knowledge graph. We compete on capture, correctness, and lock-in-by-value, not on

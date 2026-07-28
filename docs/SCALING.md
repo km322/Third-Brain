@@ -33,7 +33,7 @@ Both are standard, and the code is already written for them (retrieval goes thro
 ## Where the volume is
 
 Everything hangs off one hot table: **`document_chunks`** (one embedded row per chunk).
-At ~3–5 chunks per document, 100M documents ≈ **0.3–0.5B chunks**. Sizing is dominated by the
+At ~3-5 chunks per document, 100M documents ≈ **0.3-0.5B chunks**. Sizing is dominated by the
 embedding vectors:
 
 | Embedding dim (float32) | Bytes/vector | 1M chunks | 10M | 100M | 500M |
@@ -122,7 +122,7 @@ flowchart LR
     clients["Clients<br/>(dashboard, /v1, MCP)"] --> lb["Load balancer"]
     lb --> api["Stateless API - N replicas<br/>(scale out freely)"]
     api -->|"embedding cache, rate limits,<br/>enqueue_ingest()"| redis[("Redis")]
-    redis -->|"arq job queue"| workers["arq workers - scale horizontally<br/>(extract, chunk, embed, index)"]
+    redis -->|"arq job queue"| workers["arq workers - scale horizontally<br/>(extract, scan, chunk, embed, index, enrich)"]
     api --> pgb["PgBouncer<br/>(transaction pooling)"]
     workers --> pgb
     pgb -->|"writes: ingestion, ACL changes"| primary[("Postgres primary<br/>+ pgvector HNSW")]
@@ -136,10 +136,10 @@ flowchart LR
   workers + many API replicas will otherwise exhaust connections.
 - **Read replicas** - route search/read traffic to replicas; keep writes (ingestion, ACL changes)
   on the primary.
-- **Ingestion throughput** - uploads return immediately; extract→chunk→embed→index runs on **arq
-  workers**. Scale workers horizontally; embeddings are batched per document (96 chunks per
-  provider call); the queue provides natural backpressure. The Redis embedding cache applies to
-  search-time query embeddings only (see Regime 1).
+- **Ingestion throughput** - uploads return immediately; extract → scan (secrets, DLP) → chunk →
+  embed → index → enrich runs on **arq workers**. Scale workers horizontally; embeddings are
+  batched per document (96 chunks per provider call); the queue provides natural backpressure.
+  The Redis embedding cache applies to search-time query embeddings only (see Regime 1).
 - **Rate limiting** - per-key fixed 60-second window in Redis; already stateless-friendly.
 
 ## Known code-level optimizations for very large tenants
@@ -158,8 +158,8 @@ These are correct-but-not-yet-optimized spots, called out honestly:
 | Scale (documents) | Recommended setup |
 |---|---|
 | ≤ ~1M | Default single-node Postgres + pgvector. Nothing to do. |
-| ~1M – ~20M | Single node, 512-d embeddings, tuned HNSW/`work_mem`, PgBouncer, a read replica. |
-| ~20M – ~100M+ | Partition `document_chunks` by `org_id` (Lever A) + replicas + worker autoscaling. |
+| ~1M - ~20M | Single node, 512-d embeddings, tuned HNSW/`work_mem`, PgBouncer, a read replica. |
+| ~20M - ~100M+ | Partition `document_chunks` by `org_id` (Lever A) + replicas + worker autoscaling. |
 | Hundreds of millions / mega-tenants | Dedicated vector DB via the `VectorStore` interface (Lever B); Postgres remains system of record. |
 
 The design goal is that moving between these regimes is **operational** (config, partitions, an

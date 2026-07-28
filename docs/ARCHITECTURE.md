@@ -30,7 +30,8 @@ flowchart TD
 
 ## 3. Core domain model
 
-All rows are scoped to an `organization` (multi-tenant). Primary keys are UUIDs.
+Almost every row is scoped to an `organization` (multi-tenant); `users` is a global identity
+and `waitlist_entries` (public signups) sits outside any org. Primary keys are UUIDs.
 
 | Entity | Purpose |
 |---|---|
@@ -40,12 +41,21 @@ All rows are scoped to an `organization` (multi-tenant). Primary keys are UUIDs.
 | `teams` / `team_members` | Groups for permissioning |
 | `api_keys` | Hashed programmatic credentials with scopes + rate limits |
 | `collections` | A knowledge base: default visibility + embedding config |
-| `documents` | A source doc (file/url/text); status = pending→indexed |
+| `documents` | A source doc (file/url/text/image); status = pending → processing → indexed \| quarantined \| failed |
 | `document_chunks` | Text chunk + `vector` embedding (the searchable unit) |
 | `access_grants` | ACL: (resource, principal, permission_level) |
 | `connectors` | Per-org LLM provider endpoint config for embeddings/completions |
 | `usage_records` | Per-call tokens/cost/latency for analytics + usage metering |
 | `audit_logs` | Immutable record of security-relevant actions |
+| `data_sources` / `external_identities` / `document_external_principals` | Knowledge connectors: synced documents plus the source system's ACL, mapped to users/teams and materialized into `access_grants` |
+| `entities` / `document_entities` | Named entities extracted at ingestion + the documents that mention them |
+| `answers` | Curated Q&A with a verification status; verified ones surface above raw hits |
+| `conversations` / `conversation_messages` | Assistant chat history that grounds follow-up questions |
+| `query_insights` | Per-query signals + ratings behind the knowledge-gap report |
+| `invites` | Pending email invitations (token stored hashed) |
+| `sso_connections` / `federated_identities` / `scim_tokens` | OIDC/SAML config, IdP subject mapping, SCIM provisioning tokens |
+| `device_authorizations` | CLI device-code sign-ins awaiting browser approval (org bound on approval) |
+| `waitlist_entries` | Public waitlist signups from the marketing site |
 
 ## 4. Permission model (the heart of the product)
 
@@ -55,7 +65,8 @@ Access is resolved as the **maximum** grant reachable by a principal:
 effective_permission(user, resource) =
     max(
         role_baseline(user.org_role),                       # org owners/admins see all
-        collection.default_permission if visibility allows, # ORG/TEAM/PRIVATE visibility
+        ownership,                                          # collection.owner_id == user => MANAGER
+        collection.default_permission if visibility allows, # PRIVATE/TEAM/ORG/PUBLIC visibility
         direct user grant on resource,                      # access_grants (principal=user)
         best team grant on resource for user's teams,       # access_grants (principal=team)
         inherited grant from the parent collection          # doc inherits collection grant
@@ -122,25 +133,39 @@ sequenceDiagram
 
 ## 6. Ingestion pipeline (write path)
 
-`upload/connect → extract → chunk → embed → index`
+`upload/connect → extract → scan (secrets, DLP) → chunk → embed → index → enrich`
 
 ```mermaid
 flowchart LR
     upload["Upload / connect<br/>(documents.status = pending)"] -->|"enqueue via Redis<br/>(inline fallback if no worker)"| worker
     subgraph worker["arq worker - ingest_document (status = processing)"]
-        extract["Extract text"] --> chunk["Chunk<br/>(token-aware, overlap)"]
+        extract["Extract text<br/>(images: vision summary + text transcription)"] --> scan["Secret scan<br/>(SECRET_SCAN_ENABLED, default on)"]
+        scan --> dlp["DLP / PII classify<br/>(DLP_ENABLED, default on)"]
+        dlp --> chunk["Chunk<br/>(boundary-aware, token-budgeted)"]
         chunk --> embed["Embed batches<br/>(LLM endpoint or stub)"]
         embed --> writeChunks["Write chunk rows<br/>+ vectors to pgvector"]
+        writeChunks --> entities["Entity extraction<br/>(best-effort, non-fatal)"]
     end
+    scan -->|"flagged"| quarantined["status = quarantined<br/>(awaits review)"]
+    dlp -->|"flagged and DLP_DEFAULT_ACTION=quarantine"| quarantined
     writeChunks --> indexed["status = indexed"]
     worker -->|"any failure"| failed["status = failed (+ error)"]
 ```
 
-- Accepts files (PDF, DOCX, MD, HTML, TXT, CSV), raw text, or URLs.
+- Accepts files (PDF, DOCX, MD, HTML, TXT, CSV/TSV, or a raster image), raw text, or URLs.
+  Images take a separate path: a vision model produces the indexed text (summary + transcribed
+  text), ending in a capability URL that serves the original bytes.
 - Extraction normalizes to text + structural metadata.
-- Chunking is token-aware with overlap; each chunk keeps a stable `chunk_index`.
+- Chunking is token-aware **and boundary-aware**: a chunk closes at the strongest nearby
+  boundary (heading > paragraph > sentence) once `CHUNK_TARGET_TOKENS` is reached, and is
+  force-closed at the `CHUNK_SIZE_TOKENS` ceiling. Natural chunks carry **no overlap**;
+  `CHUNK_OVERLAP_TOKENS` applies only to the fallback windowing of a single sentence that alone
+  exceeds the ceiling. Each chunk keeps a stable `chunk_index`.
 - Embedding + indexing run in **arq workers** so uploads return immediately; `documents.status`
-  transitions `pending → processing → indexed | failed`.
+  transitions `pending → processing → indexed | quarantined | failed`. A `quarantined` document
+  (secret scanner, or DLP when the deployment is configured to quarantine) leaves that state only
+  through review: approving it stamps a checksum-keyed approval and re-queues it as `pending`,
+  or it is deleted (see [`SECURITY.md`](./SECURITY.md)).
 - Re-ingestion (`reprocess`) atomically replaces a document's prior chunks under a per-document
   advisory lock, so a re-run never leaves duplicate or partial chunk sets. A SHA-256 `checksum`
   of the source bytes is stored for change detection/integrity (it is not yet used to skip

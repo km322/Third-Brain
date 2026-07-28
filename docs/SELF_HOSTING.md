@@ -1,11 +1,15 @@
 # Self-hosting
 
+> **Evaluation only, today.** Managed Third Brain is the product; self-hosting is not a
+> supported offering yet. The overlay below stands the full stack up on your own box so you
+> can try it, and running it in your own infrastructure as a supported product is on the
+> [roadmap](./ROADMAP.md).
+
 Third Brain runs entirely on your infrastructure. Your documents, embeddings, keys, and
 audit log live only in your Postgres, Redis, and upload directory. The vendor ships
 software; it never receives your data.
 
-This is the recommended path for teams that want to hold their own knowledge. For the
-general production runbook (managed datastores, Kubernetes, scaling), see
+For the general production runbook (managed datastores, Kubernetes, scaling), see
 [`DEPLOYMENT.md`](./DEPLOYMENT.md); this guide is the fast, all-on-your-host route.
 
 - [Why self-host](#why-self-host)

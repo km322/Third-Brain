@@ -2,11 +2,10 @@
 
 ### The documentation writes itself.
 
-<!-- Badges - replace placeholders once repo/CI/registry URLs are public -->
 [![CI](https://github.com/km322/Third-Brain/actions/workflows/ci.yml/badge.svg)](https://github.com/km322/Third-Brain/actions/workflows/ci.yml)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](./LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-3776AB.svg)](apps/api)
-[![Next.js 14](https://img.shields.io/badge/Next.js-14-000000.svg)](apps/web)
+[![Next.js 15](https://img.shields.io/badge/Next.js-15-000000.svg)](apps/web)
 
 **Third Brain turns the work your team already does with LLMs into documentation.** Connect
 its MCP server to the tools you already use - Claude Desktop, Claude Code, Cursor, your own
@@ -66,7 +65,7 @@ cp .env.example .env
 # 2. Bring up Postgres(+pgvector), Redis, API, worker and web
 make up            # or: docker compose up --build
 
-# 3. Run migrations + seed a demo org and knowledge base
+# 3. Run migrations + seed a demo org - 3 users, 3 knowledge bases
 make migrate && make seed
 
 # API      -> http://localhost:8000  (interactive docs at /docs)
@@ -76,7 +75,9 @@ make migrate && make seed
 Then sign in to the dashboard with the seeded demo login: `admin@example.com`, plus the
 password `make seed` just printed (randomly generated per seed - set `DEMO_PASSWORD` and the
 `DEMO_ADMIN_EMAIL` / `DEMO_ENGINEER_EMAIL` / `DEMO_VIEWER_EMAIL` addresses in `.env` before
-seeding to choose your own).
+seeding to choose your own). The seed also creates `engineer@example.com` and
+`viewer@example.com`, sharing that same password, so you can ask the same question as three
+different roles and watch what each one is allowed to see.
 
 > [!TIP]
 > Add a real `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, or `GOOGLE_API_KEY` to `.env` for real
@@ -85,8 +86,16 @@ seeding to choose your own).
 > **offline** search rankings and answers exercise the full pipeline end-to-end but aren't a
 > measure of retrieval *quality* - set a key to judge relevance.
 
-<!-- TODO: replace with a dashboard screenshot / asciicast -->
-<p align="center"><img alt="Third Brain dashboard - screenshot / asciicast placeholder" src="https://placehold.co/1200x680/0b0b0f/e5e5e5?text=Third+Brain+dashboard+%E2%80%94+demo+coming+soon" width="820"></p>
+<p align="center">
+  <a href="docs/assets/third-brain-demo.mp4">
+    <img alt="The Third Brain knowledge graph - 13 documents wired together by meaning across 63 links" src="docs/assets/third-brain-demo-poster.webp" width="820">
+  </a>
+</p>
+<p align="center">
+  <a href="docs/assets/third-brain-demo.mp4"><strong>Watch the 3-minute demo</strong></a><br>
+  <sub>Ingest a document, ask a governed question, watch an agent capture a decision - and watch the same
+  question return nothing to someone who isn't allowed to see it. Script: <a href="docs/DEMO.md">docs/DEMO.md</a>.</sub>
+</p>
 
 ---
 
@@ -200,13 +209,16 @@ third-brain/
 │   │   │   └── mcp/          # Model Context Protocol server
 │   │   ├── alembic/          # migrations
 │   │   └── tests/
-│   └── web/            # Next.js 14 frontend (marketing site + dashboard)
+│   └── web/            # Next.js 15 frontend (marketing site + dashboard)
 │       ├── app/
 │       │   ├── (marketing)/  # landing, ...
 │       │   ├── (auth)/       # login, signup
 │       │   └── dashboard/    # the app
 │       ├── components/
 │       └── lib/
+├── packages/
+│   └── mcp-cli/        # third-brain-mcp - the npm CLI (device auth, client install, stdio bridge)
+├── scripts/            # version bump, release, rollback, self-host bootstrap
 ├── docs/               # architecture, API, permissions, security, vision & roadmap
 ├── .github/workflows/  # CI (lint, unit + real-infra integration tests, e2e)
 └── docker-compose.yml  # one-command local stack (prod topology: docker-compose.prod.yml)

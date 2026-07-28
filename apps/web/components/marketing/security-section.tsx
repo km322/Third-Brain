@@ -25,6 +25,11 @@ const CONTROLS: Control[] = [
       "Least-privilege keys with read/write scopes, per-minute rate limits and act-as-user delegation; device-code sign-in mints them admin-approved.",
   },
   {
+    title: "SSO & SCIM",
+    description:
+      "SAML 2.0 and OIDC sign-in with just-in-time provisioning; SCIM 2.0 provisions and deactivates users, and identity-provider groups arrive as teams.",
+  },
+  {
     title: "Encrypted secrets",
     description:
       "Connector credentials are encrypted at rest; API-key secrets are shown once, then hashed.",
@@ -36,7 +41,7 @@ const CONTROLS: Control[] = [
   },
 ];
 
-const ROADMAP = ["SSO / SAML & SCIM", "Self-hosting", "Data residency", "SOC 2"];
+const ROADMAP = ["Self-hosting", "Data residency", "SOC 2"];
 
 export function SecuritySection() {
   return (

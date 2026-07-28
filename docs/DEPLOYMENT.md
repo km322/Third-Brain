@@ -5,10 +5,12 @@ How to run Third Brain in production. The stack is three long-running processes 
 with `pgvector`** and **Redis 7**.
 
 > **Want to hold your own data?** For teams running Third Brain on their own infrastructure,
-> [`SELF_HOSTING.md`](./SELF_HOSTING.md) is the recommended path - a one-command
-> (`make selfhost`), all-on-your-host setup where your documents, embeddings, keys, and audit
-> log never leave datastores you run. This document is the deeper production runbook (managed
-> datastores, Kubernetes, scaling) it builds on.
+> [`SELF_HOSTING.md`](./SELF_HOSTING.md) documents the evaluation-only self-host overlay - a
+> one-command (`make selfhost`), all-on-your-host setup where your documents, embeddings,
+> keys, and audit log never leave datastores you run. This document is the deeper production
+> runbook (managed datastores, Kubernetes, scaling) it builds on. Third Brain is
+> managed-only today; supported self-hosting is on the [roadmap](./ROADMAP.md), not a
+> shipped offering.
 
 - [Architecture recap](#architecture-recap)
 - [Prerequisites](#prerequisites)
@@ -99,13 +101,30 @@ NEXT_PUBLIC_API_URL=https://api.third-brain.ai
 # ingestion (the URL an LLM fetches to view the original image); with the default
 # (http://localhost:8000) every image indexed carries a dead link until reprocessed.
 PUBLIC_API_URL=https://api.third-brain.ai
+
+# Public origin of the web app. Invite accept links, the CLI device-auth /activate
+# URL and the default SSO redirect_uri are built from this; with the default
+# (http://localhost:3000) every one of those links is dead.
+APP_BASE_URL=https://third-brain.ai
+
+# Transactional email, needed to invite teammates. The default provider is `stub`,
+# which captures messages in-process and never sends, and the accept link is never
+# shown in the dashboard - so invites go nowhere until this is configured.
+EMAIL_PROVIDER=smtp
+EMAIL_FROM=Third Brain <no-reply@third-brain.ai>
+SMTP_HOST=smtp.example.com
+SMTP_PORT=587
+SMTP_USERNAME=...
+SMTP_PASSWORD=...
+SMTP_USE_TLS=true
 ```
 
 Tuning knobs worth setting explicitly in production:
 
 | Variable | Guidance |
 |---|---|
-| `DB_POOL_SIZE` / `DB_MAX_OVERFLOW` | Size to `(pool + overflow) × replicas ≤ Postgres max_connections`. Defaults 10 / 20. |
+| `DB_POOL_SIZE` / `DB_MAX_OVERFLOW` | Defaults 10 / 20. Every API and worker **process** opens its own pool, so size to `(pool + overflow) × processes ≤ Postgres max_connections` - an API replica runs `UVICORN_WORKERS` of them. |
+| `UVICORN_WORKERS` | Uvicorn worker processes per API container; `docker-compose.prod.yml` reads it from `.env` (default 4). |
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | Short (default 30). |
 | `DEFAULT_RATE_LIMIT_PER_MINUTE` | Global default; per-key limits override it. |
 | `EMBEDDING_MODEL` / `EMBEDDING_DIM` | Must match the model. **Changing the dimension requires a full re-index.** |
@@ -256,12 +275,12 @@ every schema change must ship as a new Alembic revision.
 
 ## Scaling
 
-- **API** - stateless. Scale horizontally behind a load balancer; increase `--workers`
+- **API** - stateless. Scale horizontally behind a load balancer; increase `UVICORN_WORKERS`
   per replica for CPU parallelism. Watch the DB connection budget (`DB_POOL_SIZE`).
-- **Workers** - the ingestion pipeline (extract → chunk → embed → index) is the throughput
-  bottleneck. Scale `worker` replicas to raise concurrency; each pulls jobs from the shared
-  Redis queue, so adding replicas is safe and linear. Embedding latency is provider-bound,
-  so more workers mainly help under bursty uploads.
+- **Workers** - the ingestion pipeline (extract → scan (secrets, DLP) → chunk → embed →
+  index → enrich) is the throughput bottleneck. Scale `worker` replicas to raise concurrency;
+  each pulls jobs from the shared Redis queue, so adding replicas is safe and linear.
+  Embedding latency is provider-bound, so more workers mainly help under bursty uploads.
 - **Postgres** - vertical first (RAM for the HNSW index, CPU for ANN). Add read replicas
   for analytics-heavy read load. Ensure the ANN index exists and is warm.
 - **Redis** - usually not a bottleneck; size memory for cached embeddings + hot search
@@ -393,7 +412,8 @@ full runbook.
 - [ ] `IMAGE_TAG` pinned to a released version (`vX.Y.Z`) - never deploy `:latest`.
 - [ ] `STORAGE_BACKEND=s3` with a durable bucket (versioning on).
 - [ ] `BACKEND_CORS_ORIGINS` locked to real origins; TLS everywhere.
+- [ ] `APP_BASE_URL` set to the real dashboard origin (invite + device-auth links).
 - [ ] At least one LLM provider key or per-org Connector configured.
 - [ ] `/api/v1/health` wired to the load balancer + uptime alerts.
-- [ ] Worker replicas sized for ingestion load; API `--workers` sized to DB pool.
+- [ ] Worker replicas sized for ingestion load; `UVICORN_WORKERS` sized to the DB pool budget.
 - [ ] Automated DB backups + tested restore; log shipping in place.

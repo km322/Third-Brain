@@ -39,7 +39,20 @@ const nextConfig = {
       { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=()" },
       { key: "X-DNS-Prefetch-Control", value: "off" },
     ];
-    return [{ source: "/:path*", headers: securityHeaders }];
+    return [
+      { source: "/:path*", headers: securityHeaders },
+      // Static media under public/media is content-addressed by name (the
+      // rendition is in the filename), so it can be frozen at the edge. Without
+      // this Next serves public/ as `max-age=0`, which makes the CDN in front of
+      // production revalidate - and re-stream the multi-megabyte demo from the
+      // origin - on every play. Rename the file when the content changes.
+      {
+        source: "/media/:path*",
+        headers: [
+          { key: "Cache-Control", value: "public, max-age=31536000, immutable" },
+        ],
+      },
+    ];
   },
 };
 
