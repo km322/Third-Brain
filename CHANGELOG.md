@@ -9,6 +9,8 @@ version covers the API, the worker, and the web app - they release together, and
 
 ## [Unreleased]
 
+## [1.0.4] - 2026-07-27
+
 ### Added
 
 - A recorded three-minute product walkthrough, embedded on the marketing landing page as a
@@ -21,6 +23,7 @@ version covers the API, the worker, and the web app - they release together, and
   all. A second encode of the same walkthrough ships in the repo at
   [`docs/assets/third-brain-demo.mp4`](docs/assets/third-brain-demo.mp4); it replaces the
   placeholder image in the README, and [`docs/DEMO.md`](docs/DEMO.md) links to it.
+
 ### Changed
 
 - **Documentation corrected against the code.** A full accuracy pass over the README and
@@ -200,7 +203,8 @@ Initial release.
 - **Offline deterministic LLM stub** - the whole stack builds, seeds, and passes tests
   with zero provider keys.
 
-[Unreleased]: https://github.com/km322/Third-Brain/compare/v1.0.3...HEAD
+[Unreleased]: https://github.com/km322/Third-Brain/compare/v1.0.4...HEAD
+[1.0.4]: https://github.com/km322/Third-Brain/releases/tag/v1.0.4
 [1.0.3]: https://github.com/km322/Third-Brain/releases/tag/v1.0.3
 [1.0.2]: https://github.com/km322/Third-Brain/releases/tag/v1.0.2
 [1.0.1]: https://github.com/km322/Third-Brain/releases/tag/v1.0.1
