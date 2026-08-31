@@ -37,9 +37,9 @@ export function Integrations() {
             Works with what you already run.
           </h2>
           <p className="mt-6 text-pretty text-lg leading-relaxed text-muted-foreground sm:text-xl">
-            One command wires Claude, Claude Code, Cursor or your agents into the
-            brain over MCP. Generate with Anthropic, Gemini or any
-            OpenAI-compatible endpoint. No lock-in.
+            One command wires Claude, Claude Code, Cursor or your agents into the brain
+            over MCP. Generate with Anthropic, Gemini or any OpenAI-compatible endpoint.
+            No lock-in.
           </p>
         </div>
 
@@ -58,10 +58,7 @@ export function Integrations() {
 
         <div className="mx-auto mt-12 max-w-3xl divide-y divide-border/60">
           {MANIFEST.map((row) => (
-            <div
-              key={row.label}
-              className="grid gap-4 py-5 sm:grid-cols-[160px_1fr]"
-            >
+            <div key={row.label} className="grid gap-4 py-5 sm:grid-cols-[160px_1fr]">
               <p className="text-sm font-medium text-foreground">{row.label}</p>
               <p className="text-sm text-muted-foreground">{row.value}</p>
             </div>
@@ -80,9 +77,7 @@ export function Integrations() {
               </span>
               <span className="text-foreground">{endpoint.path}</span>
               {endpoint.note && (
-                <span className="text-muted-foreground/70">
-                  · {endpoint.note}
-                </span>
+                <span className="text-muted-foreground/70">· {endpoint.note}</span>
               )}
             </p>
           ))}

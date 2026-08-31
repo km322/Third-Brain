@@ -158,5 +158,5 @@ Both are **grounded in Acme's knowledge and filtered to that key's permissions**
 > written back by the agents as they go - into one governed brain every client can search, and
 > **no one ever retrieves what they're not allowed to see.**
 
-For the business case behind this, see [`VISION.md`](./VISION.md). For how the permission
-engine works, see [`PERMISSIONS.md`](./PERMISSIONS.md).
+For why this exists, see [`VISION.md`](./VISION.md). For how the permission engine works, see
+[`PERMISSIONS.md`](./PERMISSIONS.md).

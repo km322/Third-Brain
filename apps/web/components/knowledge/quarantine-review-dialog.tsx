@@ -5,7 +5,10 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Loader2, ShieldAlert, ShieldCheck, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
-import { PermissionBadge, PERMISSION_LABELS } from "@/components/governance/permission-select";
+import {
+  PermissionBadge,
+  PERMISSION_LABELS,
+} from "@/components/governance/permission-select";
 import { VisibilityBadge } from "@/components/knowledge/visibility-badge";
 import { Badge, type BadgeProps } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -35,7 +38,10 @@ import type {
   Visibility,
 } from "@/lib/types";
 
-const SEVERITY_VARIANT: Record<SecretFinding["severity"], NonNullable<BadgeProps["variant"]>> = {
+const SEVERITY_VARIANT: Record<
+  SecretFinding["severity"],
+  NonNullable<BadgeProps["variant"]>
+> = {
   high: "destructive",
   medium: "warning",
   low: "muted",
@@ -43,7 +49,10 @@ const SEVERITY_VARIANT: Record<SecretFinding["severity"], NonNullable<BadgeProps
 
 /** Label + reach clause for a document-level visibility override, per level. */
 const VISIBILITY_OVERRIDE: Record<Visibility, { label: string; reach: string }> = {
-  private: { label: "Private", reach: "readable only by people explicitly granted access" },
+  private: {
+    label: "Private",
+    reach: "readable only by people explicitly granted access",
+  },
   team: { label: "Team", reach: "readable by members of the team it is shared with" },
   org: { label: "Organization", reach: "readable by everyone in the organization" },
   public: {
@@ -192,7 +201,8 @@ export function QuarantineReviewDialog({
       onOpenChange(false);
       onResolved?.();
       toast.info("Already resolved", {
-        description: "Someone else already reviewed this document. The list has been refreshed.",
+        description:
+          "Someone else already reviewed this document. The list has been refreshed.",
       });
       return;
     }
@@ -202,7 +212,10 @@ export function QuarantineReviewDialog({
   const approve = useMutation({
     mutationFn: () => api.post<DocumentItem>(`/documents/${documentId}/approve`),
     onSuccess: () =>
-      settle("Document approved", "Indexing has started - it will be searchable shortly."),
+      settle(
+        "Document approved",
+        "Indexing has started - it will be searchable shortly.",
+      ),
     onError: (err) => handleMutationError(err, "Failed to approve"),
   });
 
@@ -231,8 +244,8 @@ export function QuarantineReviewDialog({
                 <span className="font-medium text-foreground">
                   {review.document.title}
                 </span>{" "}
-                was quarantined before indexing because it appears to contain
-                secrets. Nothing has been indexed or made searchable.
+                was quarantined before indexing because it appears to contain secrets.
+                Nothing has been indexed or made searchable.
               </>
             ) : (
               "This document was quarantined before indexing because it appears " +
@@ -271,8 +284,9 @@ export function QuarantineReviewDialog({
                       <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0" />
                       <span>
                         This document overrides the collection visibility to{" "}
-                        {VISIBILITY_OVERRIDE[review.document.visibility].label} - it will be{" "}
-                        {VISIBILITY_OVERRIDE[review.document.visibility].reach} once indexed.
+                        {VISIBILITY_OVERRIDE[review.document.visibility].label} - it will
+                        be {VISIBILITY_OVERRIDE[review.document.visibility].reach} once
+                        indexed.
                       </span>
                     </div>
                   ) : null}
@@ -286,7 +300,8 @@ export function QuarantineReviewDialog({
                         <p className="text-xs text-muted-foreground">
                           {formatNumber(review.audience.total_users)}{" "}
                           {review.audience.total_users === 1 ? "person" : "people"} with
-                          access: {permissionBreakdown(review.audience.permission_counts)}.
+                          access: {permissionBreakdown(review.audience.permission_counts)}
+                          .
                         </p>
                       ) : null}
                       <ul className="divide-y rounded-lg border bg-card">

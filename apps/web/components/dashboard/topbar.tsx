@@ -46,9 +46,7 @@ function OrgSwitcher() {
       await switchOrg(orgId);
     } catch (e) {
       // e.g. a suspended membership 403s - surface it instead of failing silently.
-      toast.error(
-        e instanceof ApiError ? e.message : "Couldn't switch organization",
-      );
+      toast.error(e instanceof ApiError ? e.message : "Couldn't switch organization");
     } finally {
       setPending(null);
     }
@@ -87,9 +85,7 @@ function OrgSwitcher() {
               {initials(o.name)}
             </span>
             <span className="truncate">{o.name}</span>
-            {o.id === org?.id && (
-              <Check className="ml-auto h-4 w-4 text-primary" />
-            )}
+            {o.id === org?.id && <Check className="ml-auto h-4 w-4 text-primary" />}
           </DropdownMenuItem>
         ))}
         <DropdownMenuSeparator />
@@ -129,11 +125,7 @@ function UserMenu() {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button
-          variant="ghost"
-          className="h-9 gap-2 px-1.5"
-          aria-label="Account menu"
-        >
+        <Button variant="ghost" className="h-9 gap-2 px-1.5" aria-label="Account menu">
           <Avatar className="h-7 w-7">
             {user?.avatar_url ? (
               <AvatarImage src={user.avatar_url} alt={user.full_name ?? ""} />
@@ -151,12 +143,8 @@ function UserMenu() {
             <AvatarFallback>{initials(user?.full_name || user?.email)}</AvatarFallback>
           </Avatar>
           <div className="min-w-0">
-            <p className="truncate text-sm font-medium">
-              {user?.full_name || "-"}
-            </p>
-            <p className="truncate text-xs text-muted-foreground">
-              {user?.email}
-            </p>
+            <p className="truncate text-sm font-medium">{user?.full_name || "-"}</p>
+            <p className="truncate text-xs text-muted-foreground">{user?.email}</p>
           </div>
         </div>
         {role && (

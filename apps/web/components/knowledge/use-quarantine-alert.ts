@@ -46,9 +46,7 @@ export function useQuarantineAlert(
         const review = onReviewRef.current;
         toast.warning("Possible secrets detected", {
           description: `"${doc.title}" was quarantined before indexing. Review it to decide what happens.`,
-          action: review
-            ? { label: "Review", onClick: () => review(doc) }
-            : undefined,
+          action: review ? { label: "Review", onClick: () => review(doc) } : undefined,
         });
       }
       if (doc.status === "quarantined") {

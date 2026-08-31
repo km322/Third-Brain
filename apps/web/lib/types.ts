@@ -4,26 +4,15 @@
 export type OrgRole = "owner" | "admin" | "editor" | "viewer";
 export type MembershipStatus = "active" | "invited" | "suspended";
 export type TeamRole = "lead" | "member";
-export type PlanTier = "free" | "pro" | "enterprise";
 export type Visibility = "private" | "team" | "org" | "public";
 export type PermissionLevel = "none" | "viewer" | "editor" | "manager";
 export type PrincipalType = "user" | "team";
 export type ResourceType = "collection" | "document";
 export type DocumentStatus =
-  | "pending"
-  | "processing"
-  | "indexed"
-  | "failed"
-  | "archived"
-  | "quarantined";
+  "pending" | "processing" | "indexed" | "failed" | "archived" | "quarantined";
 export type SourceType = "file" | "text" | "url" | "connector";
 export type ConnectorType =
-  | "openai"
-  | "azure_openai"
-  | "ollama"
-  | "custom"
-  | "anthropic"
-  | "google";
+  "openai" | "azure_openai" | "ollama" | "custom" | "anthropic" | "google";
 export type ConnectorPurpose = "embedding" | "completion";
 export type UsageKind = "embedding" | "completion" | "search" | "ingest";
 
@@ -48,7 +37,6 @@ export interface Organization {
   id: string;
   name: string;
   slug: string;
-  plan: PlanTier;
   created_at: string;
 }
 
@@ -368,22 +356,11 @@ export interface CurrentUser {
 export type VerificationStatus = "unverified" | "verified" | "stale";
 export type SensitivityLevel = "none" | "pii" | "confidential";
 export type DataSourceKind =
-  | "local_folder"
-  | "google_drive"
-  | "slack"
-  | "github"
-  | "notion"
-  | "confluence";
+  "local_folder" | "google_drive" | "slack" | "github" | "notion" | "confluence";
 export type DataSourceStatus = "active" | "paused" | "syncing" | "error";
 export type ExternalPrincipalKind = "user" | "group";
 export type FeedbackRating = "up" | "down";
-export type EntityKind =
-  | "person"
-  | "org"
-  | "product"
-  | "project"
-  | "location"
-  | "other";
+export type EntityKind = "person" | "org" | "product" | "project" | "location" | "other";
 export type SsoProtocol = "oidc" | "saml";
 export type InviteStatus = "pending" | "accepted" | "revoked" | "expired";
 

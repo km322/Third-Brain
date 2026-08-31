@@ -25,7 +25,6 @@ function errMsg(e: unknown, fallback: string) {
   return e instanceof ApiError ? e.message : fallback;
 }
 
-
 export default function DocumentDetailPage({
   params,
 }: {
@@ -121,8 +120,8 @@ export default function DocumentDetailPage({
   const editable = (contentQuery.data?.editable ?? false) && !isImage;
   const convertsToText = Boolean(
     contentQuery.data &&
-      contentQuery.data.mime_type &&
-      !contentQuery.data.mime_type.startsWith("text/"),
+    contentQuery.data.mime_type &&
+    !contentQuery.data.mime_type.startsWith("text/"),
   );
 
   if (docQuery.isLoading) {
@@ -214,15 +213,18 @@ export default function DocumentDetailPage({
               <Skeleton className="h-[420px] w-full" />
             ) : contentQuery.isError ? (
               <Card className="p-6 text-sm text-muted-foreground">
-                {errMsg(contentQuery.error, "This document's source is not editable text.")}{" "}
+                {errMsg(
+                  contentQuery.error,
+                  "This document's source is not editable text.",
+                )}{" "}
                 The indexed chunks are still available in the Chunks tab.
               </Card>
             ) : (
               <div className="space-y-3">
                 {editable && convertsToText ? (
                   <p className="text-xs text-muted-foreground">
-                    This document was ingested from {contentQuery.data?.mime_type}; you are
-                    editing its extracted text, and saving stores it as plain text.
+                    This document was ingested from {contentQuery.data?.mime_type}; you
+                    are editing its extracted text, and saving stores it as plain text.
                   </p>
                 ) : null}
                 <div className="grid gap-4 lg:grid-cols-2">

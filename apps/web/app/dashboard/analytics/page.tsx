@@ -75,25 +75,19 @@ export default function UsagePage() {
       id: "requests",
       header: "Requests",
       align: "right",
-      cell: (row) => (
-        <span className="tabular-nums">{formatNumber(row.requests)}</span>
-      ),
+      cell: (row) => <span className="tabular-nums">{formatNumber(row.requests)}</span>,
     },
     {
       id: "tokens",
       header: "Tokens",
       align: "right",
-      cell: (row) => (
-        <span className="tabular-nums">{formatNumber(row.tokens)}</span>
-      ),
+      cell: (row) => <span className="tabular-nums">{formatNumber(row.tokens)}</span>,
     },
     {
       id: "cost",
       header: "Cost",
       align: "right",
-      cell: (row) => (
-        <span className="tabular-nums">{formatCurrency(row.cost_usd)}</span>
-      ),
+      cell: (row) => <span className="tabular-nums">{formatCurrency(row.cost_usd)}</span>,
     },
   ];
 
@@ -103,12 +97,9 @@ export default function UsagePage() {
     <div className="space-y-6">
       <PageHeader
         title="Usage"
-        description="Requests, tokens and estimated cost across your organization."
+        description="Requests, tokens and estimated spend on your own model provider keys."
         actions={
-          <Tabs
-            value={String(days)}
-            onValueChange={(v) => setDays(Number(v))}
-          >
+          <Tabs value={String(days)} onValueChange={(v) => setDays(Number(v))}>
             <TabsList>
               {RANGES.map((r) => (
                 <TabsTrigger key={r.value} value={String(r.value)}>
@@ -143,7 +134,7 @@ export default function UsagePage() {
               loading={loading}
             />
             <StatCard
-              label="Estimated cost"
+              label="Estimated provider cost"
               value={data ? formatCurrency(data.total_cost_usd) : "-"}
               icon={DollarSign}
               hint={`last ${rangeLabel}`}
@@ -169,32 +160,24 @@ export default function UsagePage() {
           <div className="grid gap-6 lg:grid-cols-2">
             <Card className="flex flex-col p-5">
               <div className="mb-4 space-y-0.5">
-                <h3 className="text-sm font-semibold tracking-tight">
-                  Requests by type
-                </h3>
+                <h3 className="text-sm font-semibold tracking-tight">Requests by type</h3>
                 <p className="text-xs text-muted-foreground">
                   Where your request volume goes
                 </p>
               </div>
-              <BarByKind
-                data={data?.by_kind ?? []}
-                metric="requests"
-                loading={loading}
-              />
+              <BarByKind data={data?.by_kind ?? []} metric="requests" loading={loading} />
             </Card>
 
             <Card className="flex flex-col p-5">
               <div className="mb-4 space-y-0.5">
-                <h3 className="text-sm font-semibold tracking-tight">
-                  Cost by type
-                </h3>
+                <h3 className="text-sm font-semibold tracking-tight">Cost by type</h3>
                 <p className="text-xs text-muted-foreground">
-                  Estimated spend distribution
+                  Estimated provider spend distribution
                 </p>
               </div>
               <DonutChart
                 data={costSegments}
-                centerLabel="Total spend"
+                centerLabel="Provider spend"
                 formatValue={formatCurrency}
                 loading={loading}
                 emptyMessage="No spend for this period."
@@ -205,9 +188,7 @@ export default function UsagePage() {
 
           <div className="space-y-3">
             <div className="space-y-0.5">
-              <h3 className="text-sm font-semibold tracking-tight">
-                Breakdown by type
-              </h3>
+              <h3 className="text-sm font-semibold tracking-tight">Breakdown by type</h3>
               <p className="text-xs text-muted-foreground">
                 Per-type requests, tokens and cost over the last {rangeLabel}
               </p>

@@ -30,12 +30,6 @@ class MembershipStatus(str, Enum):
     SUSPENDED = "suspended"
 
 
-class PlanTier(str, Enum):
-    FREE = "free"
-    PRO = "pro"
-    ENTERPRISE = "enterprise"
-
-
 class Visibility(str, Enum):
     """Default reach of a collection/document, before explicit ACL grants."""
 

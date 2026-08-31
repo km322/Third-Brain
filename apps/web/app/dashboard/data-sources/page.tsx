@@ -33,7 +33,9 @@ import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
@@ -73,6 +75,16 @@ const KIND_LABELS: Record<DataSourceKind, string> = {
   notion: "Notion",
   confluence: "Confluence",
 };
+
+/**
+ * Kinds whose live fetch is implemented on the server. The rest validate and store
+ * their configuration today - the sync engine, source-ACL mapping and identity
+ * resolution behind them are provider-agnostic and done - but they cannot pull yet,
+ * so a sync reports them as unavailable. See docs/ROADMAP.md.
+ */
+const LIVE_KINDS: DataSourceKind[] = ["local_folder"];
+
+const isLiveKind = (kind: DataSourceKind) => LIVE_KINDS.includes(kind);
 
 const CONFIG_PLACEHOLDER: Record<DataSourceKind, string> = {
   local_folder: '{\n  "root": "/path/to/folder"\n}',
@@ -142,12 +154,10 @@ export default function DataSourcesPage() {
     queryFn: () => api.get<DataSource[]>("/data-sources"),
   });
 
-  const invalidate = () =>
-    queryClient.invalidateQueries({ queryKey: ["data-sources"] });
+  const invalidate = () => queryClient.invalidateQueries({ queryKey: ["data-sources"] });
 
   const syncSource = useMutation({
-    mutationFn: (id: string) =>
-      api.post<SyncResult>(`/data-sources/${id}/sync`),
+    mutationFn: (id: string) => api.post<SyncResult>(`/data-sources/${id}/sync`),
     onSuccess: (res) => {
       toast.success(
         `Synced: ${res.created} added, ${res.updated} updated, ${res.deleted} removed`,
@@ -173,7 +183,7 @@ export default function DataSourcesPage() {
     <div className="space-y-6">
       <PageHeader
         title="Data sources"
-        description="Connect the tools your team already uses. Third Brain syncs their documents and mirrors each source's access controls."
+        description="Sync a source's documents into a collection and mirror its access controls. Local folder is the connector that is live today; the others store their configuration but do not sync yet."
         actions={
           admin ? (
             <Button onClick={() => setCreateOpen(true)}>
@@ -196,7 +206,7 @@ export default function DataSourcesPage() {
         <EmptyState
           icon={Database}
           title="No data sources yet"
-          description="Add a connector to sync knowledge from a folder, Google Drive, Slack, GitHub, Notion or Confluence."
+          description="Add a data source to sync knowledge from a server-side folder. Google Drive, Slack, GitHub, Notion and Confluence can be configured, but their live sync is not built yet."
           actions={
             admin ? (
               <Button onClick={() => setCreateOpen(true)}>
@@ -209,17 +219,15 @@ export default function DataSourcesPage() {
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {sources.map((ds) => {
-            const syncing =
-              syncSource.isPending && syncSource.variables === ds.id;
+            const syncing = syncSource.isPending && syncSource.variables === ds.id;
             return (
               <Card key={ds.id} className="flex flex-col p-5">
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
-                    <p className="truncate font-semibold leading-tight">
-                      {ds.name}
-                    </p>
+                    <p className="truncate font-semibold leading-tight">{ds.name}</p>
                     <p className="text-xs text-muted-foreground">
                       {KIND_LABELS[ds.kind] ?? ds.kind}
+                      {isLiveKind(ds.kind) ? null : " · sync not built yet"}
                     </p>
                   </div>
                   <Badge
@@ -233,16 +241,12 @@ export default function DataSourcesPage() {
                 <dl className="mt-3 space-y-1 text-sm">
                   <div className="flex justify-between gap-2">
                     <dt className="text-muted-foreground">Documents</dt>
-                    <dd className="font-medium">
-                      {formatNumber(ds.document_count)}
-                    </dd>
+                    <dd className="font-medium">{formatNumber(ds.document_count)}</dd>
                   </div>
                   <div className="flex justify-between gap-2">
                     <dt className="text-muted-foreground">Last synced</dt>
                     <dd>
-                      {ds.last_synced_at
-                        ? relativeTime(ds.last_synced_at)
-                        : "Never"}
+                      {ds.last_synced_at ? relativeTime(ds.last_synced_at) : "Never"}
                     </dd>
                   </div>
                   <div className="flex justify-between gap-2">
@@ -276,11 +280,7 @@ export default function DataSourcesPage() {
                         )}
                         {syncing ? "Syncing…" : "Sync now"}
                       </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => setManaging(ds)}
-                      >
+                      <Button variant="ghost" size="sm" onClick={() => setManaging(ds)}>
                         <Users className="h-4 w-4" />
                         Manage access
                       </Button>
@@ -318,17 +318,14 @@ export default function DataSourcesPage() {
         />
       ) : null}
 
-      <Dialog
-        open={deleting !== null}
-        onOpenChange={(o) => !o && setDeleting(null)}
-      >
+      <Dialog open={deleting !== null} onOpenChange={(o) => !o && setDeleting(null)}>
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>Remove data source?</DialogTitle>
             <DialogDescription>
-              <span className="font-medium">{deleting?.name}</span> will stop
-              syncing. Documents it already ingested are kept unless you delete
-              them from their collection.
+              <span className="font-medium">{deleting?.name}</span> will stop syncing.
+              Documents it already ingested are kept unless you delete them from their
+              collection.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
@@ -434,8 +431,8 @@ function CreateDialog({
           <DialogHeader>
             <DialogTitle>Add data source</DialogTitle>
             <DialogDescription>
-              Point Third Brain at a source to sync. Secrets are encrypted at
-              rest and never returned.
+              Point Third Brain at a source to sync. Secrets are encrypted at rest and
+              never returned.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
@@ -453,19 +450,27 @@ function CreateDialog({
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <Label htmlFor="ds-kind">Kind</Label>
-                <Select
-                  value={kind}
-                  onValueChange={(v) => setKind(v as DataSourceKind)}
-                >
+                <Select value={kind} onValueChange={(v) => setKind(v as DataSourceKind)}>
                   <SelectTrigger id="ds-kind">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {KINDS.map((k) => (
-                      <SelectItem key={k} value={k}>
-                        {KIND_LABELS[k]}
-                      </SelectItem>
-                    ))}
+                    <SelectGroup>
+                      <SelectLabel>Live</SelectLabel>
+                      {KINDS.filter(isLiveKind).map((k) => (
+                        <SelectItem key={k} value={k}>
+                          {KIND_LABELS[k]}
+                        </SelectItem>
+                      ))}
+                    </SelectGroup>
+                    <SelectGroup>
+                      <SelectLabel>Not syncing yet</SelectLabel>
+                      {KINDS.filter((k) => !isLiveKind(k)).map((k) => (
+                        <SelectItem key={k} value={k}>
+                          {KIND_LABELS[k]}
+                        </SelectItem>
+                      ))}
+                    </SelectGroup>
                   </SelectContent>
                 </Select>
               </div>
@@ -488,6 +493,14 @@ function CreateDialog({
                 </Select>
               </div>
             </div>
+
+            {isLiveKind(kind) ? null : (
+              <p className="rounded-md border border-border bg-muted/40 p-2.5 text-xs text-muted-foreground">
+                {KIND_LABELS[kind]} sync is not built yet. The source can be created and
+                configured now - its config and secret are validated and stored - but a
+                sync will report the connector as unavailable.
+              </p>
+            )}
 
             <div className="space-y-1.5">
               <Label htmlFor="ds-collection">Target collection</Label>
@@ -640,9 +653,8 @@ function ManageAccessDialog({
           <DialogTitle>Manage access</DialogTitle>
           <DialogDescription>
             External principals seen in{" "}
-            <span className="font-medium">{source?.name}</span>. Map each one to
-            a Third Brain user or team so its source-side permissions are
-            enforced here.
+            <span className="font-medium">{source?.name}</span>. Map each one to a Third
+            Brain user or team so its source-side permissions are enforced here.
           </DialogDescription>
         </DialogHeader>
 
@@ -679,18 +691,12 @@ function ManageAccessDialog({
                 <div key={key} className="space-y-2 rounded-md border p-3">
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
-                      <p className="truncate text-sm font-medium">
-                        {p.external_id}
-                      </p>
+                      <p className="truncate text-sm font-medium">{p.external_id}</p>
                       <p className="text-xs capitalize text-muted-foreground">
-                        {p.provider} · {p.kind} · {formatNumber(p.document_count)}{" "}
-                        docs
+                        {p.provider} · {p.kind} · {formatNumber(p.document_count)} docs
                       </p>
                     </div>
-                    <Badge
-                      variant={p.mapped ? "success" : "muted"}
-                      className="shrink-0"
-                    >
+                    <Badge variant={p.mapped ? "success" : "muted"} className="shrink-0">
                       {p.mapped ? "Mapped" : "Unmapped"}
                     </Badge>
                   </div>
@@ -698,16 +704,12 @@ function ManageAccessDialog({
                     <div className="flex items-center gap-2">
                       <Select
                         value={targets[key]}
-                        onValueChange={(v) =>
-                          setTargets((t) => ({ ...t, [key]: v }))
-                        }
+                        onValueChange={(v) => setTargets((t) => ({ ...t, [key]: v }))}
                       >
                         <SelectTrigger className="h-8 flex-1">
                           <SelectValue
                             placeholder={
-                              p.kind === "group"
-                                ? "Map to team…"
-                                : "Map to user…"
+                              p.kind === "group" ? "Map to team…" : "Map to user…"
                             }
                           />
                         </SelectTrigger>

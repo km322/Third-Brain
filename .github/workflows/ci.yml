@@ -157,10 +157,10 @@ jobs:
           if-no-files-found: warn
 
   # --------------------------------------------------------------------------- #
-  # Frontend: install, lint and production-build the Next.js app.
+  # Frontend: install, lint, format-check and production-build the Next.js app.
   # --------------------------------------------------------------------------- #
   frontend:
-    name: Frontend (lint + build)
+    name: Frontend (lint + format + build)
     runs-on: ubuntu-latest
     timeout-minutes: 15
     defaults:
@@ -183,6 +183,9 @@ jobs:
 
       - name: Lint
         run: npm run lint
+
+      - name: Prettier format check
+        run: npm run format:check
 
       - name: Build
         run: npm run build

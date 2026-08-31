@@ -65,9 +65,7 @@ export function PermissionSelect({
   className,
   withHints = true,
 }: PermissionSelectProps) {
-  const options = includeNone
-    ? (["none", ...GRANTABLE] as PermissionLevel[])
-    : GRANTABLE;
+  const options = includeNone ? (["none", ...GRANTABLE] as PermissionLevel[]) : GRANTABLE;
 
   return (
     <Select
@@ -105,10 +103,7 @@ export function PermissionBadge({
   className?: string;
 }) {
   return (
-    <Badge
-      variant={PERMISSION_VARIANT[level] ?? "muted"}
-      className={cn(className)}
-    >
+    <Badge variant={PERMISSION_VARIANT[level] ?? "muted"} className={cn(className)}>
       {PERMISSION_LABELS[level]}
     </Badge>
   );

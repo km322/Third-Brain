@@ -50,8 +50,7 @@ export default function PermissionsPage() {
   const canListMembers = isOrgAdmin(role);
   const queryClient = useQueryClient();
 
-  const [resourceType, setResourceType] =
-    React.useState<ResourceType>("collection");
+  const [resourceType, setResourceType] = React.useState<ResourceType>("collection");
   const [collectionId, setCollectionId] = React.useState("");
   const [documentId, setDocumentId] = React.useState("");
 
@@ -111,8 +110,7 @@ export default function PermissionsPage() {
     enabled: hasResource && canManage,
   });
 
-  const invalidateGrants = () =>
-    queryClient.invalidateQueries({ queryKey: grantsKey });
+  const invalidateGrants = () => queryClient.invalidateQueries({ queryKey: grantsKey });
 
   const upsertGrant = useMutation({
     mutationFn: (body: {
@@ -158,9 +156,7 @@ export default function PermissionsPage() {
             <p className="truncate text-sm font-medium">
               {g.principal_name || g.principal_id}
             </p>
-            <p className="text-xs capitalize text-muted-foreground">
-              {g.principal_type}
-            </p>
+            <p className="text-xs capitalize text-muted-foreground">{g.principal_type}</p>
           </div>
         </div>
       ),
@@ -271,9 +267,7 @@ export default function PermissionsPage() {
               >
                 <SelectTrigger id="document">
                   <SelectValue
-                    placeholder={
-                      collectionId ? "Select a document" : "Pick a base first"
-                    }
+                    placeholder={collectionId ? "Select a document" : "Pick a base first"}
                   />
                 </SelectTrigger>
                 <SelectContent>
@@ -363,11 +357,9 @@ function AddGrantForm({
     permission: PermissionLevel;
   }) => void;
 }) {
-  const [principalType, setPrincipalType] =
-    React.useState<PrincipalType>("user");
+  const [principalType, setPrincipalType] = React.useState<PrincipalType>("user");
   const [principalId, setPrincipalId] = React.useState("");
-  const [permission, setPermission] =
-    React.useState<PermissionLevel>("viewer");
+  const [permission, setPermission] = React.useState<PermissionLevel>("viewer");
 
   const options =
     principalType === "user"

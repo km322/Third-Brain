@@ -52,11 +52,7 @@ export function CopyButton({
       aria-label={label ? undefined : "Copy"}
       {...props}
     >
-      {copied ? (
-        <Check className="h-4 w-4 text-success" />
-      ) : (
-        <Copy className="h-4 w-4" />
-      )}
+      {copied ? <Check className="h-4 w-4 text-success" /> : <Copy className="h-4 w-4" />}
       {label}
     </Button>
   );

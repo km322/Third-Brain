@@ -8,7 +8,7 @@ help: ## Show this help
 		awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-18s\033[0m %s\n", $$1, $$2}'
 
 .PHONY: up
-up: ## Build and start the full stack (db, redis, api, worker, web)
+up: ## Build and start the full stack for development, with live reload (db, redis, api, worker, web)
 	$(COMPOSE) up --build
 
 .PHONY: up-d
@@ -24,7 +24,7 @@ down: ## Stop the stack
 	$(COMPOSE) down
 
 .PHONY: selfhost
-selfhost: ## One-command self-host: generate a hardened .env, boot the prod stack, create the first admin (ADMIN_EMAIL=you@example.com)
+selfhost: ## Run Third Brain for real (the supported way): hardened .env, production stack, first admin (ADMIN_EMAIL=you@example.com)
 	./scripts/selfhost-init.sh
 
 .PHONY: selfhost-down
@@ -42,7 +42,7 @@ migrate: ## Apply database migrations
 REV ?= -1
 
 .PHONY: db-downgrade
-db-downgrade: ## Roll back migrations (break-glass; usage: make db-downgrade REV=-1|base); with the single baseline -1 == base and drops the whole schema
+db-downgrade: ## Roll back migrations (break-glass; usage: make db-downgrade REV=-1|base); REV=-1 rolls back one revision, REV=base drops the whole schema
 	$(COMPOSE) exec api alembic downgrade $(REV)
 
 .PHONY: makemigration
@@ -101,7 +101,7 @@ fmt: ## Format backend (ruff) and frontend (prettier)
 .PHONY: lint
 lint: ## Lint backend, frontend and the MCP CLI (+ its tests)
 	$(COMPOSE) exec api ruff check app tests
-	cd apps/web && npm run lint
+	cd apps/web && npm run lint && npm run format:check
 	cd packages/mcp-cli && npm run lint && npm test
 
 .PHONY: shell

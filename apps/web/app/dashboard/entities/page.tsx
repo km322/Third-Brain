@@ -45,14 +45,7 @@ import type { DocumentItem, Entity, EntityKind } from "@/lib/types";
 const ALL = "all" as const;
 type KindFilter = EntityKind | typeof ALL;
 
-const KINDS: EntityKind[] = [
-  "person",
-  "org",
-  "product",
-  "project",
-  "location",
-  "other",
-];
+const KINDS: EntityKind[] = ["person", "org", "product", "project", "location", "other"];
 
 const KIND_LABELS: Record<EntityKind, string> = {
   person: "Person",
@@ -63,10 +56,7 @@ const KIND_LABELS: Record<EntityKind, string> = {
   other: "Other",
 };
 
-const KIND_VARIANT: Record<
-  EntityKind,
-  "default" | "info" | "success" | "muted"
-> = {
+const KIND_VARIANT: Record<EntityKind, "default" | "info" | "success" | "muted"> = {
   person: "info",
   org: "success",
   product: "default",
@@ -240,8 +230,7 @@ function EntityDocumentsDialog({
 }) {
   const docsQuery = useQuery<DocumentItem[]>({
     queryKey: ["entity-documents", entity?.id],
-    queryFn: () =>
-      api.get<DocumentItem[]>(`/entities/${entity!.id}/documents`),
+    queryFn: () => api.get<DocumentItem[]>(`/entities/${entity!.id}/documents`),
     enabled: entity !== null,
   });
 
@@ -302,9 +291,7 @@ function EntityDocumentsDialog({
                 key={doc.id}
                 className="flex items-center justify-between gap-3 rounded-md border p-3"
               >
-                <span className="min-w-0 truncate text-sm font-medium">
-                  {doc.title}
-                </span>
+                <span className="min-w-0 truncate text-sm font-medium">{doc.title}</span>
                 <DocumentStatusBadge
                   status={doc.status}
                   error={doc.error}

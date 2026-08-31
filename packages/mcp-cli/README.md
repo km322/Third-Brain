@@ -2,8 +2,11 @@
 
 Connect your MCP clients (Claude Desktop, Claude Code, Cursor, or anything that
 speaks the Model Context Protocol over stdio) to a
-[Third Brain](https://third-brain.ai/docs) server - your company's
+[Third Brain](https://github.com/km322/Third-Brain) server - your company's
 knowledge base with document-level permissions.
+
+Third Brain is free and open source (Apache-2.0) and you run it yourself, so this
+CLI has no server baked into it: you point it at your own instance.
 
 Zero dependencies. Node 18 or newer.
 
@@ -13,11 +16,14 @@ Zero dependencies. Node 18 or newer.
 npx third-brain-mcp connect
 ```
 
-You will be asked for your Third Brain server URL - the API origin (for the hosted
-service, `https://api.third-brain.ai`; for a local stack, `http://localhost:8000`).
-A one-time code then opens in your browser at the dashboard's `/activate` page
-(`https://third-brain.ai/activate` on the hosted service). Approve the device there
-and the CLI saves a scoped API key to `~/.third-brain/config.json` (file permissions 600).
+You will be asked for your Third Brain server URL - the API origin of the instance
+you run (`http://localhost:8000` for a local stack, or something like
+`https://brain.example.com`). A one-time code then opens in your browser at that
+deployment's dashboard `/activate` page. Approve the device there and the CLI saves
+a scoped API key to `~/.third-brain/config.json` (file permissions 600).
+
+Don't have a server yet? Clone
+[km322/Third-Brain](https://github.com/km322/Third-Brain) and run `make selfhost`.
 
 Then wire it into your client:
 
@@ -72,4 +78,5 @@ protocol.
 
 ## License
 
-Apache-2.0
+Apache-2.0. Source, issues and the rest of the project:
+[github.com/km322/Third-Brain](https://github.com/km322/Third-Brain).

@@ -1,8 +1,7 @@
 import Link from "next/link";
 
 import { LogoMark } from "@/components/brand/logo";
-
-const CONTACT_EMAIL = "admin@third-brain.ai";
+import { GITHUB_LICENSE_URL, GITHUB_URL } from "@/components/marketing/links";
 
 interface FooterLink {
   label: string;
@@ -33,12 +32,13 @@ const COLUMNS: FooterColumn[] = [
     ],
   },
   {
-    title: "Company",
+    title: "Project",
     links: [
       { label: "Security", href: "/#security" },
+      { label: "GitHub", href: GITHUB_URL, external: true },
+      { label: "License", href: GITHUB_LICENSE_URL, external: true },
       { label: "Sign in", href: "/login" },
-      { label: "Get started", href: "/signup" },
-      { label: "Contact", href: `mailto:${CONTACT_EMAIL}`, external: true },
+      { label: "Get started", href: "/docs#quick-start" },
     ],
   },
 ];
@@ -65,16 +65,14 @@ export function Footer() {
           {/* Link columns */}
           {COLUMNS.map((col) => (
             <div key={col.title}>
-              <h3 className="text-xs font-semibold text-foreground">
-                {col.title}
-              </h3>
+              <h3 className="text-xs font-semibold text-foreground">{col.title}</h3>
               <ul className="mt-4 space-y-2.5">
                 {col.links.map((link) => (
                   <li key={link.label}>
                     {link.external ? (
                       <a
                         href={link.href}
-                        target={link.href.startsWith("mailto:") ? undefined : "_blank"}
+                        target="_blank"
                         rel="noreferrer"
                         className="text-[13px] text-muted-foreground transition-colors hover:text-foreground"
                       >
@@ -96,16 +94,21 @@ export function Footer() {
         </div>
 
         <div className="mt-12 flex flex-col items-center justify-between gap-4 border-t border-border/60 pt-6 text-xs text-muted-foreground sm:flex-row">
-          <p>© {new Date().getFullYear()} Third Brain. All rights reserved.</p>
+          <p>
+            © {new Date().getFullYear()} Third Brain. Free and open source under
+            Apache-2.0.
+          </p>
           <div className="flex items-center gap-5">
             <Link href="/#security" className="transition-colors hover:text-foreground">
               Security
             </Link>
             <a
-              href={`mailto:${CONTACT_EMAIL}`}
+              href={GITHUB_URL}
+              target="_blank"
+              rel="noreferrer"
               className="transition-colors hover:text-foreground"
             >
-              Contact
+              GitHub
             </a>
           </div>
         </div>

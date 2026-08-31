@@ -1,15 +1,14 @@
 # Self-hosting
 
-> **Evaluation only, today.** Managed Third Brain is the product; self-hosting is not a
-> supported offering yet. The overlay below stands the full stack up on your own box so you
-> can try it, and running it in your own infrastructure as a supported product is on the
-> [roadmap](./ROADMAP.md).
+> **This is how Third Brain runs.** It is free, Apache-2.0, and self-hosted by design -
+> there is no hosted service to sign up for and nothing is held back for a paid edition.
+> This guide is the supported path from a clean host to a running instance.
 
 Third Brain runs entirely on your infrastructure. Your documents, embeddings, keys, and
-audit log live only in your Postgres, Redis, and upload directory. The vendor ships
-software; it never receives your data.
+audit log live only in your Postgres, Redis, and upload directory. The project ships
+software; nobody else ever receives your data.
 
-For the general production runbook (managed datastores, Kubernetes, scaling), see
+For the deeper production runbook (managed datastores, Kubernetes, scaling), see
 [`DEPLOYMENT.md`](./DEPLOYMENT.md); this guide is the fast, all-on-your-host route.
 
 - [Why self-host](#why-self-host)
@@ -22,7 +21,7 @@ For the general production runbook (managed datastores, Kubernetes, scaling), se
 - [Secrets and backups](#secrets-and-backups)
 - [Upgrades and rollback](#upgrades-and-rollback)
 - [TLS and production hardening](#tls-and-production-hardening)
-- [Deploy behind Cloudflare (third-brain.ai)](#deploy-behind-cloudflare-third-brainai)
+- [Deploy behind Cloudflare (public domain)](#deploy-behind-cloudflare-public-domain)
 - [Compliance and data residency](#compliance-and-data-residency)
 
 ---
@@ -30,15 +29,19 @@ For the general production runbook (managed datastores, Kubernetes, scaling), se
 ## Why self-host
 
 Third Brain is a governed layer over your company's knowledge, so the data it holds is
-usually the data you most want to keep in-house. Self-hosting means:
+usually the data you most want to keep in-house. That is why the product is built this way
+round rather than as a service someone else runs:
 
 - **Your data stays yours.** Documents, chunks, embeddings, permissions, and the audit log
-  live only in datastores you run. Nothing about your knowledge transits the vendor.
+  live only in datastores you run. None of your knowledge leaves your perimeter.
 - **No third party in the data path.** With the offline stub provider and local storage,
   a default deployment makes zero outbound calls. The only egress that ever happens is to
   endpoints *you* configure (your own LLM provider, your own data sources).
 - **Your perimeter, your controls.** You choose the network policy, the backup regime, and
   the region. Compliance posture follows data custody, and here the custody is yours.
+- **No bill and no gate.** The whole product is in the repository under Apache-2.0: no
+  licence key, no seat count, no feature flag that unlocks with a payment. The only money
+  involved is your infrastructure and whatever your own provider keys spend.
 
 The whole stack is open and runs on commodity infrastructure: Postgres 16 with `pgvector`,
 Redis 7, and the API / worker / web images. The default single-box `make selfhost` path
@@ -55,9 +58,9 @@ reverse proxy (see [TLS and production hardening](#tls-and-production-hardening)
 - Optional but recommended for real use: a **domain and DNS** you control, so the
   deployment can sit behind TLS (a Cloudflare Tunnel, or your own reverse proxy).
 - Optional: an **LLM provider key** (OpenAI, Anthropic, or Google). Without one, the
-  deterministic offline stub runs the full pipeline so you can evaluate before committing a
-  key. The stub's embeddings are placeholders, so offline answers exercise the pipeline but
-  are not a measure of retrieval quality.
+  deterministic offline stub runs the full pipeline, so you can stand the product up and use
+  it before committing a key. The stub's embeddings are placeholders, so offline answers
+  exercise the pipeline but are not a measure of retrieval quality.
 
 Everything else (Postgres, `pgvector`, Redis - and `cloudflared` on the Cloudflare Tunnel
 path) comes up as containers from `docker-compose.prod.yml` and its overlays. No external
@@ -95,7 +98,7 @@ To bind to a public host or IP instead of `localhost`, pass `make selfhost` a ho
 `./scripts/selfhost-init.sh --host 203.0.113.10 --email you@yourcompany.com`. Note this
 publishes the dashboard and API over plaintext HTTP with no TLS. Before exposing a public
 host or IP to the internet, put TLS in front - use the Cloudflare Tunnel overlay in
-[Deploy behind Cloudflare](#deploy-behind-cloudflare-third-brainai) (outbound-only, no
+[Deploy behind Cloudflare](#deploy-behind-cloudflare-public-domain) (outbound-only, no
 inbound ports at all), or your own TLS-terminating reverse proxy (nginx or a cloud load
 balancer). On `localhost` (the default) the ports bind to loopback only.
 
@@ -160,9 +163,9 @@ NEXT_PUBLIC_API_URL=http://localhost:8000
 # ingestion. Keep it in step with NEXT_PUBLIC_API_URL (selfhost-init sets both).
 PUBLIC_API_URL=http://localhost:8000
 
-# Public-domain path only: flip the four origins above to the https:// domain values
-# (BACKEND_CORS_ORIGINS=https://third-brain.ai, APP_BASE_URL=https://third-brain.ai,
-# NEXT_PUBLIC_API_URL=https://api.third-brain.ai, PUBLIC_API_URL=https://api.third-brain.ai).
+# Public-domain path only: flip the four origins above to your https:// domain, e.g.
+# BACKEND_CORS_ORIGINS and APP_BASE_URL -> https://your-domain.example, and
+# NEXT_PUBLIC_API_URL and PUBLIC_API_URL -> https://api.your-domain.example.
 # On the Cloudflare Tunnel path, also set the tunnel's connector token (see
 # Deploy behind Cloudflare below):
 # CLOUDFLARE_TUNNEL_TOKEN=<connector token>
@@ -178,8 +181,8 @@ short `SECRET_KEY`, or with wildcard (`*`) CORS.
 docker compose -f docker-compose.prod.yml -f docker-compose.selfhost.yml up -d --build
 
 # 2b. Public domain instead: set the https:// URLs above, then swap the selfhost overlay
-#     for the Cloudflare Tunnel overlay (outbound-only, no inbound ports - this is how
-#     third-brain.ai runs; see Deploy behind Cloudflare below):
+#     for the Cloudflare Tunnel overlay (outbound-only, no inbound ports; see Deploy
+#     behind Cloudflare below):
 #     docker compose -f docker-compose.prod.yml -f docker-compose.cloudflare.yml up -d --build
 #     Or keep the selfhost overlay and put your own TLS-terminating reverse proxy (nginx or
 #     a cloud load balancer) in front of the published web and API ports.
@@ -246,7 +249,7 @@ A default self-host is silent. Grounded in how the code is wired:
   into S3.
 - **The only outbound calls are ones you configure.** Your own LLM provider connectors (BYO
   keys, optional), your own data-source connectors, and user-triggered URL ingestion (which
-  is SSRF-gated). There is no vendor endpoint in the data path.
+  is SSRF-gated). There is no project-operated endpoint in the data path - none exists.
 
 **How to verify:** put the `api` and `worker` containers behind an egress-deny network
 policy (allow only your database, Redis, and any LLM/data-source hosts you explicitly use).
@@ -258,8 +261,8 @@ key, the only new egress is to that provider's API.
 
 ## Bring your own models
 
-Third Brain never marks up tokens; you bring your own keys, and they stay inside your
-deployment. Three options:
+Nothing sits between you and your model provider: you bring your own keys, they stay inside
+your deployment, and calls go straight to the endpoint you configured. Three options:
 
 - **Platform keys in `.env`.** Set any of `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, or
   `GOOGLE_API_KEY` and every org uses them by default. When a call names no provider,
@@ -270,8 +273,10 @@ deployment. Three options:
   self-hosted / OpenAI-compatible endpoints (Ollama, vLLM, any gateway) that never leave
   your network - point `OPENAI_BASE_URL` or a `custom` connector at them.
 - **Zero-key offline mode.** With no key at all, the offline stub keeps the whole stack
-  working for evaluation. Add a real key when you want to judge answer and retrieval
-  quality.
+  working end to end. Add a real key when you want real answer and retrieval quality.
+
+Whatever you pick, the dashboard's usage and cost figures report what **your** keys spent
+with **your** provider. Nothing bills you for Third Brain itself.
 
 ---
 
@@ -343,7 +348,7 @@ The production compose is built to run safely on a single host:
   For a public domain, either add the Cloudflare Tunnel overlay
   (`docker-compose.cloudflare.yml`) - `cloudflared` dials out to Cloudflare, the host opens
   no inbound ports, and TLS terminates at the edge (see
-  [Deploy behind Cloudflare](#deploy-behind-cloudflare-third-brainai)) - or bring your own
+  [Deploy behind Cloudflare](#deploy-behind-cloudflare-public-domain)) - or bring your own
   TLS-terminating reverse proxy (nginx or a cloud load balancer) in front of `web:3000` /
   `api:8000`. The `make selfhost` single-box overlay (`docker-compose.selfhost.yml`)
   publishes the web and API ports directly, loopback by default - convenient for a
@@ -359,38 +364,38 @@ The production compose is built to run safely on a single host:
   indexing and quarantined for review if flagged (`SECRET_SCAN_ENABLED=true` by default).
 
 The full hardening checklist lives in [`SECURITY.md`](./SECURITY.md#hardening-checklist).
-For the full public-domain walkthrough - the setup `third-brain.ai` itself runs - see
-[Deploy behind Cloudflare](#deploy-behind-cloudflare-third-brainai).
+For the full public-domain walkthrough, see
+[Deploy behind Cloudflare](#deploy-behind-cloudflare-public-domain).
 
 ---
 
-## Deploy behind Cloudflare (third-brain.ai)
+## Deploy behind Cloudflare (public domain)
 
-Running Third Brain behind Cloudflare puts the app on your real domain (`third-brain.ai` for
-the dashboard, `api.third-brain.ai` for the API) with edge TLS and DDoS protection in front of
-a single box. This section is grounded in how the app is wired; it complements
+Running Third Brain behind Cloudflare puts the app on a domain you own with edge TLS and DDoS
+protection in front of a single box. The examples below use `your-domain.example` for the
+dashboard and `api.your-domain.example` for the API - substitute your own. This section is
+grounded in how the app is wired; it complements
 [TLS and production hardening](#tls-and-production-hardening).
 
 ### DNS and the zone
 
 Point both hostnames at the deployment:
 
-- `third-brain.ai` -> the web frontend
-- `api.third-brain.ai` -> the API
+- `your-domain.example` -> the web frontend
+- `api.your-domain.example` -> the API
 
-The simplest setup is to run the whole zone on Cloudflare: at your `.ai` registrar, change the
-domain's nameservers to the pair Cloudflare assigns. A `.ai` domain works with Cloudflare like
-any other TLD. Once the zone is active you manage both records (and the paths below) from the
-Cloudflare dashboard. A `www` -> apex redirect (a Cloudflare Redirect Rule sending
-`www.third-brain.ai` to `https://third-brain.ai`) is a nice-to-have.
+The simplest setup is to run the whole zone on Cloudflare: at your registrar, change the
+domain's nameservers to the pair Cloudflare assigns. Once the zone is active you manage both
+records (and the paths below) from the Cloudflare dashboard. A `www` -> apex redirect (a
+Cloudflare Redirect Rule sending `www.your-domain.example` to `https://your-domain.example`)
+is a nice-to-have.
 
 ### Two viable paths
 
 **(a) Cloudflare Tunnel - recommended for a single box.** `cloudflared` dials *out* to
 Cloudflare, so the host opens **no inbound ports** (no 80/443 at all). Cloudflare terminates
 TLS at the edge and forwards requests down the tunnel to `web:3000` and `api:8000` by service
-name. This is the simplest and most secure option, it is what `third-brain.ai` itself runs,
-and the repo ships the overlay:
+name. This is the simplest and most secure option, and the repo ships the overlay:
 
 ```bash
 docker compose -f docker-compose.prod.yml -f docker-compose.cloudflare.yml up -d --build
@@ -402,8 +407,8 @@ tunnel:
 
 | Public hostname | Service |
 |---|---|
-| `third-brain.ai` | `http://web:3000` |
-| `api.third-brain.ai` | `http://api:8000` |
+| `your-domain.example` | `http://web:3000` |
+| `api.your-domain.example` | `http://api:8000` |
 
 Those service URLs are plain `http://` on purpose: TLS ends at Cloudflare's edge, and the
 `cloudflared` -> web/api hop never leaves the internal Compose network. There is no local
@@ -418,7 +423,7 @@ Cloudflare sit in front of that. Two sub-options:
 
 - **Orange-cloud (proxied) with an Origin Certificate.** Set the zone's SSL/TLS mode to **Full
   (Strict)**, issue a Cloudflare **Origin Certificate**, and install it on your proxy for
-  `third-brain.ai` / `api.third-brain.ai`. The browser trusts Cloudflare's edge cert;
+  `your-domain.example` / `api.your-domain.example`. The browser trusts Cloudflare's edge cert;
   Cloudflare trusts your origin cert.
 - **Grey-cloud (DNS-only) with publicly trusted certificates.** Turn the proxy **off**
   (DNS-only) and have your reverse proxy obtain and renew Let's Encrypt certificates itself
@@ -442,13 +447,14 @@ These are identical across every Cloudflare setup and are the most common cause 
 deployment:
 
 - **`NEXT_PUBLIC_API_URL` is baked into the web image at BUILD time.** It must equal the
-  **browser-facing** API origin `https://api.third-brain.ai`, and you must **rebuild** the web
-  image after changing it (`--build`). A stale value points the dashboard at the wrong API.
-- **`BACKEND_CORS_ORIGINS=https://third-brain.ai`.** List your exact web origin(s); a wildcard
-  (`*`) is **refused at boot** in production because credentialed requests are allowed.
-- **`APP_BASE_URL=https://third-brain.ai`.** Invite links and the CLI device-auth `/activate`
-  flow are built from this origin.
-- **`NEXT_PUBLIC_SITE_URL=https://third-brain.ai`** (also baked at build time) sets the
+  **browser-facing** API origin (`https://api.your-domain.example`), and you must **rebuild**
+  the web image after changing it (`--build`). A stale value points the dashboard at the wrong
+  API.
+- **`BACKEND_CORS_ORIGINS=https://your-domain.example`.** List your exact web origin(s); a
+  wildcard (`*`) is **refused at boot** in production because credentialed requests are allowed.
+- **`APP_BASE_URL=https://your-domain.example`.** Invite links and the CLI device-auth
+  `/activate` flow are built from this origin.
+- **`NEXT_PUBLIC_SITE_URL=https://your-domain.example`** (also baked at build time) sets the
   marketing pages' canonical / OpenGraph URLs.
 
 ### Cloudflare settings that matter
@@ -474,10 +480,11 @@ For the rest of the production hardening checklist, see
 This section is architectural fact, not legal advice; confirm specifics with your own
 counsel and security team.
 
-Because you host and control all data, the vendor never holds, processes, or transmits your
-knowledge. In data-protection terms, the vendor is **not a processor or sub-processor of
-your data** - which is the usual driver of a SaaS vendor's SOC 1 / SOC 2 obligations for
-customer data. There is no shared cloud tenancy and no vendor-side data component to audit.
+Because you host and control all data, nobody else holds, processes, or transmits your
+knowledge. There is no service operator behind Third Brain: in data-protection terms the
+project is **not a processor or sub-processor of your data** - which is the usual driver of a
+SaaS vendor's SOC 1 / SOC 2 obligations for customer data. There is no shared cloud tenancy
+and no third-party data component to audit.
 
 What that means in practice:
 
@@ -487,9 +494,11 @@ What that means in practice:
   reviews, backup and retention policies, and audit-log shipping are configured and owned by
   you. Third Brain gives you the primitives (RBAC, an append-only audit log, encrypted
   secrets, tenant isolation); the operating posture is your deployment's.
-- **No certification is claimed for your deployment.** Third Brain does not assert that a
-  self-hosted install is "SOC 2 certified" or otherwise compliant on your behalf. Compliance
-  obligations follow data custody, and in a self-host the custody - and therefore the
-  responsibility - is yours.
+- **No certification is claimed for your deployment.** Third Brain does not assert that an
+  install is "SOC 2 certified" or otherwise compliant on your behalf. Compliance obligations
+  follow data custody, and the custody - and therefore the responsibility - is yours.
+- **The software is provided as-is under Apache-2.0.** There is no warranty and no support
+  contract behind it; see [`LICENSE`](../LICENSE). Issues and pull requests are the support
+  channel.
 
 For the security model behind these controls, see [`SECURITY.md`](./SECURITY.md).

@@ -14,9 +14,7 @@ import {
  * table.
  */
 test.describe("knowledge bases", () => {
-  test("create a collection and add a text document that appears", async ({
-    page,
-  }) => {
+  test("create a collection and add a text document that appears", async ({ page }) => {
     await signUp(page);
 
     const collectionName = `Handbook ${unique()}`;
@@ -42,9 +40,7 @@ test.describe("knowledge bases", () => {
     await expect
       .poll(
         async () =>
-          Number(
-            (await page.getByTestId("documents-count").innerText()).trim(),
-          ),
+          Number((await page.getByTestId("documents-count").innerText()).trim()),
         { timeout: 30_000 },
       )
       .toBeGreaterThanOrEqual(1);

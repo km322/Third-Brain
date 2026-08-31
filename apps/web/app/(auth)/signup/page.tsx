@@ -45,14 +45,8 @@ function zodResolver<TValues extends Record<string, unknown>>(
 }
 
 const signupSchema = z.object({
-  full_name: z
-    .string()
-    .min(1, "Your name is required")
-    .max(120, "That name is too long"),
-  email: z
-    .string()
-    .min(1, "Email is required")
-    .email("Enter a valid email address"),
+  full_name: z.string().min(1, "Your name is required").max(120, "That name is too long"),
+  email: z.string().min(1, "Email is required").email("Enter a valid email address"),
   password: z.string().min(8, "Password must be at least 8 characters"),
   org_name: z
     .string()
@@ -97,9 +91,7 @@ export default function SignupPage() {
       router.replace("/dashboard");
     } catch (err) {
       const message =
-        err instanceof ApiError
-          ? err.message
-          : "Something went wrong. Please try again.";
+        err instanceof ApiError ? err.message : "Something went wrong. Please try again.";
       toast.error("Could not create your account", { description: message });
     }
   }
@@ -131,9 +123,7 @@ export default function SignupPage() {
               {...register("full_name")}
             />
             {errors.full_name && (
-              <p className="text-sm text-destructive">
-                {errors.full_name.message}
-              </p>
+              <p className="text-sm text-destructive">{errors.full_name.message}</p>
             )}
           </div>
 
@@ -149,9 +139,7 @@ export default function SignupPage() {
               {...register("org_name")}
             />
             {errors.org_name && (
-              <p className="text-sm text-destructive">
-                {errors.org_name.message}
-              </p>
+              <p className="text-sm text-destructive">{errors.org_name.message}</p>
             )}
           </div>
 
@@ -198,9 +186,7 @@ export default function SignupPage() {
               </button>
             </div>
             {errors.password && (
-              <p className="text-sm text-destructive">
-                {errors.password.message}
-              </p>
+              <p className="text-sm text-destructive">{errors.password.message}</p>
             )}
           </div>
         </CardContent>
@@ -212,10 +198,7 @@ export default function SignupPage() {
           </Button>
           <p className="text-center text-sm text-muted-foreground">
             Already have an account?{" "}
-            <Link
-              href="/login"
-              className="font-medium text-primary hover:underline"
-            >
+            <Link href="/login" className="font-medium text-primary hover:underline">
               Sign in
             </Link>
           </p>

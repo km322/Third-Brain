@@ -47,11 +47,7 @@ import { orgRoleAtLeast } from "@/components/governance/role-badge";
 import { api, ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import { cn, formatDate, formatNumber } from "@/lib/utils";
-import type {
-  Collection,
-  PermissionLevel,
-  Visibility,
-} from "@/lib/types";
+import type { Collection, PermissionLevel, Visibility } from "@/lib/types";
 
 const PERMISSION_OPTIONS: { value: PermissionLevel; label: string }[] = [
   { value: "none", label: "No access" },
@@ -124,8 +120,7 @@ function NewCollectionDialog() {
         <DialogHeader>
           <DialogTitle>New knowledge base</DialogTitle>
           <DialogDescription>
-            Group related documents into a searchable, permission-scoped
-            knowledge base.
+            Group related documents into a searchable, permission-scoped knowledge base.
           </DialogDescription>
         </DialogHeader>
 
@@ -150,9 +145,7 @@ function NewCollectionDialog() {
           <div className="space-y-1.5">
             <Label htmlFor="col-desc">
               Description{" "}
-              <span className="font-normal text-muted-foreground">
-                (optional)
-              </span>
+              <span className="font-normal text-muted-foreground">(optional)</span>
             </Label>
             <Textarea
               id="col-desc"
@@ -185,9 +178,7 @@ function NewCollectionDialog() {
               <Label>Default permission</Label>
               <Select
                 value={defaultPermission}
-                onValueChange={(v) =>
-                  setDefaultPermission(v as PermissionLevel)
-                }
+                onValueChange={(v) => setDefaultPermission(v as PermissionLevel)}
               >
                 <SelectTrigger>
                   <SelectValue />
@@ -212,10 +203,7 @@ function NewCollectionDialog() {
             >
               Cancel
             </Button>
-            <Button
-              type="submit"
-              disabled={!name.trim() || mutation.isPending}
-            >
+            <Button type="submit" disabled={!name.trim() || mutation.isPending}>
               {mutation.isPending ? (
                 <>
                   <Loader2 className="h-4 w-4 animate-spin" />
@@ -241,9 +229,7 @@ function CollectionCard({ collection }: { collection: Collection }) {
             <Library className="h-5 w-5" />
           </span>
           <div className="min-w-0 flex-1">
-            <h3 className="truncate font-semibold text-foreground">
-              {collection.name}
-            </h3>
+            <h3 className="truncate font-semibold text-foreground">{collection.name}</h3>
             <p className="truncate text-xs text-muted-foreground">
               Created {formatDate(collection.created_at)}
             </p>

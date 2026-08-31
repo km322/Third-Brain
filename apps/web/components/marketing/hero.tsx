@@ -19,9 +19,7 @@ function CapturedDoc({
         <FileText className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
         <div className="min-w-0 flex-1">
           <div className="flex items-center justify-between gap-2">
-            <p className="truncate text-xs font-medium text-foreground">
-              {title}
-            </p>
+            <p className="truncate text-xs font-medium text-foreground">{title}</p>
             <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wide text-muted-foreground">
               Agent-written
             </span>
@@ -52,20 +50,16 @@ export function Hero() {
             The documentation writes itself.
           </h1>
 
-          <p className="animate-fade-up mt-6 max-w-2xl text-pretty text-lg leading-relaxed text-muted-foreground sm:text-xl">
-            Connect Third Brain to the tools your team already uses - Claude,
-            Cursor, your agents - and every decision and answer is captured into
-            a governed brain your whole company can search. Permissions enforced
-            in the query. Works with every model.
+          <p className="mt-6 max-w-2xl animate-fade-up text-pretty text-lg leading-relaxed text-muted-foreground sm:text-xl">
+            Connect Third Brain to the tools your team already uses - Claude, Cursor, your
+            agents - and every decision and answer is captured into a governed brain your
+            whole company can search. Permissions enforced in the query. Works with every
+            model.
           </p>
 
-          <div className="animate-fade-up mt-10 flex flex-col items-center gap-3 sm:flex-row">
-            <Button
-              asChild
-              size="lg"
-              className="h-12 w-full rounded-full px-7 sm:w-auto"
-            >
-              <Link href="#waitlist">Join the waitlist</Link>
+          <div className="mt-10 flex animate-fade-up flex-col items-center gap-3 sm:flex-row">
+            <Button asChild size="lg" className="h-12 w-full rounded-full px-7 sm:w-auto">
+              <Link href="/docs#quick-start">Self-host it free</Link>
             </Button>
             <Button
               asChild
@@ -77,14 +71,14 @@ export function Hero() {
             </Button>
           </div>
 
-          <p className="animate-fade-up mt-6 text-xs text-muted-foreground">
-            Early access · No credit card required · Bring your own model keys
+          <p className="mt-6 animate-fade-up text-xs text-muted-foreground">
+            Free and open source · Apache-2.0 · Bring your own model keys
           </p>
         </div>
 
         {/* Product preview mock - the page's one proof element: an agent
             capturing a decision as it works, and where it lands. */}
-        <div className="animate-fade-up mx-auto mt-20 max-w-4xl lg:mt-24">
+        <div className="mx-auto mt-20 max-w-4xl animate-fade-up lg:mt-24">
           <div className="overflow-hidden rounded-2xl border border-border bg-card shadow-[0_1px_1px_rgba(0,0,0,0.03),0_12px_32px_-8px_rgba(0,0,0,0.08)] ring-1 ring-black/[0.04] dark:shadow-none dark:ring-white/[0.08]">
             {/* Window chrome */}
             <div className="flex items-center gap-2 border-b border-border/60 bg-muted/30 px-4 py-3">
@@ -106,8 +100,8 @@ export function Hero() {
                 <div className="space-y-2 text-sm leading-relaxed text-foreground">
                   <p>
                     We&apos;re moving on-call to a{" "}
-                    <span className="font-medium">weekly rotation</span> with a
-                    secondary. Documenting that now so the team has it.
+                    <span className="font-medium">weekly rotation</span> with a secondary.
+                    Documenting that now so the team has it.
                   </p>
                 </div>
                 <div className="flex items-center gap-2 rounded-md border border-border/60 px-3 py-2 font-mono text-[12px] text-muted-foreground">
@@ -139,15 +133,15 @@ export function Hero() {
             <span className="shrink-0 font-mono text-xs text-muted-foreground/70">
               Fig. 1
             </span>
-            An agent captures a decision as it works - a teammate finds it
-            seconds later, scoped by permissions.
+            An agent captures a decision as it works - a teammate finds it seconds later,
+            scoped by permissions.
           </p>
         </div>
 
         {/* Works-with caption line. */}
         <p className="mt-10 text-center text-[13px] text-muted-foreground">
-          Works with Anthropic Claude · Google Gemini · any OpenAI-compatible
-          model · Claude, Claude Code &amp; Cursor via MCP
+          Works with Anthropic Claude · Google Gemini · any OpenAI-compatible model ·
+          Claude, Claude Code &amp; Cursor via MCP
         </p>
       </div>
     </section>

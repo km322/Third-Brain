@@ -4,13 +4,11 @@ How to run Third Brain in production. The stack is three long-running processes 
 **API**, one or more **workers**, and the **web** frontend - backed by **PostgreSQL 16
 with `pgvector`** and **Redis 7**.
 
-> **Want to hold your own data?** For teams running Third Brain on their own infrastructure,
-> [`SELF_HOSTING.md`](./SELF_HOSTING.md) documents the evaluation-only self-host overlay - a
-> one-command (`make selfhost`), all-on-your-host setup where your documents, embeddings,
-> keys, and audit log never leave datastores you run. This document is the deeper production
-> runbook (managed datastores, Kubernetes, scaling) it builds on. Third Brain is
-> managed-only today; supported self-hosting is on the [roadmap](./ROADMAP.md), not a
-> shipped offering.
+> **New here? Start with [`SELF_HOSTING.md`](./SELF_HOSTING.md).** Third Brain only runs
+> self-hosted - there is no hosted service - and that guide is the one-command
+> (`make selfhost`), all-on-your-host route: your documents, embeddings, keys, and audit log
+> never leave datastores you run. This document is the deeper runbook it builds on, for when
+> you want managed datastores, Kubernetes, or horizontal scale.
 
 - [Architecture recap](#architecture-recap)
 - [Prerequisites](#prerequisites)
@@ -82,7 +80,7 @@ DATABASE_URL=postgresql+asyncpg://tb_app:<pw>@pg.internal:5432/thirdbrain
 REDIS_URL=rediss://:<pw>@redis.internal:6380/0
 
 # Lock CORS to your real web origin(s).
-BACKEND_CORS_ORIGINS=https://third-brain.ai
+BACKEND_CORS_ORIGINS=https://your-domain.example
 
 # Providers (or configure Connectors per-org in the dashboard).
 OPENAI_API_KEY=sk-...
@@ -95,23 +93,23 @@ S3_ACCESS_KEY_ID=...
 S3_SECRET_ACCESS_KEY=...
 
 # Frontend build-time API URL.
-NEXT_PUBLIC_API_URL=https://api.third-brain.ai
+NEXT_PUBLIC_API_URL=https://api.your-domain.example
 
 # Public origin of the API itself. Baked into image documents' capability links at
 # ingestion (the URL an LLM fetches to view the original image); with the default
 # (http://localhost:8000) every image indexed carries a dead link until reprocessed.
-PUBLIC_API_URL=https://api.third-brain.ai
+PUBLIC_API_URL=https://api.your-domain.example
 
 # Public origin of the web app. Invite accept links, the CLI device-auth /activate
 # URL and the default SSO redirect_uri are built from this; with the default
 # (http://localhost:3000) every one of those links is dead.
-APP_BASE_URL=https://third-brain.ai
+APP_BASE_URL=https://your-domain.example
 
 # Transactional email, needed to invite teammates. The default provider is `stub`,
 # which captures messages in-process and never sends, and the accept link is never
 # shown in the dashboard - so invites go nowhere until this is configured.
 EMAIL_PROVIDER=smtp
-EMAIL_FROM=Third Brain <no-reply@third-brain.ai>
+EMAIL_FROM=Third Brain <no-reply@your-domain.example>
 SMTP_HOST=smtp.example.com
 SMTP_PORT=587
 SMTP_USERNAME=...
@@ -204,10 +202,10 @@ Compose network; the base file publishes **no** host ports, so how traffic gets 
 overlay decision (below). A one-shot `migrate` service (`alembic upgrade head`) gates
 `api`/`worker`, and `web` runs the Next.js standalone server (`node server.js`).
 
-For a public deployment - this is how third-brain.ai runs - layer on the **Cloudflare
-Tunnel** overlay: a `cloudflared` container joins the internal network and dials **out** to
-Cloudflare, TLS terminates at the edge, and requests come back down the tunnel to `web:3000`
-and `api:8000` by service name, so the host opens no inbound ports at all:
+For a public deployment on a domain you own, layer on the **Cloudflare Tunnel** overlay: a
+`cloudflared` container joins the internal network and dials **out** to Cloudflare, TLS
+terminates at the edge, and requests come back down the tunnel to `web:3000` and `api:8000`
+by service name, so the host opens no inbound ports at all:
 
 ```bash
 cp .env.example .env
@@ -215,7 +213,7 @@ cp .env.example .env
 # (Cloudflare dashboard -> Zero Trust -> Networks -> Tunnels; see the header of
 # docker-compose.cloudflare.yml for the Public Hostname mappings):
 #   CLOUDFLARE_TUNNEL_TOKEN=<connector token>
-#   NEXT_PUBLIC_API_URL=https://api.third-brain.ai   # the web client is built against this origin
+#   NEXT_PUBLIC_API_URL=https://api.your-domain.example   # baked into the web build
 docker compose -f docker-compose.prod.yml -f docker-compose.cloudflare.yml up -d --build
 ```
 
@@ -242,7 +240,7 @@ migrations as a pre-deploy `Job` (the equivalent of the compose `migrate` one-sh
 
 ## Database migrations
 
-Migrations are [Alembic](https://alembic.sqlalchemy.org/); the initial schema lives in
+Migrations are [Alembic](https://alembic.sqlalchemy.org/); the revisions live in
 [`apps/api/alembic/versions`](../apps/api/alembic/versions).
 
 ```bash
@@ -255,11 +253,16 @@ or in the container `CMD`, which would race). The initial migration also enables
 
 ### Upgrading a database stamped at an older baseline
 
-Pre-GA, schema changes are folded into the `0001_initial` baseline rather than shipped as
-follow-up revisions, so a fresh install is always one migration. The trade-off: a database
-that was **already stamped** at `0001_initial` before a fold never runs the folded DDL -
-`alembic upgrade head` is a no-op there. When deploying over such a database, bring it to
-baseline parity with the idempotent statements below (safe to run repeatedly):
+`0001_initial` is a **frozen** baseline. Every schema change since 1.0 ships as a new
+revision on top of it - the first is `0002_drop_waitlist` - so `alembic upgrade head` is what
+carries an existing database forward and must run on every deploy, not only on fresh
+installs. A fresh install replays the whole chain.
+
+Before 1.0, while no deployment existed that we did not control, schema changes were instead
+folded back into `0001_initial`. A database **already stamped** at `0001_initial` before the
+last fold never ran the folded DDL, and Alembic will not replay it. Bring such a database to
+baseline parity with the idempotent statements below (safe to run repeatedly), then upgrade
+normally:
 
 ```sql
 CREATE INDEX IF NOT EXISTS ix_entities_org_normalized
@@ -267,9 +270,6 @@ CREATE INDEX IF NOT EXISTS ix_entities_org_normalized
 CREATE INDEX IF NOT EXISTS ix_documents_meta_file_token
     ON documents ((metadata ->> 'file_token'));
 ```
-
-Once the product is GA (any deployment exists that operators do not control), stop folding:
-every schema change must ship as a new Alembic revision.
 
 ---
 
@@ -319,8 +319,8 @@ flowchart LR
         rd[("managed Redis 7<br/>AOF, rediss://")]
     end
     clients -->|"HTTPS"| proxy
-    proxy -->|"third-brain.ai"| web
-    proxy -->|"api.third-brain.ai"| api
+    proxy -->|"your-domain.example"| web
+    proxy -->|"api.your-domain.example"| api
     api --> pg
     api -->|"cache, rate limit, enqueue"| rd
     worker -->|"dequeue"| rd

@@ -44,7 +44,6 @@ _ROUTE_MODULES = [
     "scim_tokens",
     "sso",
     "analytics",
-    "waitlist",
 ]
 
 

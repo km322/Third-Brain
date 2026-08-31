@@ -48,15 +48,13 @@ import type { Invite, InviteStatus, OrgRole } from "@/lib/types";
 
 const ROLE_OPTIONS: OrgRole[] = ["viewer", "editor", "admin", "owner"];
 
-const STATUS_VARIANT: Record<
-  InviteStatus,
-  "info" | "success" | "muted" | "destructive"
-> = {
-  pending: "info",
-  accepted: "success",
-  revoked: "muted",
-  expired: "destructive",
-};
+const STATUS_VARIANT: Record<InviteStatus, "info" | "success" | "muted" | "destructive"> =
+  {
+    pending: "info",
+    accepted: "success",
+    revoked: "muted",
+    expired: "destructive",
+  };
 
 const errMsg = (e: unknown, f = "Something went wrong") =>
   e instanceof ApiError ? e.message : f;
@@ -66,9 +64,7 @@ function RoleOptionLabel({ role }: { role: OrgRole }) {
   return (
     <div className="flex flex-col gap-0.5">
       <span className="capitalize">{role}</span>
-      <span className="text-xs text-muted-foreground">
-        {ROLE_DESCRIPTIONS[role]}
-      </span>
+      <span className="text-xs text-muted-foreground">{ROLE_DESCRIPTIONS[role]}</span>
     </div>
   );
 }
@@ -88,8 +84,7 @@ export default function InvitesPage() {
     enabled: admin,
   });
 
-  const invalidate = () =>
-    queryClient.invalidateQueries({ queryKey: ["invites"] });
+  const invalidate = () => queryClient.invalidateQueries({ queryKey: ["invites"] });
 
   const revokeInvite = useMutation({
     mutationFn: (id: string) => api.delete(`/invites/${id}`),
@@ -214,17 +209,13 @@ export default function InvitesPage() {
         onInvited={invalidate}
       />
 
-      <Dialog
-        open={revoking !== null}
-        onOpenChange={(o) => !o && setRevoking(null)}
-      >
+      <Dialog open={revoking !== null} onOpenChange={(o) => !o && setRevoking(null)}>
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>Revoke invitation?</DialogTitle>
             <DialogDescription>
-              The invitation for{" "}
-              <span className="font-medium">{revoking?.email}</span> will be
-              cancelled, and any link they received will stop working.
+              The invitation for <span className="font-medium">{revoking?.email}</span>{" "}
+              will be cancelled, and any link they received will stop working.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
@@ -294,8 +285,8 @@ function InviteDialog({
           <DialogHeader>
             <DialogTitle>Invite member</DialogTitle>
             <DialogDescription>
-              We&apos;ll email an invitation link. Someone who already has a
-              Third Brain account should be added from Members instead.
+              We&apos;ll email an invitation link. Someone who already has a Third Brain
+              account should be added from Members instead.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
@@ -321,11 +312,7 @@ function InviteDialog({
                 </SelectTrigger>
                 <SelectContent>
                   {ROLE_OPTIONS.map((r) => (
-                    <SelectItem
-                      key={r}
-                      value={r}
-                      disabled={r === "owner" && !isOwner}
-                    >
+                    <SelectItem key={r} value={r} disabled={r === "owner" && !isOwner}>
                       <RoleOptionLabel role={r} />
                     </SelectItem>
                   ))}

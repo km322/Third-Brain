@@ -46,10 +46,7 @@ function zodResolver<TValues extends Record<string, unknown>>(
 }
 
 const loginSchema = z.object({
-  email: z
-    .string()
-    .min(1, "Email is required")
-    .email("Enter a valid email address"),
+  email: z.string().min(1, "Email is required").email("Enter a valid email address"),
   password: z.string().min(1, "Password is required"),
 });
 
@@ -79,9 +76,7 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = React.useState(false);
 
   // Already signed in: skip the form and go straight to the app (before paint).
-  const redirecting = useRedirectIfAuthenticated(
-    () => safeNextPath() ?? "/dashboard",
-  );
+  const redirecting = useRedirectIfAuthenticated(() => safeNextPath() ?? "/dashboard");
 
   const {
     register,
@@ -118,7 +113,9 @@ export default function LoginPage() {
       });
       window.location.href = start.url;
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : "Couldn't start single sign-on");
+      toast.error(
+        err instanceof ApiError ? err.message : "Couldn't start single sign-on",
+      );
     } finally {
       setSsoLoading(false);
     }
@@ -142,9 +139,7 @@ export default function LoginPage() {
       router.replace(safeNextPath() ?? "/dashboard");
     } catch (err) {
       const message =
-        err instanceof ApiError
-          ? err.message
-          : "Something went wrong. Please try again.";
+        err instanceof ApiError ? err.message : "Something went wrong. Please try again.";
       toast.error("Sign in failed", { description: message });
     }
   }
@@ -215,9 +210,7 @@ export default function LoginPage() {
               </button>
             </div>
             {errors.password && (
-              <p className="text-sm text-destructive">
-                {errors.password.message}
-              </p>
+              <p className="text-sm text-destructive">{errors.password.message}</p>
             )}
           </div>
         </CardContent>
@@ -229,10 +222,7 @@ export default function LoginPage() {
           </Button>
           <p className="text-center text-sm text-muted-foreground">
             Don&apos;t have an account?{" "}
-            <Link
-              href="/signup"
-              className="font-medium text-primary hover:underline"
-            >
+            <Link href="/signup" className="font-medium text-primary hover:underline">
               Create one
             </Link>
           </p>

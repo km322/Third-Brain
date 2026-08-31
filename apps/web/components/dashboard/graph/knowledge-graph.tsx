@@ -7,11 +7,7 @@ import { Loader2, Network, Waypoints } from "lucide-react";
 import { EmptyState } from "@/components/dashboard/empty-state";
 import { PageHeader } from "@/components/dashboard/page-header";
 import { Button } from "@/components/ui/button";
-import {
-  useApiQuery,
-  useDocumentNeighbors,
-  useGraph,
-} from "@/lib/hooks";
+import { useApiQuery, useDocumentNeighbors, useGraph } from "@/lib/hooks";
 import type { Collection, GraphEdge, GraphNode } from "@/lib/types";
 import { formatNumber } from "@/lib/utils";
 
@@ -48,18 +44,12 @@ function GraphSkeleton() {
 }
 
 export function KnowledgeGraph() {
-  const [collectionId, setCollectionId] = React.useState<string>(
-    ALL_COLLECTIONS,
-  );
-  const [minSimilarity, setMinSimilarity] =
-    React.useState<number>(DEFAULT_SIMILARITY);
+  const [collectionId, setCollectionId] = React.useState<string>(ALL_COLLECTIONS);
+  const [minSimilarity, setMinSimilarity] = React.useState<number>(DEFAULT_SIMILARITY);
   const [selectedId, setSelectedId] = React.useState<string | null>(null);
   const [hoverId, setHoverId] = React.useState<string | null>(null);
-  const [activeClusterId, setActiveClusterId] = React.useState<number | null>(
-    null,
-  );
-  const [expansions, setExpansions] =
-    React.useState<Expansions>(EMPTY_EXPANSIONS);
+  const [activeClusterId, setActiveClusterId] = React.useState<number | null>(null);
+  const [expansions, setExpansions] = React.useState<Expansions>(EMPTY_EXPANSIONS);
   const [expandId, setExpandId] = React.useState<string | null>(null);
 
   const canvasRef = React.useRef<GraphCanvasHandle>(null);
@@ -204,7 +194,7 @@ export function KnowledgeGraph() {
   }, [mergedNodes, mergedEdges, communityByNode, colorByNode]);
 
   const selectedNode = selectedId
-    ? graphData.nodes.find((n) => n.id === selectedId) ?? null
+    ? (graphData.nodes.find((n) => n.id === selectedId) ?? null)
     : null;
   const selectedCluster =
     selectedNode != null
@@ -309,14 +299,10 @@ export function KnowledgeGraph() {
 
           <div className="pointer-events-none absolute right-3 top-3 flex items-center gap-1.5 rounded-md border border-white/10 bg-slate-950/60 px-2.5 py-1.5 text-xs text-slate-300 backdrop-blur-md">
             <Network className="h-3.5 w-3.5 text-slate-400" />
-            <span className="tabular-nums">
-              {formatNumber(graphData.nodes.length)}
-            </span>
+            <span className="tabular-nums">{formatNumber(graphData.nodes.length)}</span>
             <span className="text-slate-500">docs</span>
             <span className="text-slate-600">·</span>
-            <span className="tabular-nums">
-              {formatNumber(graphData.links.length)}
-            </span>
+            <span className="tabular-nums">{formatNumber(graphData.links.length)}</span>
             <span className="text-slate-500">links</span>
           </div>
 

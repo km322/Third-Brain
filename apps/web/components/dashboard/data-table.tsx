@@ -80,10 +80,7 @@ export function DataTable<T>({
 
   return (
     <div
-      className={cn(
-        bordered && "overflow-hidden rounded-lg border bg-card",
-        className,
-      )}
+      className={cn(bordered && "overflow-hidden rounded-lg border bg-card", className)}
     >
       <Table>
         <TableHeader>
@@ -109,9 +106,7 @@ export function DataTable<T>({
                   {columns.map((col) => (
                     <TableCell
                       key={col.id}
-                      className={cn(
-                        col.hideOnMobile && "hidden md:table-cell",
-                      )}
+                      className={cn(col.hideOnMobile && "hidden md:table-cell")}
                     >
                       <Skeleton className="h-4 w-full max-w-[160px]" />
                     </TableCell>
@@ -141,14 +136,9 @@ export function DataTable<T>({
 
           {showEmpty && (
             <TableRow className="hover:bg-transparent">
-              <TableCell
-                colSpan={columns.length}
-                className="h-40 p-0 text-center"
-              >
+              <TableCell colSpan={columns.length} className="h-40 p-0 text-center">
                 {empty ?? (
-                  <span className="text-sm text-muted-foreground">
-                    No records found.
-                  </span>
+                  <span className="text-sm text-muted-foreground">No records found.</span>
                 )}
               </TableCell>
             </TableRow>

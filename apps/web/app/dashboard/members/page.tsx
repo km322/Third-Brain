@@ -110,8 +110,7 @@ export default function MembersPage() {
     enabled: admin,
   });
 
-  const invalidate = () =>
-    queryClient.invalidateQueries({ queryKey: membersKey });
+  const invalidate = () => queryClient.invalidateQueries({ queryKey: membersKey });
 
   const updateMember = useMutation({
     mutationFn: ({
@@ -182,14 +181,10 @@ export default function MembersPage() {
             <p className="truncate text-sm font-medium">
               {m.user?.full_name || "-"}
               {m.user_id === user?.id ? (
-                <span className="ml-1.5 text-xs text-muted-foreground">
-                  (you)
-                </span>
+                <span className="ml-1.5 text-xs text-muted-foreground">(you)</span>
               ) : null}
             </p>
-            <p className="truncate text-xs text-muted-foreground">
-              {m.user?.email}
-            </p>
+            <p className="truncate text-xs text-muted-foreground">{m.user?.email}</p>
           </div>
         </div>
       ),
@@ -216,11 +211,7 @@ export default function MembersPage() {
             </SelectTrigger>
             <SelectContent>
               {ROLE_OPTIONS.map((r) => (
-                <SelectItem
-                  key={r}
-                  value={r}
-                  disabled={r === "owner" && !isOwner}
-                >
+                <SelectItem key={r} value={r} disabled={r === "owner" && !isOwner}>
                   <RoleOptionLabel role={r} />
                 </SelectItem>
               ))}
@@ -340,24 +331,18 @@ export default function MembersPage() {
         <CardContent className="space-y-4">
           <div className="space-y-3">
             {ROLE_REFERENCE.map((r) => (
-              <div
-                key={r}
-                className="grid grid-cols-[76px_1fr] items-start gap-3"
-              >
+              <div key={r} className="grid grid-cols-[76px_1fr] items-start gap-3">
                 <RoleBadge role={r} />
-                <p className="text-sm text-muted-foreground">
-                  {ROLE_DESCRIPTIONS[r]}
-                </p>
+                <p className="text-sm text-muted-foreground">{ROLE_DESCRIPTIONS[r]}</p>
               </div>
             ))}
           </div>
           <Separator />
           <p className="text-sm text-muted-foreground">
-            Make someone an{" "}
-            <span className="font-medium text-foreground">admin</span> to grant
-            them visibility of every document in the organization.{" "}
-            <span className="font-medium text-foreground">Editor</span> is the
-            role for members who manage their own knowledge.
+            Make someone an <span className="font-medium text-foreground">admin</span> to
+            grant them visibility of every document in the organization.{" "}
+            <span className="font-medium text-foreground">Editor</span> is the role for
+            members who manage their own knowledge.
           </p>
         </CardContent>
       </Card>
@@ -370,18 +355,14 @@ export default function MembersPage() {
       />
 
       {/* Reset-password confirm */}
-      <Dialog
-        open={resetting !== null}
-        onOpenChange={(o) => !o && setResetting(null)}
-      >
+      <Dialog open={resetting !== null} onOpenChange={(o) => !o && setResetting(null)}>
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>Reset password?</DialogTitle>
             <DialogDescription>
-              {resetting?.user?.full_name || resetting?.user?.email} will get a
-              temporary password and every session they have will be signed
-              out. Share it with them securely; they should change it right
-              away in Settings.
+              {resetting?.user?.full_name || resetting?.user?.email} will get a temporary
+              password and every session they have will be signed out. Share it with them
+              securely; they should change it right away in Settings.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
@@ -403,21 +384,16 @@ export default function MembersPage() {
       </Dialog>
 
       {/* One-time temporary-password reveal */}
-      <Dialog
-        open={tempReset !== null}
-        onOpenChange={(o) => !o && setTempReset(null)}
-      >
+      <Dialog open={tempReset !== null} onOpenChange={(o) => !o && setTempReset(null)}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
             <DialogTitle>Temporary password</DialogTitle>
             <DialogDescription>
               Share this with{" "}
               <span className="font-medium">
-                {tempReset?.member.user?.full_name ||
-                  tempReset?.member.user?.email}
+                {tempReset?.member.user?.full_name || tempReset?.member.user?.email}
               </span>{" "}
-              securely. They should sign in with it and set a new password
-              under Settings.
+              securely. They should sign in with it and set a new password under Settings.
             </DialogDescription>
           </DialogHeader>
           <div className="flex items-center gap-2 rounded-md border bg-muted/40 p-3">
@@ -433,8 +409,8 @@ export default function MembersPage() {
           <div className="flex items-start gap-2 text-xs text-warning">
             <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0" />
             <span>
-              This is the only time it will be shown. Only a hash is stored, so
-              if it is lost you&apos;ll need to reset the password again.
+              This is the only time it will be shown. Only a hash is stored, so if it is
+              lost you&apos;ll need to reset the password again.
             </span>
           </div>
           <DialogFooter>
@@ -443,17 +419,14 @@ export default function MembersPage() {
         </DialogContent>
       </Dialog>
 
-      <Dialog
-        open={removing !== null}
-        onOpenChange={(o) => !o && setRemoving(null)}
-      >
+      <Dialog open={removing !== null} onOpenChange={(o) => !o && setRemoving(null)}>
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>Remove member?</DialogTitle>
             <DialogDescription>
-              {removing?.user?.full_name || removing?.user?.email} will lose
-              access to <span className="font-medium">{org?.name}</span>. This
-              can be undone by inviting them again.
+              {removing?.user?.full_name || removing?.user?.email} will lose access to{" "}
+              <span className="font-medium">{org?.name}</span>. This can be undone by
+              inviting them again.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
@@ -521,8 +494,8 @@ function InviteDialog({
           <DialogHeader>
             <DialogTitle>Invite member</DialogTitle>
             <DialogDescription>
-              The person must already have a Third Brain account. They&apos;ll
-              be added with the role you choose.
+              The person must already have a Third Brain account. They&apos;ll be added
+              with the role you choose.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
@@ -548,11 +521,7 @@ function InviteDialog({
                 </SelectTrigger>
                 <SelectContent>
                   {ROLE_OPTIONS.map((r) => (
-                    <SelectItem
-                      key={r}
-                      value={r}
-                      disabled={r === "owner" && !isOwner}
-                    >
+                    <SelectItem key={r} value={r} disabled={r === "owner" && !isOwner}>
                       <RoleOptionLabel role={r} />
                     </SelectItem>
                   ))}

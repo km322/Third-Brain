@@ -3,11 +3,7 @@
 import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import {
-  useMutation,
-  useQuery,
-  useQueryClient,
-} from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft,
   FileText,
@@ -121,14 +117,9 @@ function ChunkSheet({
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent
-        side="right"
-        className="flex w-full flex-col gap-0 p-0 sm:max-w-xl"
-      >
+      <SheetContent side="right" className="flex w-full flex-col gap-0 p-0 sm:max-w-xl">
         <SheetHeader className="space-y-1 border-b p-6">
-          <SheetTitle className="truncate pr-8">
-            {doc?.title ?? "Document"}
-          </SheetTitle>
+          <SheetTitle className="truncate pr-8">{doc?.title ?? "Document"}</SheetTitle>
           <SheetDescription>
             {doc
               ? `${formatNumber(doc.chunk_count)} ${
@@ -167,10 +158,7 @@ function ChunkSheet({
               />
             ) : (
               data.map((chunk) => (
-                <div
-                  key={chunk.id}
-                  className="space-y-2 rounded-lg border bg-card p-4"
-                >
+                <div key={chunk.id} className="space-y-2 rounded-lg border bg-card p-4">
                   <div className="flex items-center justify-between text-xs text-muted-foreground">
                     <span className="font-medium text-foreground">
                       Chunk {chunk.chunk_index + 1}
@@ -217,14 +205,11 @@ function SettingsDialog({
 }) {
   const queryClient = useQueryClient();
   const [name, setName] = React.useState(collection.name);
-  const [description, setDescription] = React.useState(
-    collection.description ?? "",
+  const [description, setDescription] = React.useState(collection.description ?? "");
+  const [visibility, setVisibility] = React.useState<Visibility>(collection.visibility);
+  const [defaultPermission, setDefaultPermission] = React.useState<PermissionLevel>(
+    collection.default_permission,
   );
-  const [visibility, setVisibility] = React.useState<Visibility>(
-    collection.visibility,
-  );
-  const [defaultPermission, setDefaultPermission] =
-    React.useState<PermissionLevel>(collection.default_permission);
 
   // Re-sync when the dialog opens for a (potentially updated) collection.
   React.useEffect(() => {
@@ -365,9 +350,7 @@ export default function CollectionDetailPage({
   const [confirmDelete, setConfirmDelete] = React.useState(false);
   const [activeDoc, setActiveDoc] = React.useState<DocumentItem | null>(null);
   const [sheetOpen, setSheetOpen] = React.useState(false);
-  const [deleteTarget, setDeleteTarget] = React.useState<DocumentItem | null>(
-    null,
-  );
+  const [deleteTarget, setDeleteTarget] = React.useState<DocumentItem | null>(null);
   const [reviewDocId, setReviewDocId] = React.useState<string | null>(null);
   const [reviewOpen, setReviewOpen] = React.useState(false);
 
@@ -624,18 +607,17 @@ export default function CollectionDetailPage({
           </p>
         </Card>
         <Card className="p-4">
-          <p className="text-xs font-medium text-muted-foreground">
-            Embedding model
-          </p>
-          <p className="mt-1 truncate text-sm font-medium" title={collection.embedding_model}>
+          <p className="text-xs font-medium text-muted-foreground">Embedding model</p>
+          <p
+            className="mt-1 truncate text-sm font-medium"
+            title={collection.embedding_model}
+          >
             {collection.embedding_model}
           </p>
         </Card>
         <Card className="p-4">
           <p className="text-xs font-medium text-muted-foreground">Created</p>
-          <p className="mt-1 text-sm font-medium">
-            {formatDate(collection.created_at)}
-          </p>
+          <p className="mt-1 text-sm font-medium">{formatDate(collection.created_at)}</p>
         </Card>
       </div>
 
@@ -650,11 +632,7 @@ export default function CollectionDetailPage({
             icon={FileText}
             title="No documents yet"
             description="Add text, a URL or a file to start building this knowledge base."
-            actions={
-              canEdit ? (
-                <UploadDialog collectionId={collection.id} />
-              ) : undefined
-            }
+            actions={canEdit ? <UploadDialog collectionId={collection.id} /> : undefined}
           />
         }
       />
@@ -674,10 +652,7 @@ export default function CollectionDetailPage({
       />
 
       {/* Delete document confirm */}
-      <Dialog
-        open={!!deleteTarget}
-        onOpenChange={(o) => !o && setDeleteTarget(null)}
-      >
+      <Dialog open={!!deleteTarget} onOpenChange={(o) => !o && setDeleteTarget(null)}>
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>Delete document?</DialogTitle>
@@ -722,11 +697,9 @@ export default function CollectionDetailPage({
             <DialogTitle>Delete this collection?</DialogTitle>
             <DialogDescription>
               This permanently deletes{" "}
-              <span className="font-medium text-foreground">
-                {collection.name}
-              </span>{" "}
-              and all {formatNumber(collection.document_count)} of its documents.
-              This cannot be undone.
+              <span className="font-medium text-foreground">{collection.name}</span> and
+              all {formatNumber(collection.document_count)} of its documents. This cannot
+              be undone.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>

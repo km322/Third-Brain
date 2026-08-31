@@ -91,13 +91,9 @@ export default function KnowledgeGapsPage() {
   const loading = gapsQuery.isLoading;
   const windowLabel = report ? `last ${report.window_days} days` : undefined;
   const answeredRate =
-    report?.answered_rate != null
-      ? `${(report.answered_rate * 100).toFixed(1)}%`
-      : "-";
+    report?.answered_rate != null ? `${(report.answered_rate * 100).toFixed(1)}%` : "-";
   const retentionOn = retentionQuery.data?.enabled ?? false;
-  const showGaps = Boolean(
-    report?.query_text_retained && report?.top_gaps.length,
-  );
+  const showGaps = Boolean(report?.query_text_retained && report?.top_gaps.length);
 
   return (
     <div className="space-y-6">
@@ -151,10 +147,10 @@ export default function KnowledgeGapsPage() {
                 Store query text for gap analysis
               </Label>
               <p className="max-w-2xl text-xs text-muted-foreground">
-                Off by default for privacy. When enabled, the raw text of
-                unanswered and thumbs-down queries is retained so the list below
-                can show the actual questions people asked. Aggregate counts are
-                always tracked regardless of this setting.
+                Off by default for privacy. When enabled, the raw text of unanswered and
+                thumbs-down queries is retained so the list below can show the actual
+                questions people asked. Aggregate counts are always tracked regardless of
+                this setting.
               </p>
             </div>
             <Switch

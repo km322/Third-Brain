@@ -36,9 +36,7 @@ test.describe("ask playground", () => {
 
     // Head to the Ask page (default mode is "Ask").
     await page.goto("/dashboard/search");
-    await expect(
-      page.getByRole("heading", { name: "Ask", level: 1 }),
-    ).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Ask", level: 1 })).toBeVisible();
 
     const question = "What is the incident response SLA for enterprise?";
     const box = page.getByPlaceholder(/ask a question about your knowledge/i);
@@ -64,14 +62,11 @@ test.describe("ask playground", () => {
 
     // The stream must produce a real grounded answer - NOT the "No answer was produced"
     // fallback - so a broken SSE path fails the test instead of passing vacuously.
-    await expect(
-      answerPanel.getByText(/no answer was produced/i),
-    ).toHaveCount(0);
+    await expect(answerPanel.getByText(/no answer was produced/i)).toHaveCount(0);
     await expect
       .poll(
         async () =>
-          (await answerPanel.innerText()).replace(/^\s*Answer\s*/i, "").trim()
-            .length,
+          (await answerPanel.innerText()).replace(/^\s*Answer\s*/i, "").trim().length,
         { timeout: 45_000 },
       )
       .toBeGreaterThan(20);

@@ -1,8 +1,8 @@
 """Integration: Alembic migration round-trip (upgrade head -> downgrade base -> upgrade head).
 
-Proves the squashed baseline builds the complete model schema from an empty database,
-tears it back down to nothing, and builds it again - the contract behind fresh installs
-and ``make db-downgrade`` rollbacks. Runs in a dedicated scratch database so the shared
+Proves the migration chain builds the complete model schema from an empty database, tears
+it back down to nothing, and builds it again - the contract behind fresh installs and
+``make db-downgrade`` rollbacks. Runs in a dedicated scratch database so the shared
 session schema (migrated once by ``integration_infra``) is never disturbed.
 """
 
@@ -18,7 +18,7 @@ from sqlalchemy.pool import NullPool
 
 pytestmark = pytest.mark.integration
 
-HEAD_REVISION = "0001_initial"
+HEAD_REVISION = "0003_drop_org_plan"
 
 
 def _public_tables(engine) -> set[str]:

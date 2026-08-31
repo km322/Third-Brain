@@ -3,12 +3,13 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 
 import { Cta } from "@/components/marketing/cta";
+import { GITHUB_URL } from "@/components/marketing/links";
 import { cn } from "@/lib/utils";
 
 export const metadata: Metadata = {
   title: "Documentation",
   description:
-    "Get started with Third Brain: connect Claude, Claude Code and Cursor over MCP, bring your own model keys, and let your agents write documentation as they work - all governed by document-level permissions.",
+    "Get started with Third Brain: run your own instance, connect Claude, Claude Code and Cursor over MCP, bring your own model keys, and let your agents write documentation as they work - all governed by document-level permissions.",
 };
 
 interface SectionMeta {
@@ -29,6 +30,12 @@ const SECTIONS: SectionMeta[] = [
 // --- Real commands and API surfaces, cross-checked against docs/API.md and
 // --- packages/mcp-cli/README.md. Kept as strings so the code renders verbatim.
 
+const SELF_HOST = `git clone https://github.com/km322/Third-Brain.git
+cd Third-Brain
+cp .env.example .env       # runs with zero keys: offline stub model
+make up-d                  # postgres + pgvector, redis, api, worker, web (detached)
+make migrate && make seed  # prints the admin password and an API key, once`;
+
 const QUICK_START = `npx third-brain-mcp connect           # one-time sign-in via device code
 npx third-brain-mcp install claude    # also: cursor, claude-code`;
 
@@ -38,14 +45,14 @@ npx third-brain-mcp status`;
 
 const PY_SNIPPET = `from openai import OpenAI
 
-client = OpenAI(base_url="https://api.third-brain.ai/v1", api_key="tb_live_...")
+client = OpenAI(base_url="http://localhost:8000/v1", api_key="tb_live_...")
 resp = client.chat.completions.create(
     model="third-brain",
     messages=[{"role": "user", "content": "What is our on-call escalation policy?"}],
 )
 print(resp.choices[0].message.content)  # grounded in your brain, within your ACLs`;
 
-const REST_SNIPPET = `export TB=https://api.third-brain.ai
+const REST_SNIPPET = `export TB=http://localhost:8000
 export TB_KEY=tb_live_...
 
 curl -X POST "$TB/api/v1/search/chat" \\
@@ -55,7 +62,7 @@ curl -X POST "$TB/api/v1/search/chat" \\
 const MCP_CONFIG = `{
   "mcpServers": {
     "third-brain": {
-      "url": "https://api.third-brain.ai/mcp",
+      "url": "http://localhost:8000/mcp",
       "headers": { "Authorization": "Bearer tb_live_..." }
     }
   }
@@ -117,12 +124,23 @@ function Mono({ children }: { children: ReactNode }) {
 /** Inline link in the violet link idiom - site routes and in-page anchors. */
 function TextLink({ href, children }: { href: string; children: ReactNode }) {
   return (
-    <Link
+    <Link href={href} className="text-primary underline-offset-4 hover:underline">
+      {children}
+    </Link>
+  );
+}
+
+/** The same violet link idiom for destinations off the site, such as the repo. */
+function ExtLink({ href, children }: { href: string; children: ReactNode }) {
+  return (
+    <a
       href={href}
+      target="_blank"
+      rel="noreferrer"
       className="text-primary underline-offset-4 hover:underline"
     >
       {children}
-    </Link>
+    </a>
   );
 }
 
@@ -239,9 +257,9 @@ export default function DocsPage() {
               Everything you need to get started.
             </h1>
             <p className="mt-5 max-w-2xl text-pretty text-lg leading-relaxed text-muted-foreground">
-              Connect the tools your team already uses over MCP, bring your own model
-              keys, and let your agents write documentation as they work. Every command
-              and endpoint below is real.
+              Run your own instance, connect the tools your team already uses over MCP,
+              bring your own model keys, and let your agents write documentation as they
+              work. Every command and endpoint below is real.
             </p>
           </div>
         </div>
@@ -273,11 +291,18 @@ export default function DocsPage() {
           <div className="min-w-0 divide-y divide-border/60">
             <Section id="quick-start" index="01" title="Quick start" first>
               <p>
-                Third Brain is a managed service, opening access in waves.{" "}
-                <TextLink href="/#waitlist">Join the waitlist</TextLink> to get a
-                workspace, or <TextLink href="/login">sign in</TextLink> if your team is
-                already on board. Once you are in, two commands wire the tools your team
-                already uses into the brain:
+                Third Brain is free and open source under Apache-2.0, and you run it
+                yourself. Clone <ExtLink href={GITHUB_URL}>the repository</ExtLink> and
+                bring the stack up with Docker - Postgres with pgvector, Redis, the API,
+                the ingestion worker and the dashboard:
+              </p>
+              <CodeBlock label="shell" code={SELF_HOST} />
+              <p>
+                The dashboard is then on <Mono>localhost:3000</Mono> and the API on{" "}
+                <Mono>localhost:8000</Mono>. <Mono>make seed</Mono> prints a generated
+                admin password once - use it to <TextLink href="/login">sign in</TextLink>
+                . Once you are in, two commands wire the tools your team already uses into
+                the brain:
               </p>
               <CodeBlock label="shell" code={QUICK_START} />
               <p>
@@ -288,7 +313,7 @@ export default function DocsPage() {
                 through both in detail.
               </p>
               <p className="text-sm">
-                Building against the API instead? Every workspace also speaks
+                Building against the API instead? Every instance also speaks
                 OpenAI-compatible, native REST, and MCP - jump to{" "}
                 <TextLink href="#from-code">Use it from code</TextLink>.
               </p>
@@ -331,8 +356,9 @@ export default function DocsPage() {
 
             <Section id="bring-models" index="03" title="Bring your models">
               <p>
-                Third Brain never marks up tokens - you bring your own provider keys. Add
-                a <span className="text-foreground">Connector</span> on the dashboard to
+                Third Brain ships no models of its own - you bring your own provider keys,
+                and the spend stays between you and the provider. Add a{" "}
+                <span className="text-foreground">Connector</span> on the dashboard to
                 configure a provider for your organization. Credentials are encrypted at
                 rest and never returned.
               </p>

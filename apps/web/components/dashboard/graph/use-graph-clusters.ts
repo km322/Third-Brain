@@ -25,17 +25,110 @@ const EMPTY: ClusterResult = {
 // Common words plus generic document/file noise that should never become a
 // topic label.
 const STOPWORDS = new Set([
-  "the", "a", "an", "and", "or", "but", "of", "to", "in", "on", "for", "with",
-  "at", "by", "from", "up", "as", "is", "are", "was", "were", "be", "been",
-  "being", "it", "its", "this", "that", "these", "those", "which", "who",
-  "what", "when", "where", "how", "why", "our", "your", "their", "his", "her",
-  "we", "you", "they", "i", "me", "my", "not", "no", "yes", "can", "will",
-  "would", "should", "could", "may", "might", "must", "do", "does", "did",
-  "has", "have", "had", "into", "out", "over", "about", "than", "then", "so",
-  "if", "else", "new", "old", "get", "set", "use", "using", "via", "per",
-  "doc", "docs", "document", "documents", "file", "files", "note", "notes",
-  "draft", "final", "copy", "version", "untitled", "readme", "page", "pages",
-  "report", "overview", "summary", "guide", "intro", "introduction",
+  "the",
+  "a",
+  "an",
+  "and",
+  "or",
+  "but",
+  "of",
+  "to",
+  "in",
+  "on",
+  "for",
+  "with",
+  "at",
+  "by",
+  "from",
+  "up",
+  "as",
+  "is",
+  "are",
+  "was",
+  "were",
+  "be",
+  "been",
+  "being",
+  "it",
+  "its",
+  "this",
+  "that",
+  "these",
+  "those",
+  "which",
+  "who",
+  "what",
+  "when",
+  "where",
+  "how",
+  "why",
+  "our",
+  "your",
+  "their",
+  "his",
+  "her",
+  "we",
+  "you",
+  "they",
+  "i",
+  "me",
+  "my",
+  "not",
+  "no",
+  "yes",
+  "can",
+  "will",
+  "would",
+  "should",
+  "could",
+  "may",
+  "might",
+  "must",
+  "do",
+  "does",
+  "did",
+  "has",
+  "have",
+  "had",
+  "into",
+  "out",
+  "over",
+  "about",
+  "than",
+  "then",
+  "so",
+  "if",
+  "else",
+  "new",
+  "old",
+  "get",
+  "set",
+  "use",
+  "using",
+  "via",
+  "per",
+  "doc",
+  "docs",
+  "document",
+  "documents",
+  "file",
+  "files",
+  "note",
+  "notes",
+  "draft",
+  "final",
+  "copy",
+  "version",
+  "untitled",
+  "readme",
+  "page",
+  "pages",
+  "report",
+  "overview",
+  "summary",
+  "guide",
+  "intro",
+  "introduction",
 ]);
 
 function mulberry32(seed: number): () => number {
@@ -56,8 +149,7 @@ function significantWords(title: string): string[] {
     .filter((w) => w.length >= 3 && !STOPWORDS.has(w) && !/^\d+$/.test(w));
 }
 
-const titleCase = (w: string) =>
-  w.charAt(0).toUpperCase() + w.slice(1);
+const titleCase = (w: string) => w.charAt(0).toUpperCase() + w.slice(1);
 
 /**
  * Derive a short topic label for a community: the most frequent significant
@@ -90,18 +182,13 @@ function clusterLabel(members: GraphNode[], isWholeGraph = false): string {
   // about that file. Use a neutral label instead.
   if (isWholeGraph) return "All documents";
 
-  const hub = members.reduce((best, m) =>
-    m.degree > best.degree ? m : best,
-  );
+  const hub = members.reduce((best, m) => (m.degree > best.degree ? m : best));
   const words = hub.title.trim().split(/\s+/).slice(0, 3).join(" ");
   const label = words || hub.title.trim() || "Untitled";
   return label.length > 26 ? `${label.slice(0, 25)}…` : label;
 }
 
-function computeClusters(
-  nodes: GraphNode[],
-  edges: GraphEdge[],
-): ClusterResult {
+function computeClusters(nodes: GraphNode[], edges: GraphEdge[]): ClusterResult {
   if (nodes.length === 0) return EMPTY;
 
   const graph = new Graph({ type: "undirected" });
@@ -166,9 +253,6 @@ function computeClusters(
 }
 
 /** Memoized Louvain clustering over the current node/edge set. */
-export function useGraphClusters(
-  nodes: GraphNode[],
-  edges: GraphEdge[],
-): ClusterResult {
+export function useGraphClusters(nodes: GraphNode[], edges: GraphEdge[]): ClusterResult {
   return React.useMemo(() => computeClusters(nodes, edges), [nodes, edges]);
 }

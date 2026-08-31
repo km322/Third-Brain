@@ -26,18 +26,27 @@ secrets are handled, and how to report a vulnerability.
 
 **Please do not open a public issue for security problems.**
 
-Email the project's security contact - **admin@third-brain.ai** - with:
+Report privately through **GitHub private vulnerability reporting**:
+<https://github.com/km322/Third-Brain/security/advisories/new>. It is the fastest channel
+and keeps the report private until a fix ships.
+
+Include:
 
 - a description and impact assessment,
 - reproduction steps or a proof of concept,
 - affected version / commit,
 - your contact for follow-up.
 
-We aim to acknowledge within **2 business days** and to provide a remediation timeline
-within **7 business days**. We practice coordinated disclosure: please give us a
-reasonable window (target **90 days**) to ship a fix before public disclosure, and we will
-credit reporters who wish to be named. Do not access, modify or exfiltrate data belonging
-to other tenants while testing.
+[`.github/SECURITY.md`](../.github/SECURITY.md) is the canonical policy and the single source
+of truth for what to expect: acknowledgement **within 7 business days**. This is a
+volunteer-maintained open-source project, so timelines are best effort, not a contractual
+SLA. Disclosure is coordinated - please allow a reasonable window (target **90 days**) for a
+fix to ship before disclosing publicly - and reporters who want to be named are credited in
+the advisory and the changelog.
+
+Third Brain is self-hosted software, so please test only against an instance **you** run.
+Do not test against someone else's deployment, and do not access, modify or exfiltrate data
+belonging to anyone else while testing.
 
 ---
 
@@ -54,7 +63,7 @@ Adversaries we design against:
 
 | Adversary | Example goal | Primary control |
 |---|---|---|
-| Unauthenticated internet user | Read any data | Auth required on every data route. The unauthenticated surface is small and by design: the health/version probes (no tenant data), the two device-auth endpoints (start and poll), the SSO discovery/start/callback/ACS endpoints, the public waitlist endpoints (joining is rate limited, honeypot- and Turnstile-guarded), `POST /api/v1/invites/accept` (rate limited per token and client IP; a valid, unexpired, unused invite token provisions the account and signs in, and it can only ever provision a **new** account - an address that already has one gets `409`, never a session), and `GET /api/v1/files/{token}` - a capability URL serving an image document's original bytes to any holder of an unguessable 256-bit token (rate limited on misses, raster-image media-type whitelist, quarantined documents 404). `public` collections are still org-scoped (any org member or org API key), not internet-public. Auth endpoints are per-identifier rate limited against brute force. |
+| Unauthenticated internet user | Read any data | Auth required on every data route. The unauthenticated surface is small and by design: the health/version probes (no tenant data), the two device-auth endpoints (start and poll), the SSO discovery/start/callback/ACS endpoints, `POST /api/v1/invites/accept` (rate limited per token and client IP; a valid, unexpired, unused invite token provisions the account and signs in, and it can only ever provision a **new** account - an address that already has one gets `409`, never a session), and `GET /api/v1/files/{token}` - a capability URL serving an image document's original bytes to any holder of an unguessable 256-bit token (rate limited on misses, raster-image media-type whitelist, quarantined documents 404). `public` collections are still org-scoped (any org member or org API key), not internet-public. Auth endpoints are per-identifier rate limited against brute force. |
 | Authenticated org member | Read a document they weren't granted | Permission engine enforced at retrieval time (SQL pushdown). |
 | Cross-tenant attacker | Read another org's data | Every query filters by `org_id`; resources 404 across org boundaries. |
 | Malicious/leaked API key | Escalate privilege via impersonation | Keys carry scopes + fixed org; **keys cannot mint or revoke keys**; `acts_as_user_id` must be an existing org member. |
@@ -327,12 +336,12 @@ scanner only, so a document quarantined by DLP alone reviews with an empty list.
 
 ## Tenant isolation
 
-Every tenant table is scoped to an `organization` - `users` is a global identity and
-`waitlist_entries` sits outside any org - and **every query for tenant data filters by
-`ctx.org_id`**. Cross-org access returns `404` (not `403`) so existence isn't leaked across
-tenants. The retrieval scope is always constructed with the caller's `org_id` first, then
-narrowed by permissions. Uploaded files should live on per-deployment object storage
-(`STORAGE_BACKEND=s3`) with bucket policies scoped to the app role.
+Every tenant table is scoped to an `organization` - `users` is the one global identity
+table - and **every query for tenant data filters by `ctx.org_id`**. Cross-org access
+returns `404` (not `403`) so existence isn't leaked across tenants. The retrieval scope is
+always constructed with the caller's `org_id` first, then narrowed by permissions. Uploaded
+files should live on per-deployment object storage (`STORAGE_BACKEND=s3`) with bucket
+policies scoped to the app role.
 
 ---
 
@@ -346,11 +355,22 @@ metered because several endpoints (search, chat, ingestion) spend real provider 
 unmetered signed-in caller could otherwise bill the operator without limit. The
 unauthenticated auth endpoints have their own per-(identifier, IP) brute-force guard.
 
-**Self-serve signup is closed by default in production.** A newly registered org has no
-connector of its own, so its completions and embeddings fall back to the deployment's
-platform provider keys - meaning open registration on a keyed deployment lets anyone spend
-the operator's money. `POST /auth/register` therefore returns `403` when
+**Self-serve signup is closed by default in production.** This is a safety default for you,
+the operator, not a gate on the software. A newly registered org has no connector of its own,
+so its completions and embeddings fall back to the deployment's platform provider keys, which
+means open registration on a reachable instance lets any stranger who finds it spend **your**
+OpenAI / Anthropic / Gemini budget. `POST /auth/register` therefore returns `403` when
 `ENVIRONMENT=production` unless `SIGNUP_ENABLED=true` is set explicitly.
+
+Bring members in deliberately instead:
+
+- **Invite them** from the dashboard (`POST /api/v1/invites`), which is the normal path.
+- **Provision them through SSO/SCIM** if you run an IdP.
+- **Or open registration on purpose** with `SIGNUP_ENABLED=true` - reasonable when the
+  instance is only reachable inside your network, when every org configures its own
+  connector, or when you simply accept the provider spend. If you open it on a publicly
+  reachable instance, keep `DEFAULT_RATE_LIMIT_PER_MINUTE` /
+  `SESSION_RATE_LIMIT_PER_MINUTE` tight and watch `usage_records`.
 
 Put a WAF/CDN in front for volumetric DoS and IP reputation. Metering (`usage_records`)
 also makes runaway spend visible quickly.
@@ -370,7 +390,7 @@ the audit log as append-only and ship it to durable, tamper-evident storage.
 ## Data handling
 
 - **In transit**: terminate TLS at your proxy/LB; use `rediss://` and TLS to Postgres.
-- **At rest**: enable disk encryption on managed Postgres/Redis/object storage.
+- **At rest**: enable disk encryption on your Postgres, Redis and object storage.
 - **Third parties**: query text and document content are sent to whichever LLM provider you
   configure. Choose providers/regions consistent with your data-residency and DPA
   requirements; per-org Connectors let tenants pick their own (including self-hosted /
@@ -382,14 +402,15 @@ the audit log as append-only and ship it to durable, tamper-evident storage.
 
 ## Data residency & self-hosting
 
-Third Brain is designed to run entirely on infrastructure you control. In a self-hosted
-deployment, all data - documents, chunks, embeddings, permissions, usage metering, and the
-audit log - stays in **your** Postgres, Redis, and upload directory; the vendor holds none
-of it. A default deployment makes **no phone-home calls**: telemetry is fully opt-in (nothing
-is exported unless you set `OTEL_EXPORTER_OTLP_ENDPOINT`), the offline stub provider means
-zero LLM calls until you configure a key, and storage is local by default. The only outbound
-traffic is to the LLM providers and data sources **you** configure (and user-triggered,
-SSRF-gated URL ingestion). You choose the region and jurisdiction where the data lives.
+Third Brain runs entirely on infrastructure you control - there is no hosted service, so
+self-hosting is the only way it runs. All data - documents, chunks, embeddings, permissions,
+usage metering, and the audit log - stays in **your** Postgres, Redis, and upload directory,
+and no one else holds a copy. A default deployment makes **no phone-home calls**: telemetry
+is fully opt-in (nothing is exported unless you set `OTEL_EXPORTER_OTLP_ENDPOINT`), the
+offline stub provider means zero LLM calls until you configure a key, and storage is local by
+default. The only outbound traffic is to the LLM providers and data sources **you** configure
+(and user-triggered, SSRF-gated URL ingestion). You choose the region and jurisdiction where
+the data lives.
 
 See [`SELF_HOSTING.md`](./SELF_HOSTING.md) for the deployment guide, the verifiable
 "nothing phones home" guarantee, and how compliance obligations follow data custody.
@@ -402,8 +423,8 @@ See [`SELF_HOSTING.md`](./SELF_HOSTING.md) for the deployment guide, the verifia
 - [ ] TLS on all external traffic; `BACKEND_CORS_ORIGINS` restricted (never `*`).
 - [ ] Postgres/Redis on a private network, encrypted, least-privilege roles.
 - [ ] Per-key scopes minimal; short expiries; tight rate limits on untrusted keys.
-- [ ] `SIGNUP_ENABLED` left unset (or `false`) unless you intend anyone to self-register on
-      a deployment whose platform provider keys would serve their requests.
+- [ ] `SIGNUP_ENABLED` left unset (or `false`) unless you intend strangers to self-register
+      and spend your provider keys; invite or SSO-provision members instead.
 - [ ] `SESSION_RATE_LIMIT_PER_MINUTE` sized to your expected dashboard usage.
 - [ ] `STORAGE_BACKEND=s3` with scoped bucket policy + versioning.
 - [ ] Audit logs shipped to durable storage; access reviews scheduled.

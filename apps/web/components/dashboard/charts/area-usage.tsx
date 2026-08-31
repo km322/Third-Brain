@@ -114,10 +114,7 @@ function UsageTooltip({
           const cfg = METRICS[key];
           const isActive = key === activeMetric;
           return (
-            <li
-              key={key}
-              className="flex items-center justify-between gap-4 text-xs"
-            >
+            <li key={key} className="flex items-center justify-between gap-4 text-xs">
               <span className="flex items-center gap-1.5">
                 <span
                   className="h-2 w-2 rounded-[2px]"
@@ -192,17 +189,10 @@ export function AreaUsageChart({
             <p className="text-xs text-muted-foreground">{description}</p>
           ) : null}
         </div>
-        <Tabs
-          value={metric}
-          onValueChange={(v) => setMetric(v as UsageMetric)}
-        >
+        <Tabs value={metric} onValueChange={(v) => setMetric(v as UsageMetric)}>
           <TabsList className="h-8">
             {metrics.map((key) => (
-              <TabsTrigger
-                key={key}
-                value={key}
-                className="px-2.5 py-1 text-xs"
-              >
+              <TabsTrigger key={key} value={key} className="px-2.5 py-1 text-xs">
                 {METRICS[key].label}
               </TabsTrigger>
             ))}
@@ -224,10 +214,7 @@ export function AreaUsageChart({
         </div>
       ) : (
         <ResponsiveContainer width="100%" height={height}>
-          <AreaChart
-            data={data}
-            margin={{ top: 8, right: 8, left: 0, bottom: 0 }}
-          >
+          <AreaChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
             <defs>
               <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
                 <stop offset="5%" stopColor={cfg.color} stopOpacity={0.35} />

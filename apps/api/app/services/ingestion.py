@@ -554,7 +554,7 @@ async def ingest_document(db: AsyncSession, doc_id: uuid.UUID) -> str:
             doc.indexed_at = datetime.now(UTC)
             doc.error = None
 
-            # Attribute ingestion cost to the owning org for analytics/billing.
+            # Attribute the provider cost of ingestion to the owning org for analytics.
             ctx = AuthContext(org_id=doc.org_id, org_role=OrgRole.ADMIN)
             await record_usage(
                 db,

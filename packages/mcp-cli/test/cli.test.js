@@ -53,13 +53,18 @@ test("--version prints the package.json version", async () => {
   assert.equal(stdout.trim(), PKG_VERSION);
 });
 
-test("published metadata points only at public URLs (the GitHub repo is private)", () => {
+test("published metadata points at the open-source repository", () => {
   const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, "package.json"), "utf8"));
-  assert.equal(pkg.repository, undefined);
-  assert.equal(pkg.bugs, undefined);
-  assert.equal(pkg.homepage, "https://third-brain.ai/docs");
+  assert.equal(pkg.license, "Apache-2.0");
+  assert.equal(pkg.homepage, "https://github.com/km322/Third-Brain#readme");
+  assert.equal(pkg.repository.type, "git");
+  assert.equal(pkg.repository.url, "git+https://github.com/km322/Third-Brain.git");
+  assert.equal(pkg.repository.directory, "packages/mcp-cli");
+  assert.equal(pkg.bugs.url, "https://github.com/km322/Third-Brain/issues");
   const readme = fs.readFileSync(path.join(ROOT, "README.md"), "utf8");
-  assert.doesNotMatch(readme, /github\.com\/km322/);
+  assert.match(readme, /github\.com\/km322\/Third-Brain/);
+  // The CLI talks to whatever server the operator runs; no hosted host is baked in.
+  assert.doesNotMatch(readme, /third-brain\.ai/);
 });
 
 test("--help prints usage", async () => {

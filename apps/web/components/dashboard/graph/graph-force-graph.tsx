@@ -1,9 +1,7 @@
 "use client";
 
 import * as React from "react";
-import ForceGraph2D, {
-  type ForceGraphProps,
-} from "react-force-graph-2d";
+import ForceGraph2D, { type ForceGraphProps } from "react-force-graph-2d";
 
 import type { GraphInstance, VizNodeData, VizLinkData } from "./types";
 
@@ -25,10 +23,7 @@ const ForceGraph = ForceGraph2D as unknown as React.ForwardRefExoticComponent<
  * the imperative instance back through `assignRef` - `next/dynamic` cannot
  * forward a React `ref`, so we bridge it with a plain callback prop instead.
  */
-export default function ForceGraphClient({
-  assignRef,
-  ...props
-}: ForceGraphClientProps) {
+export default function ForceGraphClient({ assignRef, ...props }: ForceGraphClientProps) {
   const ref = React.useRef<GraphInstance | undefined>(undefined);
 
   React.useEffect(() => {

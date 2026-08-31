@@ -2,13 +2,7 @@
 
 import * as React from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import {
-  BadgeCheck,
-  MessageSquareQuote,
-  Pencil,
-  Plus,
-  Trash2,
-} from "lucide-react";
+import { BadgeCheck, MessageSquareQuote, Pencil, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { CardGridSkeleton } from "@/components/dashboard/loading";
@@ -100,8 +94,7 @@ export default function AnswersPage() {
     queryFn: () => api.get<Collection[]>("/collections"),
   });
 
-  const invalidate = () =>
-    queryClient.invalidateQueries({ queryKey: ["answers"] });
+  const invalidate = () => queryClient.invalidateQueries({ queryKey: ["answers"] });
 
   const verifyAnswer = useMutation({
     mutationFn: (id: string) => api.post<Answer>(`/answers/${id}/verify`, {}),
@@ -179,8 +172,7 @@ export default function AnswersPage() {
       ) : (
         <div className="space-y-3">
           {answers.map((a) => {
-            const verifying =
-              verifyAnswer.isPending && verifyAnswer.variables === a.id;
+            const verifying = verifyAnswer.isPending && verifyAnswer.variables === a.id;
             return (
               <Card key={a.id} className="space-y-3 p-5">
                 <div className="flex items-start justify-between gap-4">
@@ -206,9 +198,7 @@ export default function AnswersPage() {
                     {a.verification_status === "verified" && a.verified_at ? (
                       <span>
                         Reviewed {fmtDate(a.verified_at)}
-                        {a.expires_at
-                          ? ` · review by ${fmtDate(a.expires_at)}`
-                          : ""}
+                        {a.expires_at ? ` · review by ${fmtDate(a.expires_at)}` : ""}
                       </span>
                     ) : a.verification_status === "stale" ? (
                       <span>Needs re-review</span>
@@ -270,16 +260,13 @@ export default function AnswersPage() {
         />
       ) : null}
 
-      <Dialog
-        open={deleting !== null}
-        onOpenChange={(o) => !o && setDeleting(null)}
-      >
+      <Dialog open={deleting !== null} onOpenChange={(o) => !o && setDeleting(null)}>
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>Delete answer?</DialogTitle>
             <DialogDescription>
-              <span className="font-medium">{deleting?.question}</span> will be
-              removed and will no longer surface above search.
+              <span className="font-medium">{deleting?.question}</span> will be removed
+              and will no longer surface above search.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
@@ -439,9 +426,8 @@ function AnswerFormDialog({
             </div>
             {!editing ? (
               <p className="text-xs text-muted-foreground">
-                Scoping to a collection lets its editors manage the answer and
-                its managers verify it; org-wide answers are governed by their
-                visibility.
+                Scoping to a collection lets its editors manage the answer and its
+                managers verify it; org-wide answers are governed by their visibility.
               </p>
             ) : null}
           </div>
@@ -459,11 +445,7 @@ function AnswerFormDialog({
               disabled={save.isPending || !question.trim() || !answerText.trim()}
               className={cn(save.isPending && "opacity-80")}
             >
-              {save.isPending
-                ? "Saving…"
-                : editing
-                  ? "Save changes"
-                  : "Create answer"}
+              {save.isPending ? "Saving…" : editing ? "Save changes" : "Create answer"}
             </Button>
           </DialogFooter>
         </form>

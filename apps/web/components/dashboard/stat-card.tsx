@@ -54,9 +54,7 @@ export function StatCard({
         {loading ? (
           <Skeleton className="h-8 w-24" />
         ) : (
-          <p className="text-2xl font-semibold tracking-tight tabular-nums">
-            {value}
-          </p>
+          <p className="text-2xl font-semibold tabular-nums tracking-tight">{value}</p>
         )}
       </div>
 

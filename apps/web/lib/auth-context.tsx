@@ -14,12 +14,7 @@ import {
   TOKEN_KEY,
 } from "@/lib/api";
 import { CURRENT_USER_KEY, useCurrentUser } from "@/lib/hooks";
-import type {
-  AuthTokens,
-  Organization,
-  OrgRole,
-  User,
-} from "@/lib/types";
+import type { AuthTokens, Organization, OrgRole, User } from "@/lib/types";
 
 interface AuthContextValue {
   /** The authenticated user, or `null` while loading / unauthenticated. */

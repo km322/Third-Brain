@@ -13,12 +13,7 @@ export function StatCardsSkeleton({
   className?: string;
 }) {
   return (
-    <div
-      className={cn(
-        "grid gap-4 sm:grid-cols-2 xl:grid-cols-4",
-        className,
-      )}
-    >
+    <div className={cn("grid gap-4 sm:grid-cols-2 xl:grid-cols-4", className)}>
       {Array.from({ length: count }).map((_, i) => (
         <Card key={i} className="space-y-3 p-5">
           <div className="flex items-center justify-between">
@@ -54,10 +49,7 @@ export function TableSkeleton({
         {Array.from({ length: rows }).map((_, r) => (
           <div key={r} className="flex items-center gap-4 px-4 py-3.5">
             {Array.from({ length: columns }).map((_, c) => (
-              <Skeleton
-                key={c}
-                className={cn("h-4 flex-1", c === 0 && "max-w-[40%]")}
-              />
+              <Skeleton key={c} className={cn("h-4 flex-1", c === 0 && "max-w-[40%]")} />
             ))}
           </div>
         ))}
@@ -75,12 +67,7 @@ export function CardGridSkeleton({
   className?: string;
 }) {
   return (
-    <div
-      className={cn(
-        "grid gap-4 sm:grid-cols-2 lg:grid-cols-3",
-        className,
-      )}
-    >
+    <div className={cn("grid gap-4 sm:grid-cols-2 lg:grid-cols-3", className)}>
       {Array.from({ length: count }).map((_, i) => (
         <Card key={i} className="space-y-4 p-5">
           <div className="flex items-center gap-3">

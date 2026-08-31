@@ -30,20 +30,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { api, ApiError, auth } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
-import type {
-  AuthTokens,
-  ChangePasswordRequest,
-  Organization,
-  PlanTier,
-  User,
-} from "@/lib/types";
+import type { AuthTokens, ChangePasswordRequest, Organization, User } from "@/lib/types";
 import { cn, initials } from "@/lib/utils";
-
-const PLAN_VARIANT: Record<PlanTier, "muted" | "info" | "default"> = {
-  free: "muted",
-  pro: "info",
-  enterprise: "default",
-};
 
 function errMsg(e: unknown, fallback = "Something went wrong") {
   return e instanceof ApiError ? e.message : fallback;
@@ -76,13 +64,7 @@ export default function SettingsPage() {
   );
 }
 
-function ProfileCard({
-  user,
-  onSaved,
-}: {
-  user: User | null;
-  onSaved: () => void;
-}) {
+function ProfileCard({ user, onSaved }: { user: User | null; onSaved: () => void }) {
   const [fullName, setFullName] = React.useState("");
   const [avatarUrl, setAvatarUrl] = React.useState("");
 
@@ -220,8 +202,7 @@ function SecurityCard() {
       <CardHeader>
         <CardTitle className="text-base">Security</CardTitle>
         <CardDescription>
-          Change the password you use to sign in. Every other session is signed
-          out.
+          Change the password you use to sign in. Every other session is signed out.
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -249,9 +230,7 @@ function SecurityCard() {
                 onChange={(e) => setNewPassword(e.target.value)}
               />
               {fieldErrors.newPassword && (
-                <p className="text-sm text-destructive">
-                  {fieldErrors.newPassword}
-                </p>
+                <p className="text-sm text-destructive">{fieldErrors.newPassword}</p>
               )}
             </div>
             <div className="space-y-1.5">
@@ -265,9 +244,7 @@ function SecurityCard() {
                 onChange={(e) => setConfirmPassword(e.target.value)}
               />
               {fieldErrors.confirmPassword && (
-                <p className="text-sm text-destructive">
-                  {fieldErrors.confirmPassword}
-                </p>
+                <p className="text-sm text-destructive">{fieldErrors.confirmPassword}</p>
               )}
             </div>
           </div>
@@ -382,24 +359,13 @@ function OrgProfileCard({
               <Input id="org-slug" value={org?.slug ?? ""} disabled readOnly />
             </div>
           </div>
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2 text-sm">
-              <span className="text-muted-foreground">Plan</span>
-              {org ? (
-                <Badge
-                  variant={PLAN_VARIANT[org.plan] ?? "muted"}
-                  className="capitalize"
-                >
-                  {org.plan}
-                </Badge>
-              ) : null}
-            </div>
-            {admin ? (
+          {admin ? (
+            <div className="flex justify-end">
               <Button type="submit" disabled={!dirty || save.isPending}>
                 {save.isPending ? "Saving…" : "Save changes"}
               </Button>
-            ) : null}
-          </div>
+            </div>
+          ) : null}
         </form>
       </CardContent>
     </Card>
@@ -448,18 +414,13 @@ function OrganizationsCard({
         {orgs.map((o) => {
           const active = o.id === activeId;
           return (
-            <div
-              key={o.id}
-              className="flex items-center gap-3 rounded-md border p-3"
-            >
+            <div key={o.id} className="flex items-center gap-3 rounded-md border p-3">
               <span className="flex h-8 w-8 items-center justify-center rounded bg-primary/10 text-xs font-bold text-primary">
                 {initials(o.name)}
               </span>
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-medium">{o.name}</p>
-                <p className="truncate text-xs capitalize text-muted-foreground">
-                  {o.plan} plan
-                </p>
+                <p className="truncate text-xs text-muted-foreground">{o.slug}</p>
               </div>
               {active ? (
                 <Badge variant="success">Active</Badge>
@@ -573,19 +534,23 @@ function DangerZoneCard({ orgName }: { orgName?: string }) {
             <div>
               <p className="text-sm font-medium">Delete organization</p>
               <p className="text-sm text-muted-foreground">
-                Permanently delete{" "}
-                <span className="font-medium">{orgName}</span> and all of its
-                knowledge bases, documents and keys.
+                Permanently delete <span className="font-medium">{orgName}</span> and all
+                of its knowledge bases, documents and keys.
               </p>
             </div>
           </div>
-          <Button variant="destructive" disabled title="Contact support to delete an organization">
+          <Button
+            variant="destructive"
+            disabled
+            title="Not available from the dashboard yet"
+          >
             Delete
           </Button>
         </div>
         <p className="mt-2 text-xs text-muted-foreground">
-          Organization deletion is handled by support to prevent accidental data
-          loss. Contact us to proceed.
+          There is no self-serve organization delete yet, deliberately: it is irreversible
+          and there is nobody to undo it for you. Until there is, an operator can remove
+          the organization directly in the database of the instance they run.
         </p>
       </CardContent>
     </Card>

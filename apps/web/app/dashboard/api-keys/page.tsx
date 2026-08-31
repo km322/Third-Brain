@@ -2,14 +2,7 @@
 
 import * as React from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import {
-  KeyRound,
-  Lock,
-  MoreHorizontal,
-  Plus,
-  ShieldAlert,
-  Trash2,
-} from "lucide-react";
+import { KeyRound, Lock, MoreHorizontal, Plus, ShieldAlert, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { CopyButton } from "@/components/copy-button";
@@ -92,8 +85,7 @@ export default function ApiKeysPage() {
     enabled: admin,
   });
 
-  const invalidate = () =>
-    queryClient.invalidateQueries({ queryKey: ["api-keys"] });
+  const invalidate = () => queryClient.invalidateQueries({ queryKey: ["api-keys"] });
 
   const revokeKey = useMutation({
     mutationFn: (id: string) => api.post<ApiKey>(`/api-keys/${id}/revoke`),
@@ -165,7 +157,7 @@ export default function ApiKeysPage() {
       align: "right",
       hideOnMobile: true,
       cell: (k) => (
-        <span className="tabular-nums text-sm">
+        <span className="text-sm tabular-nums">
           {k.rate_limit_per_minute}
           <span className="text-muted-foreground">/min</span>
         </span>
@@ -211,10 +203,7 @@ export default function ApiKeysPage() {
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-40">
-            <DropdownMenuItem
-              disabled={k.revoked}
-              onClick={() => setRevoking(k)}
-            >
+            <DropdownMenuItem disabled={k.revoked} onClick={() => setRevoking(k)}>
               <ShieldAlert className="h-4 w-4" />
               Revoke
             </DropdownMenuItem>
@@ -276,8 +265,8 @@ export default function ApiKeysPage() {
             <DialogTitle>Copy your API key</DialogTitle>
             <DialogDescription>
               This is the only time the full secret for{" "}
-              <span className="font-medium">{secret?.name}</span> will be shown.
-              Store it somewhere safe.
+              <span className="font-medium">{secret?.name}</span> will be shown. Store it
+              somewhere safe.
             </DialogDescription>
           </DialogHeader>
           <div className="flex items-center gap-2 rounded-md border bg-muted/40 p-3">
@@ -293,8 +282,8 @@ export default function ApiKeysPage() {
           <div className="flex items-start gap-2 text-xs text-warning">
             <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0" />
             <span>
-              We only store a hash of this key - it can&apos;t be recovered
-              later. If you lose it, delete the key and create a new one.
+              We only store a hash of this key - it can&apos;t be recovered later. If you
+              lose it, delete the key and create a new one.
             </span>
           </div>
           <DialogFooter>
@@ -309,8 +298,8 @@ export default function ApiKeysPage() {
           <DialogHeader>
             <DialogTitle>Revoke key?</DialogTitle>
             <DialogDescription>
-              <span className="font-medium">{revoking?.name}</span> will stop
-              working immediately. Its history is kept for auditing.
+              <span className="font-medium">{revoking?.name}</span> will stop working
+              immediately. Its history is kept for auditing.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
@@ -460,25 +449,17 @@ function CreateKeyDialog({
                       onClick={() => toggleScope(s.value)}
                       className={cn(
                         "flex flex-col items-start rounded-md border px-3 py-2 text-left transition-colors",
-                        active
-                          ? "border-primary bg-primary/10"
-                          : "hover:bg-accent",
+                        active ? "border-primary bg-primary/10" : "hover:bg-accent",
                       )}
                     >
-                      <span className="font-mono text-sm font-medium">
-                        {s.label}
-                      </span>
-                      <span className="text-xs text-muted-foreground">
-                        {s.hint}
-                      </span>
+                      <span className="font-mono text-sm font-medium">{s.label}</span>
+                      <span className="text-xs text-muted-foreground">{s.hint}</span>
                     </button>
                   );
                 })}
               </div>
               {scopes.length === 0 ? (
-                <p className="text-xs text-destructive">
-                  Select at least one scope.
-                </p>
+                <p className="text-xs text-destructive">Select at least one scope.</p>
               ) : null}
             </div>
 

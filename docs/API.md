@@ -13,8 +13,10 @@ Third Brain exposes three integration surfaces:
   them in one command.
 
 Base URL in these examples is `http://localhost:8000`. Interactive OpenAPI docs are served
-at `/docs`, and the raw schema at `/openapi.json`. In production the API is served at
-`https://api.third-brain.ai` and the dashboard (web app) at `https://third-brain.ai`.
+at `/docs`, and the raw schema at `/openapi.json`. On a deployment with its own domain the
+API and the dashboard (web app) sit on the origins you set as `PUBLIC_API_URL` and
+`APP_BASE_URL` - for example `https://api.your-domain.example` and
+`https://your-domain.example`.
 
 - [Authentication](#authentication)
 - [Conventions](#conventions)
@@ -127,8 +129,8 @@ curl -X POST "$TB/api/v1/device-auth/token" -H 'Content-Type: application/json' 
 #    { "status": "approved", "api_key": "tb_live_…" }     # returned EXACTLY ONCE
 ```
 
-The `verification_uri` values above point at the local stack's `/activate` page; in production
-they are `https://third-brain.ai/activate` (the `APP_BASE_URL` origin).
+The `verification_uri` values above point at the local stack's `/activate` page; on a deployed
+instance they are `<APP_BASE_URL>/activate`.
 
 Meanwhile an **admin** (a human session, not an API key) approves the code from the dashboard's
 `/activate` page, which drives these session endpoints:

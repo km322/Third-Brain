@@ -113,14 +113,6 @@ class Settings(BaseSettings):
     # memory), with headroom for multipart framing.
     MAX_REQUEST_BODY_BYTES: int = 32 * 1024 * 1024
 
-    # ---- Public waitlist (pre-launch signups on the marketing site) ----
-    WAITLIST_ENABLED: bool = True
-    # Cloudflare Turnstile secret key. When set, waitlist submissions must carry a valid
-    # Turnstile token (bot protection). When unset (dev/CI), verification is skipped so the
-    # form works with no configuration. The matching *site* key is a NEXT_PUBLIC_ var on web.
-    TURNSTILE_SECRET_KEY: str | None = None
-    WAITLIST_RATE_LIMIT_PER_MINUTE: int = 10
-
     # ---- Data-source connectors (ingestion + source-ACL sync) ----
     # When a connector syncs a document it materialises the source system's ACL as
     # AccessGrant rows, so the existing permission engine enforces them unchanged.

@@ -40,10 +40,7 @@ function zodResolver<TValues extends Record<string, unknown>>(
 }
 
 const forgotSchema = z.object({
-  email: z
-    .string()
-    .min(1, "Email is required")
-    .email("Enter a valid email address"),
+  email: z.string().min(1, "Email is required").email("Enter a valid email address"),
 });
 
 type ForgotValues = z.infer<typeof forgotSchema>;
@@ -78,9 +75,9 @@ export default function ForgotPasswordPage() {
             Ask an admin to help
           </CardTitle>
           <CardDescription className="text-[15px]">
-            Ask an owner or admin of your organization to reset your password
-            from the Members page. They&apos;ll give you a temporary password:
-            sign in with it, then set a new one in Settings &gt; Security.
+            Ask an owner or admin of your organization to reset your password from the
+            Members page. They&apos;ll give you a temporary password: sign in with it,
+            then set a new one in Settings &gt; Security.
           </CardDescription>
         </CardHeader>
         <CardFooter className="flex-col gap-3 p-0 pt-8">

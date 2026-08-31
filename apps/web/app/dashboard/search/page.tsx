@@ -306,7 +306,11 @@ export default function SearchPage() {
             }
             className="min-h-[92px] resize-none pr-28 text-base"
           />
-          <Button onClick={submit} disabled={!query.trim() || busy} className="absolute bottom-3 right-3">
+          <Button
+            onClick={submit}
+            disabled={!query.trim() || busy}
+            className="absolute bottom-3 right-3"
+          >
             {busy ? (
               <Loader2 className="h-4 w-4 animate-spin" />
             ) : mode === "ask" ? (
@@ -345,7 +349,9 @@ export default function SearchPage() {
           {turns.map((turn) => (
             <div key={turn.id} className="grid gap-4 lg:grid-cols-[1fr_20rem]">
               <div className="space-y-3">
-                <div className="text-sm font-semibold text-foreground">{turn.question}</div>
+                <div className="text-sm font-semibold text-foreground">
+                  {turn.question}
+                </div>
                 <Card className="space-y-3 p-5" data-testid="answer-panel">
                   {turn.answer.length === 0 && turn.streaming ? (
                     <div className="space-y-2">
@@ -358,12 +364,15 @@ export default function SearchPage() {
                   )}
                   {!turn.streaming && turn.answer.length === 0 ? (
                     <p className="text-sm text-muted-foreground">
-                      No answer was produced. Try rephrasing or widening the collection filter.
+                      No answer was produced. Try rephrasing or widening the collection
+                      filter.
                     </p>
                   ) : null}
                   {!turn.streaming && turn.insightId ? (
                     <div className="flex items-center gap-2 pt-1">
-                      <span className="text-xs text-muted-foreground">Was this helpful?</span>
+                      <span className="text-xs text-muted-foreground">
+                        Was this helpful?
+                      </span>
                       <Button
                         variant="ghost"
                         size="icon"
@@ -393,7 +402,10 @@ export default function SearchPage() {
                 {turn.citations.length > 0 ? (
                   <>
                     <p className="text-sm font-semibold text-foreground">
-                      Sources <span className="text-muted-foreground">({turn.citations.length})</span>
+                      Sources{" "}
+                      <span className="text-muted-foreground">
+                        ({turn.citations.length})
+                      </span>
                     </p>
                     <CitationList citations={turn.citations} />
                   </>
@@ -417,8 +429,12 @@ export default function SearchPage() {
                         rel="noreferrer"
                         className="block rounded-lg border p-3 text-xs transition-colors hover:border-primary/40"
                       >
-                        <span className="line-clamp-1 font-medium text-foreground">{w.title}</span>
-                        <span className="line-clamp-2 text-muted-foreground">{w.snippet}</span>
+                        <span className="line-clamp-1 font-medium text-foreground">
+                          {w.title}
+                        </span>
+                        <span className="line-clamp-2 text-muted-foreground">
+                          {w.snippet}
+                        </span>
                       </a>
                     ))}
                   </div>
@@ -438,7 +454,9 @@ export default function SearchPage() {
                 <Card key={a.id} className="space-y-1 border-success/40 p-4">
                   <div className="flex items-center gap-2">
                     <Badge variant="success">Verified answer</Badge>
-                    <span className="text-sm font-medium text-foreground">{a.question}</span>
+                    <span className="text-sm font-medium text-foreground">
+                      {a.question}
+                    </span>
                   </div>
                   <p className="text-sm text-muted-foreground">{a.answer}</p>
                 </Card>
@@ -450,7 +468,9 @@ export default function SearchPage() {
               <p className="text-sm text-muted-foreground">
                 {searchResult!.hits.length} result
                 {searchResult!.hits.length === 1 ? "" : "s"} for{" "}
-                <span className="font-medium text-foreground">“{searchResult!.query}”</span>
+                <span className="font-medium text-foreground">
+                  “{searchResult!.query}”
+                </span>
               </p>
               <CitationList citations={searchResult!.hits} />
             </div>

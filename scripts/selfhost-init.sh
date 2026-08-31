@@ -258,9 +258,9 @@ Third Brain is running.
 
   Web:  ${WEB_URL}
 
-All data stays in YOUR Postgres, Redis and uploads volume - nothing
-is sent to us. The offline stub model means zero outbound calls until
-you configure your own LLM provider.
+All data stays in YOUR Postgres, Redis and uploads volume - it is
+never sent anywhere. The offline stub model means zero outbound calls
+until you configure your own LLM provider.
 
 Next steps:
   - Sign in with the admin credentials printed above and connect a model.

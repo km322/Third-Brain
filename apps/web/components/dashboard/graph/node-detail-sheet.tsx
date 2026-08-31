@@ -16,12 +16,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
 import { api } from "@/lib/api";
 import type { SourceType } from "@/lib/types";
@@ -51,13 +46,7 @@ interface NodeDetailSheetProps {
   expanding: boolean;
 }
 
-function MetaRow({
-  label,
-  children,
-}: {
-  label: string;
-  children: React.ReactNode;
-}) {
+function MetaRow({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="flex items-center justify-between gap-3 py-2">
       <span className="text-sm text-muted-foreground">{label}</span>
@@ -85,15 +74,12 @@ export function NodeDetailSheet({
   });
 
   const snippet = chunks?.[0]?.content?.trim();
-  const source = node ? SOURCE_META[node.source_type] ?? SOURCE_META.file : null;
+  const source = node ? (SOURCE_META[node.source_type] ?? SOURCE_META.file) : null;
   const SourceIcon = source?.icon ?? FileText;
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent
-        side="right"
-        className="flex w-full flex-col gap-0 p-0 sm:max-w-md"
-      >
+      <SheetContent side="right" className="flex w-full flex-col gap-0 p-0 sm:max-w-md">
         {node ? (
           <>
             <SheetHeader className="space-y-3 border-b p-6">
@@ -127,14 +113,10 @@ export function NodeDetailSheet({
               <div className="space-y-6 p-6">
                 <div className="divide-y">
                   <MetaRow label="Connections">
-                    <span className="tabular-nums">
-                      {formatNumber(node.degree)}
-                    </span>
+                    <span className="tabular-nums">{formatNumber(node.degree)}</span>
                   </MetaRow>
                   <MetaRow label="Chunks">
-                    <span className="tabular-nums">
-                      {formatNumber(node.chunk_count)}
-                    </span>
+                    <span className="tabular-nums">{formatNumber(node.chunk_count)}</span>
                   </MetaRow>
                   <MetaRow label="Added">{formatDate(node.created_at)}</MetaRow>
                 </div>

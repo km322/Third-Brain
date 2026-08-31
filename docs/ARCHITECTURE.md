@@ -30,12 +30,12 @@ flowchart TD
 
 ## 3. Core domain model
 
-Almost every row is scoped to an `organization` (multi-tenant); `users` is a global identity
-and `waitlist_entries` (public signups) sits outside any org. Primary keys are UUIDs.
+Almost every row is scoped to an `organization` (multi-tenant); `users` is the one global
+identity table. Primary keys are UUIDs.
 
 | Entity | Purpose |
 |---|---|
-| `organizations` | Tenant boundary; the plan tier lives here |
+| `organizations` | Tenant boundary; everything else hangs off it |
 | `users` | Global identity (email + password) |
 | `memberships` | User ↔ Org with an org **role** (owner/admin/editor/viewer) |
 | `teams` / `team_members` | Groups for permissioning |
@@ -55,7 +55,6 @@ and `waitlist_entries` (public signups) sits outside any org. Primary keys are U
 | `invites` | Pending email invitations (token stored hashed) |
 | `sso_connections` / `federated_identities` / `scim_tokens` | OIDC/SAML config, IdP subject mapping, SCIM provisioning tokens |
 | `device_authorizations` | CLI device-code sign-ins awaiting browser approval (org bound on approval) |
-| `waitlist_entries` | Public waitlist signups from the marketing site |
 
 ## 4. Permission model (the heart of the product)
 

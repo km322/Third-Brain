@@ -21,9 +21,7 @@ test.describe("signup", () => {
     ).toBeVisible();
   });
 
-  test("rejects a too-short password with a validation error", async ({
-    page,
-  }) => {
+  test("rejects a too-short password with a validation error", async ({ page }) => {
     await page.goto("/signup");
 
     const token = unique();
@@ -35,9 +33,7 @@ test.describe("signup", () => {
 
     await page.getByRole("button", { name: /create workspace/i }).click();
 
-    await expect(
-      page.getByText(/at least 8 characters/i),
-    ).toBeVisible();
+    await expect(page.getByText(/at least 8 characters/i)).toBeVisible();
     // Still on the signup page; no navigation occurred.
     await expect(page).toHaveURL(/\/signup/);
   });

@@ -368,9 +368,9 @@ function ApprovalForm({
             <span className="font-medium text-foreground">
               Only approve a request you started yourself.
             </span>{" "}
-            Approving issues an API key that can access your organization&apos;s
-            knowledge as the member you choose below. If this code didn&apos;t come
-            from your own terminal, press Deny.
+            Approving issues an API key that can access your organization&apos;s knowledge
+            as the member you choose below. If this code didn&apos;t come from your own
+            terminal, press Deny.
           </p>
         </div>
 

@@ -1,4 +1,4 @@
-# Cloudflare Tunnel overlay - run third-brain.ai behind Cloudflare with no open inbound ports.
+# Cloudflare Tunnel overlay - run your Third Brain behind Cloudflare with no open inbound ports.
 #
 # It layers on top of docker-compose.prod.yml. A `cloudflared` container joins the internal
 # Compose network and dials OUT to Cloudflare, which terminates TLS at the edge and forwards
@@ -7,17 +7,17 @@
 #
 # One-time setup (Cloudflare dashboard -> Zero Trust -> Networks -> Tunnels):
 #   1. Create a tunnel and copy its connector token.
-#   2. Add two Public Hostnames on that tunnel:
-#        third-brain.ai       -> HTTP  http://web:3000
-#        api.third-brain.ai   -> HTTP  http://api:8000
+#   2. Add two Public Hostnames on that tunnel (your own domain):
+#        your-domain.example       -> HTTP  http://web:3000
+#        api.your-domain.example   -> HTTP  http://api:8000
 #      HTTP is correct here: TLS is terminated at Cloudflare's edge, and the hop from
 #      cloudflared to web/api stays inside the Compose network.
 #   3. Put the token in .env:  CLOUDFLARE_TUNNEL_TOKEN=<connector token>
 #   4. Bake the public origins into the web image at BUILD time and lock CORS in .env:
-#        NEXT_PUBLIC_API_URL=https://api.third-brain.ai
-#        NEXT_PUBLIC_SITE_URL=https://third-brain.ai
-#        APP_BASE_URL=https://third-brain.ai
-#        BACKEND_CORS_ORIGINS=https://third-brain.ai
+#        NEXT_PUBLIC_API_URL=https://api.your-domain.example
+#        NEXT_PUBLIC_SITE_URL=https://your-domain.example
+#        APP_BASE_URL=https://your-domain.example
+#        BACKEND_CORS_ORIGINS=https://your-domain.example
 #
 #   docker compose -f docker-compose.prod.yml -f docker-compose.cloudflare.yml up -d --build
 #

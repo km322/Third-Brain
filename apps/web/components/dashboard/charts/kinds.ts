@@ -20,12 +20,7 @@ export const CHART_PALETTE = [
 ] as const;
 
 /** Canonical order of usage kinds - fixes each kind's categorical color slot. */
-export const KIND_ORDER: UsageKind[] = [
-  "completion",
-  "embedding",
-  "search",
-  "ingest",
-];
+export const KIND_ORDER: UsageKind[] = ["completion", "embedding", "search", "ingest"];
 
 const KIND_LABELS: Record<UsageKind, string> = {
   completion: "Completions",

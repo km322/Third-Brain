@@ -45,10 +45,8 @@ function DonutTooltip({
         {seg.name}
       </p>
       <p className="mt-1 text-xs tabular-nums text-muted-foreground">
-        <span className="font-semibold text-foreground">
-          {formatValue(seg.value)}
-        </span>{" "}
-        · {pct.toFixed(1)}%
+        <span className="font-semibold text-foreground">{formatValue(seg.value)}</span> ·{" "}
+        {pct.toFixed(1)}%
       </p>
     </div>
   );
@@ -160,10 +158,7 @@ export function DonutChart({
         {segments.map((s) => {
           const pct = sum > 0 ? (s.value / sum) * 100 : 0;
           return (
-            <li
-              key={s.name}
-              className="flex items-center justify-between gap-3 text-sm"
-            >
+            <li key={s.name} className="flex items-center justify-between gap-3 text-sm">
               <span className="flex min-w-0 items-center gap-2">
                 <span
                   className="h-2.5 w-2.5 shrink-0 rounded-[3px]"

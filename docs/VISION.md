@@ -39,8 +39,7 @@ generation - it's *capturing what the work produces and governing who can see it
 - **Embeddings + pgvector got cheap and good enough.** Permission-filtered semantic search over
   millions of chunks now runs on commodity Postgres, not a specialized vector DB fleet.
 - **Every company is standing up "AI" and hitting the governance wall.** 2024-2026 turned "let's
-  try an LLM" into "we have eight of them and no policy." The pain is acute, budgeted, and
-  board-level.
+  try an LLM" into "we have eight of them and no policy." The pain is acute and immediate.
 - **Model churn is permanent.** Teams switch models monthly. Nobody wants their knowledge locked
   to one vendor's RAG. Model-agnostic is now a requirement, not a nicety.
 
@@ -94,130 +93,101 @@ The product surface is deliberately boring-in-the-best-way: it looks like a clea
 dashboard (usage, keys, teams, connectors, audit, and an **Agent-written** view of what the
 agents captured), but the thing it governs is *knowledge* instead of tokens.
 
+## Free, open source, self-hosted
+
+Third Brain is **free** and **Apache-2.0** licensed. There is no paid edition, no hosted plan, no
+seat count, and no one is ever billed for it. Everything is in this repository: the permission
+engine, hybrid search, agent write-back, SSO/SAML + SCIM, audit, the dashboard, the MCP server,
+and the `third-brain-mcp` CLI.
+
+It is **self-hosted by design**, and that is the whole point rather than a fallback:
+
+- **You hold the data.** Documents, chunks, embeddings, permissions, usage records, and the audit
+  log live only in the Postgres, Redis, and file/object storage you run. There is no other copy
+  anywhere.
+- **You bring the model keys.** Provider credentials are yours, set as environment variables or
+  per-org connectors, and calls go straight from your deployment to the provider you picked -
+  including OpenAI-compatible endpoints on your own network (Ollama, vLLM, a gateway) that never
+  leave it.
+- **Nothing phones home.** A default deployment makes zero outbound calls: telemetry is opt-in,
+  storage is local, and with no provider key at all a deterministic offline stub runs the whole
+  pipeline. See ["Nothing phones home"](./SELF_HOSTING.md#nothing-phones-home) for how to verify
+  that with an egress-deny policy.
+- **The only money involved is your own infrastructure and your own provider spend.** The usage
+  and cost figures in the dashboard exist so an operator can see what their OpenAI / Anthropic /
+  Gemini keys are costing them. Nothing charges you for Third Brain, because nothing can.
+
+[`SELF_HOSTING.md`](./SELF_HOSTING.md) is the one-command route; [`DEPLOYMENT.md`](./DEPLOYMENT.md)
+is the deeper production runbook.
+
 ## Who it's for
 
-- **Beachhead: 50-1,000-person tech companies** already running multiple LLM tools who have hit
-  the governance wall. They have scattered knowledge, real ACL requirements, and a security team
-  with veto power.
-- **Buyer:** Head of Platform / Eng / IT, increasingly a "Head of AI." **Champions:** the
-  internal-tools and applied-AI engineers wiring up agents. **Blocker-turned-ally:** security &
-  compliance, who love that retrieval is provably scoped.
-- **Expansion:** regulated mid-market (fintech, health, legal) where "the model can only see what
-  the user can see" is a hard buying requirement, not a preference.
+- **Teams already running several LLM surfaces at once** who have hit the governance wall:
+  scattered knowledge, real ACL requirements, and a security team with veto power over "just
+  point the model at the wiki."
+- **The engineers wiring the agents up** - internal-tools and applied-AI people who would rather
+  have one governed backend every client plugs into than five half-built RAG stacks.
+- **Regulated teams** (fintech, health, legal) where "the model can only see what the user can
+  see" is a hard requirement rather than a preference, and where the data cannot leave the
+  perimeter at all.
+- **Individuals and small teams.** It runs on a single box (`make selfhost`), and with zero
+  provider keys the offline stub keeps the whole pipeline working end to end.
 
-## Market
+## Design principles
 
-> **These are qualitative category notes, not sized estimates. Size this with your own research
-> before fundraising** - we deliberately avoid inventing specific TAM / SAM / SOM figures here.
+1. **One permission engine, enforced in SQL.** `app/services/permissions.py` authorizes routes
+   *and* builds the retrieval scope; the scope becomes a `WHERE` predicate over
+   `document_chunks`. There is no second, weaker copy of the rules in the retrieval path.
+2. **Model-agnostic, bring your own keys.** Any OpenAI-compatible endpoint plus native Anthropic
+   and Gemini, over plain `httpx` with no provider SDKs. Switching models is configuration, and
+   your knowledge never becomes one vendor's asset.
+3. **The write path is first-class.** Read-only RAG is half a product. Agents capture what they
+   worked out, through the same permission gate and the same secret/DLP scanner as any human
+   upload.
+4. **Boring, portable infrastructure.** Postgres 16 with `pgvector` and Redis. No specialized
+   vector-database fleet to operate, and the vector store sits behind an interface so another
+   backend can drop in later.
+5. **Works with nothing configured.** The whole stack comes up with zero provider keys and zero
+   outbound network access. That is what makes it quick to try, deterministic to test, and honest
+   about what it does when nobody is looking.
+6. **Metadata-only observability.** Logs and traces never carry prompt, document, or query
+   content - see [`OBSERVABILITY.md`](./OBSERVABILITY.md).
 
-Third Brain sits at the intersection of two large, converging budgets:
+## How this compares
 
-- **Enterprise search / knowledge management** - the long-standing budget for making internal
-  knowledge findable and governed.
-- **Enterprise-LLM / RAG infrastructure** - the newer, fast-growing spend as companies deploy
-  LLMs internally and hit the governance wall.
+Existing options, and where they stop:
 
-The wedge (permission-aware retrieval) sits on top of *both* budgets: every company deploying
-LLMs internally eventually needs a governed knowledge layer. The point is the direction, not a
-number - per-seat + per-workspace pricing scales with adoption we can measure. Size the specific
-opportunity bottom-up (target-segment headcount, tool adoption, willingness to pay) before making
-any funding claim.
+- **DIY RAG stacks** (LangChain / LlamaIndex plus a vector DB). Maximum flexibility, but every
+  team rebuilds permissions, and almost nobody gets retrieval-time ACLs right. The usual outcome
+  is a filter applied *after* the search, or in application code the next feature quietly bypasses.
+- **Point knowledge assistants and vendor-locked enterprise search.** Strong search, but tied to
+  their own model and ranking, read-only, and not a neutral layer every LLM plugs into. They index
+  what someone already wrote down.
+- **LLM gateways.** They govern *tokens*, not *knowledge*. Complementary, not overlapping.
 
-## Business model
+Two things are genuinely hard and are where the effort went:
 
-Model-agnostic and **usage-margin-neutral on tokens** (customers bring their own provider keys;
-we never mark up inference). We monetize the *governance and knowledge layer*, not tokens.
+- **Read-only RAG is the commodity.** Everyone has a chunker and a cosine similarity. What almost
+  nothing does is make the *capture* free, so knowledge accumulates instead of evaporating at the
+  end of a chat. That is the difference between a search box and a brain that gets better as the
+  team works.
+- **Permission-aware retrieval is hard to retrofit.** It has to be enforced in the query path, in
+  one place, identically for route authorization and for retrieval. Bolted on afterwards it leaks;
+  built in from the start it is the thing that makes agent write-back safe to turn on at all.
 
-| Tier | Price | For | Notable limits / features |
-|---|---|---|---|
-| **Free** | $0/mo | Evaluation, individuals | 1 org · ≤3 members · 2 knowledge bases · 1,000 docs · BYO keys · OpenAI-compat + MCP |
-| **Pro** | $49/mo | Teams putting knowledge to work | Unlimited members/teams · 100k docs · document-level permissions · hybrid search · analytics + audit · scoped API keys |
-| **Enterprise** | Custom | Scale & compliance | SSO/SAML + SCIM · self-host / private VPC · custom connectors · data residency · advanced governance · SLA |
+## Risks and how they are handled
 
-> Pricing tiers are directional and live only in this document - the marketing site is
-> waitlist-first and ships no pricing page; the numeric caps in the table above are target
-> limits, **not yet defined or enforced in code**, so today every workspace gets the
-> full governance/search/dashboard feature set regardless of tier. Several tier features are also
-> **on the [roadmap](./ROADMAP.md), not yet shipped**: billing collection (Stripe), transactional
-> email beyond invites (an SMTP backend exists, but it defaults to the offline stub), self-host /
-> private VPC, live data-source connectors (Slack/Drive/Notion), data residency, and reranking.
-> Today the RBAC/ACL governance, hybrid search, SSO/SAML + SCIM, and dashboard are real; per-tier
-> limits and automated charging are the next monetization unlocks.
-
-Expansion levers (largely planned): seats, document/knowledge-base volume, premium connectors,
-reranking/eval add-ons, and Enterprise governance (residency, retention, dedicated support).
-
-## Competition & moat
-
-**Landscape:**
-- **DIY RAG stacks** (LangChain/LlamaIndex + a vector DB) - flexible but every team rebuilds
-  permissions, and almost none get retrieval-time ACLs right.
-- **Point knowledge assistants** (Dashworks and vendor-locked "enterprise search") -
-  strong search, but tied to their own model/ranking, read-only, and not a neutral layer every
-  LLM plugs into.
-- **LLM gateways** (OpenRouter and similar) - govern *tokens*, not *knowledge*. Complementary,
-  not competitive.
-
-**Wedge → moat:**
-1. **Auto-documentation is the wedge.** Agents writing back as they work is the feature that turns
-   "we should write this down someday" into something that already happened. Lots of tools do
-   read-only RAG; almost none make the capture free. That's the visceral, shareable difference we
-   lead with.
-2. **Permission-aware retrieval is the trust pillar that de-risks it.** A brain agents can both
-   read and write is only safe if the reads are governed - it turns a "no" from security into a
-   "yes." And it's genuinely hard to retrofit: it has to be enforced in the query path, in one
-   place, identically for API auth and retrieval. We built it there from day one.
-3. **The brain compounds into a data & network moat.** Because agents write back, every deployment
-   accumulates a proprietary, deduplicated, permission-tagged knowledge graph that gets more
-   valuable - and more expensive to leave - the longer it runs.
-4. **Neutrality is a structural moat.** By staying model-agnostic and BYO-keys, we're the layer no
-   single model vendor will build (they want lock-in) and no gateway will build (they don't touch
-   knowledge). We sit in the gap on purpose.
-
-## Go-to-market
-
-1. **Open-source + self-serve, developer-first.** The repo runs fully offline with a deterministic
-   offline stub LLM provider - a 30-second `make up && make seed` gets an engineer to "wow." Land
-   bottom-up via the internal-tools engineers already wiring agents.
-2. **MCP distribution via a one-command CLI.** `npx third-brain-mcp connect` runs a device-code
-   sign-in and `npx third-brain-mcp install claude` (also `cursor`, `claude-code`) wires the brain
-   into the tools engineers already run. Ship a great Claude Desktop / Claude Code / Cursor
-   experience and ride the MCP ecosystem as a discovery channel.
-3. **Expand to the org.** Free → Pro when a second team joins; Pro → Enterprise when security
-   asks for self-host, data residency, and an SLA - SSO/SAML + SCIM and audit already ship; the
-   remaining Enterprise needs are deliberately queued as monetization triggers.
-4. **Content on the auto-documentation wedge.** "The documentation writes itself while your team
-   works" is the visceral, shareable hook; "and your internal LLM still can't see the comp doc" is
-   the trust proof that closes it. Lead with capture, back it with governance.
-
-## Traction plan
-
-> **No customers yet - this is the plan, not reported traction.** The numbers below are goals to
-> aim at, not metrics we have hit.
-
-- **0-6 mo:** OSS launch; 30-second quickstart; land the first self-serve teams; ship Stripe
-  billing and the first live connector (Slack) to convert Free → Pro.
-- **6-12 mo:** land the first Enterprise design partners on the shipped SSO/SAML + SCIM and audit
-  surface; reranking + eval harness to prove retrieval quality; publish permission-correctness
-  benchmarks.
-- **12-24 mo:** self-host / private-VPC GA; connector marketplace; land regulated mid-market;
-  grow ARR through strong net revenue retention driven by seats + volume.
-
-## Risks & mitigations
-
-- **Model vendors bundle "memory"/knowledge.** → We win on *neutrality + governance*: work across
-  all of them, enforce cross-tool permissions no single vendor will. Stay the switzerland.
-- **Enterprise search incumbents move down-market.** → We're not competing on search. Our motion
-  is auto-documentation: agents writing the knowledge back as they work over MCP, open-source and
-  developer-first. Incumbents are read-only search over what someone already wrote down; we
-  capture what would never have been written down at all.
-- **Permission bugs are existential** (leaking a chunk destroys trust). → Single source of truth
-  in `services/permissions.py`, enforcement pushed into SQL, and a permission-correctness eval
-  harness that already ships (`make benchmark`, see [`BENCHMARKING.md`](./BENCHMARKING.md)) -
-  wiring it in as a hard release gate is near-term.
-- **Commoditization of RAG.** → Read-only RAG *is* the commodity - everyone has it. The moat is
-  the write side: agents auto-documenting into a *governed, compounding* brain, plus the
-  accumulated knowledge graph. We compete on capture, correctness, and lock-in-by-value, not on
-  being the fanciest chunker.
-- **Sales cycle / security review drag in Enterprise.** → Self-host and clear threat modeling
-  (already documented) shorten security review; land bottom-up before selling top-down.
+- **Permission bugs are existential.** A single leaked chunk destroys the reason to use this.
+  Mitigations: a single source of truth in `services/permissions.py`, enforcement pushed into SQL,
+  and a permission-correctness eval harness that ships in the repo (`make benchmark`, see
+  [`BENCHMARKING.md`](./BENCHMARKING.md)) and exits non-zero on any leak. Wiring it in as a hard
+  release gate is [near-term](./ROADMAP.md).
+- **Model vendors bundle "memory."** Any single vendor's memory is scoped to that vendor's tools
+  and has no cross-tool permission model. Staying neutral - every client, every provider, your
+  keys - is the answer, and it is a position an open project can hold indefinitely.
+- **Prompt injection through ingested content.** Retrieval scope is computed *before* generation
+  from the caller's identity, never from the model's output, so nothing an ingested document says
+  can widen what the model is allowed to see. See [`SECURITY.md`](./SECURITY.md#threat-model).
+- **Retrieval quality is a moving target.** Hybrid search plus reciprocal rank fusion is the
+  current baseline; reranking is on the roadmap, and the eval harness exists so quality changes
+  are measured rather than argued about.

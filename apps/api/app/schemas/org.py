@@ -7,7 +7,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, EmailStr, Field
 
-from app.models.enums import MembershipStatus, OrgRole, PlanTier
+from app.models.enums import MembershipStatus, OrgRole
 from app.schemas.common import ORMModel
 from app.schemas.user import UserRead
 
@@ -18,7 +18,6 @@ class OrgRead(ORMModel):
     id: uuid.UUID
     name: str
     slug: str
-    plan: PlanTier
     created_at: datetime
 
 

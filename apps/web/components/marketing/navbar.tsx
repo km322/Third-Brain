@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Menu, X } from "lucide-react";
 
 import { LogoLockup } from "@/components/brand/logo";
+import { GITHUB_URL } from "@/components/marketing/links";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -94,7 +95,9 @@ export function Navbar() {
             <Link href="/login">Sign in</Link>
           </Button>
           <Button asChild size="sm" className="rounded-full px-4">
-            <Link href="/#waitlist">Join waitlist</Link>
+            <a href={GITHUB_URL} target="_blank" rel="noreferrer">
+              GitHub
+            </a>
           </Button>
         </div>
 
@@ -127,12 +130,10 @@ export function Navbar() {
               </Link>
             ))}
             <div className="mt-3 flex flex-col gap-2">
-              <Button
-                asChild
-                className="rounded-full"
-                onClick={() => setOpen(false)}
-              >
-                <Link href="/#waitlist">Join waitlist</Link>
+              <Button asChild className="rounded-full" onClick={() => setOpen(false)}>
+                <a href={GITHUB_URL} target="_blank" rel="noreferrer">
+                  GitHub
+                </a>
               </Button>
               <Button
                 asChild

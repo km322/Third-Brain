@@ -48,8 +48,7 @@ export function rgba(hex: string, alpha: number): string {
   return `rgba(${hexToRgb(hex)}, ${alpha})`;
 }
 
-const clamp = (v: number, lo: number, hi: number) =>
-  Math.max(lo, Math.min(hi, v));
+const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
 
 /**
  * Zoom thresholds that drive the semantic zoom. The input is the zoom RELATIVE to
@@ -64,11 +63,7 @@ const CLUSTER_LABEL_END = 1.75;
 
 /** Opacity for per-node title labels: 0 when zoomed out, 1 when zoomed in. */
 export function nodeLabelOpacity(scale: number): number {
-  return clamp(
-    (scale - NODE_LABEL_START) / (NODE_LABEL_FULL - NODE_LABEL_START),
-    0,
-    1,
-  );
+  return clamp((scale - NODE_LABEL_START) / (NODE_LABEL_FULL - NODE_LABEL_START), 0, 1);
 }
 
 /** Opacity for big cluster (topic) labels: 1 when zoomed out, 0 when zoomed in. */

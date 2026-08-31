@@ -33,10 +33,9 @@ export function DemoVideo() {
             Watch it write the doc.
           </h2>
           <p className="mt-6 text-pretty text-lg leading-relaxed text-muted-foreground sm:text-xl">
-            Three minutes against the running product: ingest a document, ask a
-            grounded question, watch an agent capture a decision mid-chat - then
-            watch the same question return nothing to someone who isn&apos;t
-            allowed to see it.
+            Three minutes against the running product: ingest a document, ask a grounded
+            question, watch an agent capture a decision mid-chat - then watch the same
+            question return nothing to someone who isn&apos;t allowed to see it.
           </p>
         </div>
 
@@ -65,8 +64,8 @@ export function DemoVideo() {
             <span className="shrink-0 font-mono text-xs text-muted-foreground/70">
               Fig. 2
             </span>
-            The whole loop end to end - capture, governed retrieval, and the
-            knowledge graph the documents form on their own.
+            The whole loop end to end - capture, governed retrieval, and the knowledge
+            graph the documents form on their own.
           </p>
         </div>
       </div>

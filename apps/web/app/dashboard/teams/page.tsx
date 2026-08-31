@@ -1,12 +1,7 @@
 "use client";
 
 import * as React from "react";
-import {
-  useMutation,
-  useQueries,
-  useQuery,
-  useQueryClient,
-} from "@tanstack/react-query";
+import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Crown,
   FolderPlus,
@@ -166,9 +161,7 @@ export default function TeamsPage() {
       }
     }
     // A team with no parent, or whose parent is not visible, sits at the root.
-    const top = teams.filter(
-      (t) => !t.parent_team_id || !ids.has(t.parent_team_id),
-    );
+    const top = teams.filter((t) => !t.parent_team_id || !ids.has(t.parent_team_id));
     return { childrenById: byParent, roots: top };
   }, [teams]);
 
@@ -213,11 +206,7 @@ export default function TeamsPage() {
               ) : null}
             </div>
             <div className="flex shrink-0 items-center gap-1.5">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setManaging(team)}
-              >
+              <Button variant="outline" size="sm" onClick={() => setManaging(team)}>
                 <UserPlus className="h-4 w-4" />
                 Members
               </Button>
@@ -339,17 +328,14 @@ export default function TeamsPage() {
         />
       ) : null}
 
-      <Dialog
-        open={deleting !== null}
-        onOpenChange={(o) => !o && setDeleting(null)}
-      >
+      <Dialog open={deleting !== null} onOpenChange={(o) => !o && setDeleting(null)}>
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>Delete team?</DialogTitle>
             <DialogDescription>
-              Deleting <span className="font-medium">{deleting?.name}</span>{" "}
-              removes it and any access grants made to it. Its sub-teams are kept
-              and moved to the top level; members keep their accounts.
+              Deleting <span className="font-medium">{deleting?.name}</span> removes it
+              and any access grants made to it. Its sub-teams are kept and moved to the
+              top level; members keep their accounts.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
@@ -433,11 +419,7 @@ function TeamFormDialog({
     },
     onSuccess: () => {
       toast.success(
-        editing
-          ? "Team updated"
-          : parentTeam
-            ? "Sub-team created"
-            : "Team created",
+        editing ? "Team updated" : parentTeam ? "Sub-team created" : "Team created",
       );
       onOpenChange(false);
       onSaved();
@@ -490,17 +472,13 @@ function TeamFormDialog({
                 <Label htmlFor="team-parent">Parent team</Label>
                 <Select
                   value={parentId || ROOT_PARENT}
-                  onValueChange={(v) =>
-                    setParentId(v === ROOT_PARENT ? "" : v)
-                  }
+                  onValueChange={(v) => setParentId(v === ROOT_PARENT ? "" : v)}
                 >
                   <SelectTrigger id="team-parent">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value={ROOT_PARENT}>
-                      No parent (top level)
-                    </SelectItem>
+                    <SelectItem value={ROOT_PARENT}>No parent (top level)</SelectItem>
                     {parentOptions.map((t) => (
                       <SelectItem key={t.id} value={t.id}>
                         {t.name}
@@ -602,17 +580,14 @@ function ManageMembersDialog({
   });
 
   const removeMember = useMutation({
-    mutationFn: (userId: string) =>
-      api.delete(`/teams/${team.id}/members/${userId}`),
+    mutationFn: (userId: string) => api.delete(`/teams/${team.id}/members/${userId}`),
     onSuccess: refresh,
     onError: (e) => toast.error(errMsg(e, "Couldn't remove member")),
   });
 
   const members = detailQuery.data?.members ?? [];
   const memberIds = new Set(members.map((m) => m.user_id));
-  const addable = (orgMembersQuery.data ?? []).filter(
-    (m) => !memberIds.has(m.user_id),
-  );
+  const addable = (orgMembersQuery.data ?? []).filter((m) => !memberIds.has(m.user_id));
   const busy = setRole.isPending || removeMember.isPending;
 
   return (
@@ -684,10 +659,7 @@ function ManageMembersDialog({
                 >
                   <Avatar className="h-8 w-8">
                     {m.user?.avatar_url ? (
-                      <AvatarImage
-                        src={m.user.avatar_url}
-                        alt={m.user.full_name ?? ""}
-                      />
+                      <AvatarImage src={m.user.avatar_url} alt={m.user.full_name ?? ""} />
                     ) : null}
                     <AvatarFallback>
                       {initials(m.user?.full_name || m.user?.email)}

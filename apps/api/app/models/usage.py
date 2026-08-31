@@ -10,7 +10,11 @@ from app.models.enums import UsageKind
 
 
 class UsageRecord(UUIDPrimaryKeyMixin, TimestampMixin, Base):
-    """One metered operation (embed/complete/search/ingest) for analytics + billing."""
+    """One metered operation (embed/complete/search/ingest).
+
+    Recorded for analytics and provider cost attribution: ``cost_usd`` is what the
+    operator's own provider keys were charged, never a charge from Third Brain.
+    """
 
     __tablename__ = "usage_records"
     __table_args__ = (

@@ -24,7 +24,6 @@ from app.models.sso import FederatedIdentity, Invite, ScimToken, SsoConnection
 from app.models.team import Team, TeamMember
 from app.models.usage import UsageRecord
 from app.models.user import Membership, User
-from app.models.waitlist import WaitlistEntry
 
 __all__ = [
     "Base",
@@ -55,5 +54,4 @@ __all__ = [
     "TeamMember",
     "UsageRecord",
     "User",
-    "WaitlistEntry",
 ]

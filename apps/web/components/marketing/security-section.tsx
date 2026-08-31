@@ -35,13 +35,11 @@ const CONTROLS: Control[] = [
       "Connector credentials are encrypted at rest; API-key secrets are shown once, then hashed.",
   },
   {
-    title: "Managed hosting",
+    title: "Self-hosted",
     description:
-      "Third Brain is a managed service today; your data is never sold or used to train models. Self-hosting in your own infrastructure - so nothing leaves your perimeter - is on the roadmap.",
+      "You run Third Brain on your own infrastructure with your own provider keys, so your documents, embeddings and queries never leave your perimeter.",
   },
 ];
-
-const ROADMAP = ["Self-hosting", "Data residency", "SOC 2"];
 
 export function SecuritySection() {
   return (
@@ -54,14 +52,15 @@ export function SecuritySection() {
               Governed by default.
             </h2>
             <p className="mt-6 max-w-md text-pretty text-lg leading-relaxed text-muted-foreground">
-              Third Brain treats access control as a first-class primitive, not
-              an afterthought. Permissions are enforced at retrieval time, so a
-              model only ever grounds its answers in data the caller is cleared
-              to read - and the same gate governs what agents write back, while
-              a secret scanner keeps credentials out of the brain.
+              Third Brain treats access control as a first-class primitive, not an
+              afterthought. Permissions are enforced at retrieval time, so a model only
+              ever grounds its answers in data the caller is cleared to read - and the
+              same gate governs what agents write back, while a secret scanner keeps
+              credentials out of the brain.
             </p>
             <p className="mt-8 text-xs text-muted-foreground">
-              On the roadmap: {ROADMAP.join(" · ")}.
+              Apache-2.0 licensed, so the enforcement path is yours to read, audit and
+              change.
             </p>
           </div>
 

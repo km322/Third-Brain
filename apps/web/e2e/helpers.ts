@@ -63,7 +63,10 @@ export async function signUp(
 export async function createCollection(page: Page, name: string): Promise<string> {
   await page.goto("/dashboard/collections");
 
-  await page.getByRole("button", { name: /new knowledge base/i }).first().click();
+  await page
+    .getByRole("button", { name: /new knowledge base/i })
+    .first()
+    .click();
 
   const dialog = page.getByRole("dialog");
   await expect(dialog).toBeVisible();
@@ -89,7 +92,10 @@ export async function addTextDocument(
 ): Promise<void> {
   // Trigger button and the dialog's submit button share the label "Add
   // document", so scope the submit click to the dialog.
-  await page.getByRole("button", { name: /add document/i }).first().click();
+  await page
+    .getByRole("button", { name: /add document/i })
+    .first()
+    .click();
 
   const dialog = page.getByRole("dialog");
   await expect(dialog).toBeVisible();

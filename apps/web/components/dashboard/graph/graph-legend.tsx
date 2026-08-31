@@ -56,9 +56,7 @@ export function GraphLegend({
                   boxShadow: `0 0 8px ${cluster.color}`,
                 }}
               />
-              <span className="truncate text-sm text-slate-200">
-                {cluster.label}
-              </span>
+              <span className="truncate text-sm text-slate-200">{cluster.label}</span>
               <span className="ml-auto text-xs tabular-nums text-slate-500">
                 {cluster.count}
               </span>

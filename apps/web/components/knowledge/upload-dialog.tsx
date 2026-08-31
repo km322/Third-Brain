@@ -54,11 +54,7 @@ interface UploadDialogProps {
  * success it invalidates the document + collection caches so lists refresh and
  * status polling picks the new row up immediately.
  */
-export function UploadDialog({
-  collectionId,
-  trigger,
-  onCreated,
-}: UploadDialogProps) {
+export function UploadDialog({ collectionId, trigger, onCreated }: UploadDialogProps) {
   const queryClient = useQueryClient();
   const [open, setOpen] = React.useState(false);
   const [mode, setMode] = React.useState<Mode>("text");
@@ -122,9 +118,7 @@ export function UploadDialog({
       setOpen(false);
     },
     onError: (err) => {
-      toast.error(
-        err instanceof ApiError ? err.message : "Failed to add document",
-      );
+      toast.error(err instanceof ApiError ? err.message : "Failed to add document");
     },
   });
 
@@ -155,8 +149,8 @@ export function UploadDialog({
         <DialogHeader>
           <DialogTitle>Add a document</DialogTitle>
           <DialogDescription>
-            Paste text, import a URL, or upload a file. It will be chunked,
-            embedded and made searchable automatically.
+            Paste text, import a URL, or upload a file. It will be chunked, embedded and
+            made searchable automatically.
           </DialogDescription>
         </DialogHeader>
 
@@ -210,9 +204,7 @@ export function UploadDialog({
             <div className="space-y-1.5">
               <Label htmlFor="doc-url-title">
                 Title{" "}
-                <span className="font-normal text-muted-foreground">
-                  (optional)
-                </span>
+                <span className="font-normal text-muted-foreground">(optional)</span>
               </Label>
               <Input
                 id="doc-url-title"
@@ -237,9 +229,7 @@ export function UploadDialog({
               </span>
               {file ? (
                 <div className="space-y-0.5">
-                  <p className="text-sm font-medium text-foreground">
-                    {file.name}
-                  </p>
+                  <p className="text-sm font-medium text-foreground">{file.name}</p>
                   <p className="text-xs text-muted-foreground">
                     {formatBytes(file.size)}
                   </p>
@@ -250,7 +240,8 @@ export function UploadDialog({
                     Click to choose a file
                   </p>
                   <p className="text-xs text-muted-foreground">
-                    PDF, Markdown, text, HTML, DOCX, images (PNG/JPEG/GIF/WebP) · up to 25 MB
+                    PDF, Markdown, text, HTML, DOCX, images (PNG/JPEG/GIF/WebP) · up to 25
+                    MB
                   </p>
                 </div>
               )}

@@ -37,8 +37,8 @@ export function HowItWorks() {
             Connect. Work. Documented.
           </h2>
           <p className="mt-6 text-pretty text-lg leading-relaxed text-muted-foreground sm:text-xl">
-            The knowledge captures itself as your team works - and every read
-            and write is scoped to what the caller is allowed to see.
+            The knowledge captures itself as your team works - and every read and write is
+            scoped to what the caller is allowed to see.
           </p>
         </div>
 
@@ -59,8 +59,8 @@ export function HowItWorks() {
         {/* The permission gate, as a set-piece sentence. */}
         <div className="mx-auto mt-20 max-w-2xl text-center">
           <p className="text-balance text-xl font-medium leading-snug tracking-[-0.01em] text-foreground sm:text-2xl">
-            Before any chunk reaches a model, the permission gate drops
-            everything the caller can&apos;t access.
+            Before any chunk reaches a model, the permission gate drops everything the
+            caller can&apos;t access.
           </p>
           <p className="mt-4 text-xs text-muted-foreground">
             <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs">

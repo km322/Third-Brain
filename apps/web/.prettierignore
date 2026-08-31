@@ -1,0 +1,4 @@
+# Generated output - `npm run format` and the CI format check only cover sources.
+.next/
+playwright-report/
+test-results/

@@ -59,7 +59,10 @@ function SsoCallbackInner() {
       </CardHeader>
       <CardContent className="p-0 pt-8">
         {error ? (
-          <Link href="/login" className="text-sm font-medium text-primary hover:underline">
+          <Link
+            href="/login"
+            className="text-sm font-medium text-primary hover:underline"
+          >
             Back to sign in
           </Link>
         ) : (

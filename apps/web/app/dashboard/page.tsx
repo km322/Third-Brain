@@ -136,7 +136,7 @@ export default function OverviewPage() {
       hint: "last 30 days",
     },
     {
-      label: "Estimated cost",
+      label: "Estimated provider cost",
       value: stats ? formatCurrency(stats.cost_30d) : "-",
       icon: DollarSign,
       hint: "last 30 days",

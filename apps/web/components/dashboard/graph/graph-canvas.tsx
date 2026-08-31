@@ -50,11 +50,9 @@ interface GraphCanvasProps {
   onBackgroundClick: () => void;
 }
 
-const clamp = (v: number, lo: number, hi: number) =>
-  Math.max(lo, Math.min(hi, v));
+const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
 
-const truncate = (s: string, n: number) =>
-  s.length > n ? `${s.slice(0, n - 1)}…` : s;
+const truncate = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
 
 /** Resolve a link endpoint to its node id, whether it is still a string or has
  * already been hydrated into a node object by the force engine. */
@@ -179,8 +177,7 @@ function GraphCanvasInner(
       else resumeGraph();
     };
     document.addEventListener("visibilitychange", onVisibility);
-    return () =>
-      document.removeEventListener("visibilitychange", onVisibility);
+    return () => document.removeEventListener("visibilitychange", onVisibility);
   }, [pauseGraph, resumeGraph]);
 
   // Drop the idle timer on unmount so it never fires against a torn-down instance.
@@ -261,11 +258,7 @@ function GraphCanvasInner(
         resumeGraph();
         userMovedRef.current = true;
         fitPendingRef.current = false;
-        fgRef.current?.zoomToFit(
-          700,
-          96,
-          (node) => node.community === clusterId,
-        );
+        fgRef.current?.zoomToFit(700, 96, (node) => node.community === clusterId);
       },
       fitAll: () => {
         resumeGraph();

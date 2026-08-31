@@ -100,15 +100,18 @@ async def register(
 ) -> Tokens:
     """Create a new user, bootstrap their first organization (as OWNER) and sign in.
 
-    Closed by default in production: a brand-new org has no connector of its own, so its
-    requests are served by the deployment's platform provider keys. Leaving self-serve
-    signup open on a keyed deployment lets anyone bill the operator, so it must be opted
-    into explicitly via ``SIGNUP_ENABLED``.
+    Closed by default in production to protect whoever runs the deployment: a brand-new org
+    has no connector of its own, so its requests are served by the deployment's platform
+    provider keys. Leaving self-serve signup open on a keyed deployment lets strangers spend
+    the operator's money, so opening it is an explicit choice via ``SIGNUP_ENABLED``.
     """
     if not settings.signup_enabled:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Self-serve signup is closed. Please request access.",
+            detail=(
+                "Self-serve signup is disabled on this deployment. Ask an administrator "
+                "for an invite, or set SIGNUP_ENABLED=true to open registration."
+            ),
         )
     await enforce_login_rate_limit(request, payload.email)
     user, org = await auth_service.register_user(

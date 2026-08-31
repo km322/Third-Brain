@@ -13,6 +13,11 @@ agents - and the decisions, answers, and notes that would normally evaporate at 
 chat get captured into a governed, searchable company brain. A dashboard shows the team what
 the agents wrote. Retrieval is permission-aware and works with every model.
 
+**It is free and open source, and you run it yourself.** Apache-2.0, the whole product in this
+repository: no hosted tier, no waitlist, no seat count, no usage limits, nothing to pay for.
+Clone it, run [`make selfhost`](#self-hosting-is-the-product), bring your own model keys - or no
+keys at all - and your documents, embeddings and audit log stay on your own machines.
+
 ---
 
 ## The problem
@@ -43,7 +48,7 @@ it.
 - **Works with every model.** Any OpenAI-compatible endpoint (OpenAI, Azure OpenAI, Ollama,
   vLLM, or any compatible gateway) plus native connectors for **Anthropic** and **Google
   Gemini**, all over plain `httpx`, plus a deterministic **offline stub** so the whole stack runs
-  with zero keys. Bring your own keys; we never mark up tokens.
+  with zero keys. You bring your own provider keys, and the only bill is your provider's.
 - **A dashboard that tracks what agents wrote.** Usage analytics, API keys, teams, connectors,
   audit logs, and a Documents view with an **Agent-written** filter so you can see exactly what
   your agents have been capturing.
@@ -63,7 +68,7 @@ knowledge fills itself in as your team works.
 cp .env.example .env
 
 # 2. Bring up Postgres(+pgvector), Redis, API, worker and web
-make up            # or: docker compose up --build
+make up-d          # detached (docker compose up --build -d); 'make logs' to follow
 
 # 3. Run migrations + seed a demo org - 3 users, 3 knowledge bases
 make migrate && make seed
@@ -99,14 +104,29 @@ different roles and watch what each one is allowed to see.
 
 ---
 
-## Self-hosting (on the roadmap)
+## Self-hosting is the product
 
-Managed Third Brain is the product today. This repo does include a one-command compose
-overlay (`make selfhost`, see [SELF_HOSTING.md](docs/SELF_HOSTING.md)) that stands the full
-stack up on your own box for evaluation, but self-hosting isn't a supported offering yet.
-Running it in your own infrastructure - your documents, embeddings, keys, and audit log
-never leaving your perimeter - is planned as a supported product once we're resourced to do
-it well. See the [roadmap](docs/ROADMAP.md).
+There is no hosted service to sign up for: **you run Third Brain.** Your documents, your
+embeddings, your provider keys and your audit log never leave your perimeter, because there is
+nowhere else for them to go. One command stands up the production topology:
+
+```bash
+ADMIN_EMAIL=you@example.com make selfhost
+```
+
+That generates a hardened `.env` (fresh `SECRET_KEY`, fresh database password,
+`ENVIRONMENT=production`), builds and starts the stack, waits for the API to pass its
+healthcheck, and creates your first admin account. The dashboard is then at
+`http://localhost:3000`, bound to loopback; run the script directly with
+`./scripts/selfhost-init.sh --host <name-or-ip>` to publish it beyond this machine, and
+terminate TLS in front of it (your own reverse proxy, or the bundled Cloudflare Tunnel overlay)
+before exposing it to the internet.
+
+It is Apache-2.0 and free: no tiers, no seat counts, no usage limits, and no telemetry - the
+stack makes no outbound call at all until you configure a model provider. Bring an OpenAI,
+Anthropic or Google key, point it at a local Ollama / vLLM endpoint, or run on the deterministic
+offline stub. The full walkthrough, including backups and upgrades, is in
+[SELF_HOSTING.md](docs/SELF_HOSTING.md).
 
 ---
 
@@ -116,11 +136,11 @@ Third Brain ships a small CLI, **`third-brain-mcp`**, that wires the tools your 
 uses into the brain. No config files to hand-edit.
 
 ```bash
-# 1. Connect this machine to your Third Brain. Prompts for the server URL (the API origin,
-#    e.g. https://api.third-brain.ai), then runs a device flow: it prints a short code
-#    (e.g. KTPB-3947), opens https://third-brain.ai/activate in your browser, an admin
-#    approves it, and a scoped API key is minted and saved to ~/.third-brain/config.json.
-#    In CI, pass --api-key instead of the browser step.
+# 1. Connect this machine to your Third Brain. Prompts for the server URL (the API origin
+#    of the instance you just started - http://localhost:8000, or https://brain.example.com),
+#    then runs a device flow: it prints a short code (e.g. KTPB-3947), opens your dashboard's
+#    /activate page in the browser, an admin approves it, and a scoped API key is minted and
+#    saved to ~/.third-brain/config.json. In CI, pass --api-key instead of the browser step.
 npx third-brain-mcp connect
 
 # 2. Wire it into the client you use. `install claude` writes the Claude Desktop config;
@@ -229,12 +249,13 @@ third-brain/
 
 | Doc | What's inside |
 |---|---|
-| [`docs/VISION.md`](docs/VISION.md) | Why Third Brain exists, market, business model & moat |
+| [`docs/VISION.md`](docs/VISION.md) | Why Third Brain exists and the principles it is built on |
 | [`docs/ROADMAP.md`](docs/ROADMAP.md) | Near / mid / long-term plans |
 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Full system design |
 | [`docs/API.md`](docs/API.md) | REST, OpenAI-compatible & MCP surface, plus the CLI + device auth |
 | [`docs/PERMISSIONS.md`](docs/PERMISSIONS.md) | The permission model in depth |
-| [`docs/SECURITY.md`](docs/SECURITY.md) | Threat model & disclosure policy |
+| [`docs/SECURITY.md`](docs/SECURITY.md) | Threat model, controls & the operator hardening checklist |
+| [`.github/SECURITY.md`](.github/SECURITY.md) | How to report a vulnerability privately, and what to expect |
 | [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) | Running it in production |
 | [`docs/SELF_HOSTING.md`](docs/SELF_HOSTING.md) | Running it on your own infrastructure - your data stays yours |
 | [`docs/OBSERVABILITY.md`](docs/OBSERVABILITY.md) | Structured logging, tracing & debugging recipes |
@@ -244,6 +265,15 @@ third-brain/
 | [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md) | Running pieces without Docker |
 | [`docs/DEMO.md`](docs/DEMO.md) | A 3-minute scripted walkthrough |
 
+## Contributing
+
+Contributions are welcome - bug reports, docs, and code alike.
+[`CONTRIBUTING.md`](CONTRIBUTING.md) covers getting the stack up, the three test tiers, the
+coding standards CI enforces, and what a reviewable PR looks like. Participation is governed by
+our [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md). Please report security issues privately rather
+than in a public issue - see [`.github/SECURITY.md`](.github/SECURITY.md).
+
 ## License
 
-Apache-2.0 - see [LICENSE](LICENSE).
+Apache-2.0 - see [LICENSE](LICENSE). Free for any use, commercial included; no separate
+edition and nothing held back.

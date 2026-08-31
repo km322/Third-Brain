@@ -4,10 +4,15 @@ Orientation for an LLM/agent seeing this repo for the first time. Keep it accura
 it when the architecture changes.
 
 ## What this is
-**Third Brain** is a SaaS "company-wide second brain": ingest a company's knowledge once,
+**Third Brain** is a "company-wide second brain": ingest a company's knowledge once,
 and the LLM tools your teams use (Claude Desktop, Cursor, any OpenAI-compatible client,
 agents) can **search it, cite it, and write back to it**, governed by **document-level
 permissions**. Think a clean gateway + dashboard, but for knowledge instead of tokens.
+
+It is a **free, open-source, self-hosted** product - Apache-2.0, the whole thing in this
+repo. There is no hosted service, no waitlist, no tiers and no billing: whoever runs the
+stack owns the data and pays only their own model provider. Keep it that way when you
+change things - nothing here should imply a paid or gated offering.
 
 ## Stack & layout
 Monorepo.
@@ -32,7 +37,9 @@ Monorepo.
 - `packages/mcp-cli` - the `third-brain-mcp` npm CLI (`connect` / `install` / `serve` / `status`),
   zero runtime deps, Node >= 18. Linted + tested by its own CI job and by `make lint`; its
   `package.json` version is kept in lockstep with the root `VERSION`.
-- `docs/` - architecture, API, permissions, deploy.
+- `docs/` - architecture, API, permissions, deploy, self-hosting.
+- Root contributor docs: `README.md`, `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `LICENSE`
+  (Apache-2.0), `CHANGELOG.md` (Keep a Changelog; new work goes under `## [Unreleased]`).
 
 ## Run it
 ```bash
@@ -41,6 +48,11 @@ make up                   # postgres+pgvector, redis, api, worker, web
 make migrate && make seed # demo org -> admin@example.com; prints the generated password + an API key (once)
 ```
 API: `localhost:8000` (`/docs`). Web: `localhost:3000`.
+
+That is the *development* stack (bind mounts, reload). The way the product actually ships is
+`ADMIN_EMAIL=you@example.com make selfhost` - `scripts/selfhost-init.sh` generates a hardened
+`.env`, brings up `docker-compose.prod.yml` + `docker-compose.selfhost.yml` and bootstraps the
+first admin. Self-hosting is the supported path, so keep it working (`docs/SELF_HOSTING.md`).
 
 ## The one invariant that matters most
 `app/services/permissions.py` is the **single source of truth** for access. It is enforced in
@@ -79,6 +91,12 @@ New integration/e2e tests MUST pass against real pgvector + Redis.
   Page files export only a default component (no other named exports - Next enforces this).
 - Model annotations that SQLAlchemy resolves at runtime (e.g. `Mapped[datetime | None]`) must be
   importable at runtime, not under `TYPE_CHECKING`.
+- There is no waitlist route/model/schema, no Cloudflare Turnstile verification and no EmailJS
+  notifier - all removed with the commercial framing; do not reintroduce them. `SIGNUP_ENABLED`
+  is closed by default in production for a security reason (an open instance lets strangers
+  spend the operator's provider keys), not as a funnel. `services/llm/pricing.py` and the
+  `cost_usd` columns exist so an operator can see what their OWN provider keys cost - Third
+  Brain never charges anyone.
 - The root `VERSION` file is the single source of truth for the product version - never edit
   version literals by hand; `make version VERSION=x.y.z` updates them all.
 - Releases are cut with `make release VERSION=x.y.z` + a tag push, which triggers

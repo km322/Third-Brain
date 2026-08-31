@@ -14,10 +14,7 @@ import type { MembershipStatus, OrgRole } from "@/lib/types";
 const ROLE_ORDER: OrgRole[] = ["viewer", "editor", "admin", "owner"];
 
 /** True when `role` is at least as privileged as `min`. */
-export function orgRoleAtLeast(
-  role: OrgRole | null | undefined,
-  min: OrgRole,
-): boolean {
+export function orgRoleAtLeast(role: OrgRole | null | undefined, min: OrgRole): boolean {
   if (!role) return false;
   return ROLE_ORDER.indexOf(role) >= ROLE_ORDER.indexOf(min);
 }
@@ -34,7 +31,7 @@ export function isOrgAdmin(role: OrgRole | null | undefined): boolean {
  */
 export const ROLE_DESCRIPTIONS: Record<OrgRole, string> = {
   owner:
-    "Full control of the workspace, including billing, teams, and deleting the organization.",
+    "Full control of the workspace, including settings, teams, and deleting the organization.",
   admin: "Sees and manages every document across the whole organization.",
   editor:
     "Can create and manage their own documents and knowledge bases; sees what is shared or granted to them.",
@@ -49,13 +46,7 @@ const ROLE_VARIANT: Record<OrgRole, BadgeProps["variant"]> = {
 };
 
 /** Colored badge for an organization role. */
-export function RoleBadge({
-  role,
-  className,
-}: {
-  role: OrgRole;
-  className?: string;
-}) {
+export function RoleBadge({ role, className }: { role: OrgRole; className?: string }) {
   return (
     <Badge
       variant={ROLE_VARIANT[role] ?? "muted"}

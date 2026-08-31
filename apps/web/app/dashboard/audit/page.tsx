@@ -115,9 +115,7 @@ export default function AuditPage() {
       cell: (e) =>
         e.resource_type ? (
           <div className="min-w-0">
-            <p className="text-sm capitalize">
-              {e.resource_type.replace(/_/g, " ")}
-            </p>
+            <p className="text-sm capitalize">{e.resource_type.replace(/_/g, " ")}</p>
             {e.resource_id ? (
               <code className="text-xs text-muted-foreground">
                 {e.resource_id.slice(0, 8)}…

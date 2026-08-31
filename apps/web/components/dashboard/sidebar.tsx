@@ -146,9 +146,7 @@ export function SidebarBrand({ onNavigate }: { onNavigate?: () => void }) {
       <span className="flex h-8 w-8 items-center justify-center text-foreground">
         <LogoMark className="h-7 w-7" />
       </span>
-      <span className="text-[15px] font-semibold tracking-tight">
-        Third Brain
-      </span>
+      <span className="text-[15px] font-semibold tracking-tight">Third Brain</span>
     </Link>
   );
 }
@@ -191,9 +189,7 @@ export function Sidebar({
         </nav>
       </ScrollArea>
       <div className="border-t px-4 py-3">
-        <p className="text-xs text-muted-foreground">
-          The governed knowledge layer
-        </p>
+        <p className="text-xs text-muted-foreground">The governed knowledge layer</p>
         <p
           className="mt-0.5 text-[11px] tabular-nums text-muted-foreground/60"
           title={

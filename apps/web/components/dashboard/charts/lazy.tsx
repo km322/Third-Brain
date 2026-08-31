@@ -21,18 +21,12 @@ export const AreaUsageChart = dynamic(
   },
 );
 
-export const BarByKind = dynamic(
-  () => import("./bar-by-kind").then((m) => m.BarByKind),
-  {
-    ssr: false,
-    loading: () => <Skeleton className="h-[260px] w-full rounded-lg" />,
-  },
-);
+export const BarByKind = dynamic(() => import("./bar-by-kind").then((m) => m.BarByKind), {
+  ssr: false,
+  loading: () => <Skeleton className="h-[260px] w-full rounded-lg" />,
+});
 
-export const DonutChart = dynamic(
-  () => import("./donut").then((m) => m.DonutChart),
-  {
-    ssr: false,
-    loading: () => <Skeleton className="h-[220px] w-full rounded-lg" />,
-  },
-);
+export const DonutChart = dynamic(() => import("./donut").then((m) => m.DonutChart), {
+  ssr: false,
+  loading: () => <Skeleton className="h-[220px] w-full rounded-lg" />,
+});

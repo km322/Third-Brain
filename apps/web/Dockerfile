@@ -45,22 +45,10 @@ WORKDIR /app
 # API URL must be supplied here (not just at runtime).
 ARG NEXT_PUBLIC_API_URL=http://localhost:8000
 ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
-# Public site origin (canonical/OpenGraph URLs) and the marketing waitlist integrations
-# (Cloudflare Turnstile bot check + EmailJS operator notification). These are read in client
-# components, so they must be present at build time to be inlined into the bundle; leaving an
-# arg unset simply disables that feature (no widget / no email) without breaking the build.
+# Public site origin, used for the canonical/OpenGraph URLs. Read at build time like the
+# API URL, so a self-hosted deployment passes its own origin here.
 ARG NEXT_PUBLIC_SITE_URL=http://localhost:3000
 ENV NEXT_PUBLIC_SITE_URL=${NEXT_PUBLIC_SITE_URL}
-ARG NEXT_PUBLIC_TURNSTILE_SITE_KEY=
-ENV NEXT_PUBLIC_TURNSTILE_SITE_KEY=${NEXT_PUBLIC_TURNSTILE_SITE_KEY}
-ARG NEXT_PUBLIC_EMAILJS_SERVICE_ID=
-ENV NEXT_PUBLIC_EMAILJS_SERVICE_ID=${NEXT_PUBLIC_EMAILJS_SERVICE_ID}
-ARG NEXT_PUBLIC_EMAILJS_TEMPLATE_ID=
-ENV NEXT_PUBLIC_EMAILJS_TEMPLATE_ID=${NEXT_PUBLIC_EMAILJS_TEMPLATE_ID}
-ARG NEXT_PUBLIC_EMAILJS_WAITLIST_TEMPLATE_ID=
-ENV NEXT_PUBLIC_EMAILJS_WAITLIST_TEMPLATE_ID=${NEXT_PUBLIC_EMAILJS_WAITLIST_TEMPLATE_ID}
-ARG NEXT_PUBLIC_EMAILJS_PUBLIC_KEY=
-ENV NEXT_PUBLIC_EMAILJS_PUBLIC_KEY=${NEXT_PUBLIC_EMAILJS_PUBLIC_KEY}
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV NODE_ENV=production
 

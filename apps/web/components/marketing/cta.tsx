@@ -1,5 +1,6 @@
 import Link from "next/link";
 
+import { GITHUB_URL } from "@/components/marketing/links";
 import { Button } from "@/components/ui/button";
 
 /**
@@ -15,20 +16,22 @@ export function Cta() {
             Give your company a brain that writes itself.
           </h2>
           <p className="mx-auto mt-6 max-w-xl text-pretty text-lg leading-relaxed text-muted-foreground sm:text-xl">
-            Third Brain is opening access in waves. Join the waitlist to let your
-            agents capture the work as they go - with permissions built in from
-            the first query.
+            Third Brain is free and open source under Apache-2.0. Clone it, run it on your
+            own infrastructure, and let your agents capture the work as they go - with
+            permissions built in from the first query.
           </p>
           <div className="mt-10 flex flex-col items-center justify-center gap-6 sm:flex-row">
             <Button asChild size="lg" className="h-12 rounded-full px-7">
-              <Link href="/#waitlist">Join the waitlist</Link>
+              <Link href="/docs#quick-start">Self-host it free</Link>
             </Button>
-            <Link
-              href="/login"
+            <a
+              href={GITHUB_URL}
+              target="_blank"
+              rel="noreferrer"
               className="text-[15px] font-medium text-primary transition-opacity hover:opacity-80"
             >
-              Sign in <span aria-hidden="true">›</span>
-            </Link>
+              View the source <span aria-hidden="true">›</span>
+            </a>
           </div>
         </div>
       </div>

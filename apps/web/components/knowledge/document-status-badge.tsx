@@ -81,8 +81,7 @@ export function DocumentStatusBadge({
       <Icon
         className={cn(
           "h-3 w-3",
-          config.animate &&
-            (status === "processing" ? "animate-spin" : "animate-pulse"),
+          config.animate && (status === "processing" ? "animate-spin" : "animate-pulse"),
         )}
       />
       {config.label}
@@ -103,9 +102,7 @@ export function DocumentStatusBadge({
           <TooltipTrigger asChild>
             <span className="inline-flex cursor-help">{badge}</span>
           </TooltipTrigger>
-          <TooltipContent className="max-w-xs break-words">
-            {tooltip}
-          </TooltipContent>
+          <TooltipContent className="max-w-xs break-words">{tooltip}</TooltipContent>
         </Tooltip>
       </TooltipProvider>
     );

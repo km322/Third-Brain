@@ -75,7 +75,7 @@ function Line({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex items-center justify-between gap-4">
       <dt className="text-muted-foreground">{label}</dt>
-      <dd className="tabular-nums font-medium text-foreground">{value}</dd>
+      <dd className="font-medium tabular-nums text-foreground">{value}</dd>
     </div>
   );
 }

@@ -8,11 +8,7 @@ import {
 } from "@tanstack/react-query";
 
 import { api } from "@/lib/api";
-import type {
-  CurrentUser,
-  GraphNeighbors,
-  GraphResponse,
-} from "@/lib/types";
+import type { CurrentUser, GraphNeighbors, GraphResponse } from "@/lib/types";
 
 /** Shared query key for the authenticated user + active org context. */
 export const CURRENT_USER_KEY: QueryKey = ["current-user"];
@@ -74,12 +70,7 @@ export function useGraph(
   params: GraphParams = {},
   options?: Partial<UseQueryOptions<GraphResponse>>,
 ): UseQueryResult<GraphResponse> {
-  return useApiQuery<GraphResponse>(
-    ["graph", params],
-    "/graph",
-    { ...params },
-    options,
-  );
+  return useApiQuery<GraphResponse>(["graph", params], "/graph", { ...params }, options);
 }
 
 /**

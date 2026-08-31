@@ -9,6 +9,48 @@ version covers the API, the worker, and the web app - they release together, and
 
 ## [Unreleased]
 
+### Added
+
+- **The files an open-source project is expected to carry**: a
+  [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md), a [`NOTICE`](NOTICE) alongside the
+  (unchanged) Apache-2.0 `LICENSE`, a [`.github/SECURITY.md`](.github/SECURITY.md) policy
+  that routes vulnerability reports through GitHub private advisories instead of an email
+  address, and issue / pull-request templates.
+
+### Changed
+
+- **Third Brain is now a fully open-source project.** The whole product is in this
+  repository under Apache-2.0, free for any use: there is no hosted service, no waitlist, no
+  tiers, no seat counts and no usage limits. **Self-hosting is the supported way to run it** -
+  `make selfhost` stands up the production topology on your own box, and your documents,
+  embeddings, provider keys and audit log never leave your perimeter. The README, the compose
+  files and [`CONTRIBUTING.md`](CONTRIBUTING.md) were rewritten to match, the last one for
+  outside contributors: how to bring the stack up, how to run the three test tiers, the
+  "tests run against the real stack, never fakes" rule, the permission invariant any PR
+  touching retrieval or ACLs must respect, and inbound-equals-outbound licensing (no CLA).
+- **[`docs/VISION.md`](docs/VISION.md) and [`docs/ROADMAP.md`](docs/ROADMAP.md) are project
+  docs, not a pitch.** They keep why Third Brain exists and the technical intent, and drop
+  the pricing tiers, business model, moat and monetization material.
+- The usage and analytics `cost_usd` figures stay, and mean what a self-hoster needs them to
+  mean: what your OWN OpenAI / Anthropic / Google keys are spending. Nothing in Third Brain
+  ever charges anyone.
+
+### Removed
+
+- **The pre-launch waitlist**, end to end: its API route, model, schemas, migration and
+  tests, the marketing form, and the two third-party services that backed it - Cloudflare
+  Turnstile bot verification (`TURNSTILE_SECRET_KEY`, `NEXT_PUBLIC_TURNSTILE_SITE_KEY`) and
+  EmailJS submission notifications (`NEXT_PUBLIC_EMAILJS_*`). The settings are gone from
+  `.env.example` and the corresponding build arguments are gone from the web image, so a
+  self-host build no longer carries either integration. Migration `0002_drop_waitlist`
+  drops the `waitlist_entries` table.
+- **The organization plan tier.** There are no tiers, so an org has no plan: the `PlanTier`
+  enum, `Organization.plan` and the `plan` field on the organization API response are gone,
+  as is the plan badge on the dashboard's settings page. Migration `0003_drop_org_plan`
+  drops the column. **Breaking** for any client that read `plan` off `GET /api/v1/orgs/*`.
+- **The static `/demo` dashboard page** on the web app. The recorded walkthrough on the
+  landing page's `#demo` section is the demo; there is no hosted workspace to preview.
+
 ## [1.0.4] - 2026-07-27
 
 ### Added
@@ -79,7 +121,7 @@ version covers the API, the worker, and the web app - they release together, and
   repository: the footer points at the site's own docs, and the public quick start now
   follows the managed flow (join the waitlist, then `npx third-brain-mcp connect`)
   instead of a self-host clone visitors cannot perform.
-- The `third-brain-mcp` npm package's homepage points at https://third-brain.ai/docs;
+- The `third-brain-mcp` npm package's homepage points at `https://third-brain.ai/docs`;
   its `repository` field (which rendered a dead link on npmjs.com) is gone.
 
 ### Removed

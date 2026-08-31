@@ -3,9 +3,14 @@
 > **The documentation writes itself.** This is the "what next." For the "why," see
 > [`VISION.md`](./VISION.md); for the "how," see [`ARCHITECTURE.md`](./ARCHITECTURE.md).
 
-This roadmap is directional, not a commitment of dates. Items ship when they clear our bar for
+This roadmap is directional, not a commitment of dates. Items ship when they clear the bar for
 correctness - and, for anything in the retrieval path, the permission gate stays provably intact.
 Current version: **1.0.4**.
+
+Third Brain is free and Apache-2.0. Everything listed as shipped is in this repository and
+available to everyone: there are no tiers, no paid edition, and nothing is held back for a hosted
+version. Items tagged *(contributions welcome)* below are self-contained enough to pick up - see
+[`CONTRIBUTING.md`](../CONTRIBUTING.md).
 
 The whole roadmap at a glance - each column is a section below:
 
@@ -24,22 +29,22 @@ timeline
         : Hybrid search
         : Dashboard
         : SSO / SAML + SCIM
+        : One-command self-host (make selfhost)
     Near-term (next ~2 quarters)
         : Harden for production
-        : Stripe billing
         : Live data-source connectors (Slack, Google Drive, Notion)
         : Reranking
         : Gate releases on the eval harness
         : Transactional email
     Mid-term (~2-4 quarters out)
-        : Connector marketplace
+        : Connector ecosystem
         : Advanced governance
-        : Self-host / private-VPC GA
+        : Deployment recipes beyond Compose (Helm / Kubernetes)
         : Reviewable agent write-back (suggested edits, provenance, approval)
         : Richer analytics
         : Client SDKs
     Long-term (vision-scale)
-        : The compounding brain as a network moat
+        : The compounding brain
         : Cross-org knowledge federation
         : Automatic knowledge maintenance
         : Multimodal knowledge
@@ -102,87 +107,109 @@ The baseline the roadmap builds on - all of this is in the repo and covered by t
   `docs/BENCHMARKING.md`) and a Locust load test with pass/fail latency/error thresholds
   (`make load-test` / `make load-seed` - see `docs/LOAD_TESTING.md`). They run on demand today;
   wiring them into CI as release gates is near-term.
+- **One-command self-host** - `make selfhost` generates a hardened `.env`, brings the production
+  stack up on a single box, runs migrations, and bootstraps the first admin. Published images
+  (`ghcr.io/km322/third-brain-api` and `-web`) plus Cloudflare Tunnel and single-box Compose
+  overlays cover the common ingress shapes. See [`SELF_HOSTING.md`](./SELF_HOSTING.md).
 
 ---
 
 ## Near-term (next ~2 quarters)
 
-The focus: harden what exists, then unlock the thing that still gates revenue - billing - and the
-two things that gate retrieval quality - live connectors and better ranking.
+The focus: harden what exists, then unlock the two things that gate retrieval quality - live
+connectors and better ranking.
 
-- **Harden for production.** Tighten rate-limit and quota enforcement per tier, expand test
+- **Harden for production.** Tighten rate-limit and quota enforcement, expand test
   coverage on the permission boundary, structured audit events for every write, background-job
   retries/dead-lettering, and running the existing load/soak harness on a schedule.
 - **Finish SCIM group sync.** SSO and SCIM ship today (see above), but there is no
   `PATCH /scim/v2/Groups/{id}` - the call an IdP makes to push membership changes after a group
   already exists - so a team only tracks its IdP group as of creation time.
-- **Stripe billing.** Metered + seat-based subscriptions, self-serve Free → Pro upgrade, invoices,
-  and enforcement of tier limits at the billing boundary. Today the tier *limits* are *documented*
-  (see [`VISION.md`](./VISION.md)) but not yet *defined in code* or *enforced*; this adds both
-  their definition and enforcement, plus the automated *charging*. *(Not yet shipped.)*
 - **Live data-source connectors - Slack, Google Drive, Notion.** Incremental sync that ingests
   from source systems and, critically, **maps source-side permissions onto Third Brain ACLs** so
   the permission gate holds end-to-end. The sync engine, source-ACL mapping and identity
   resolution already ship behind the reference `local_folder` connector (see **Data sources** in
-  [`API.md`](./API.md)); this work adds the live fetch for the hosted sources.
+  [`API.md`](./API.md)); this work adds the live fetch for each source. *(Contributions welcome -
+  one connector at a time is a natural unit of work.)*
 - **Reranking.** A cross-encoder / LLM reranking stage on top of hybrid retrieval to lift
   precision@k on the shortlist before it reaches the model.
 - **Gate releases on the eval harness.** The retrieval-quality *and* permission-correctness eval
   already exists (`make benchmark`); the near-term work is wiring it into CI so every release is
   blocked on it - the permission suite is non-negotiable, since a single leaked chunk destroys
   trust - and publishing the permission-correctness benchmarks.
-- **Transactional email.** Email verification, self-serve password reset, and billing
-  notifications. *(Not yet shipped. The delivery pipeline itself exists: org invites already send
-  a tokenised acceptance link through the pluggable `EMAIL_PROVIDER`, which defaults to a `stub`
-  that captures mail instead of sending it.)*
+- **Transactional email.** Email verification and self-serve password reset - both things an
+  operator needs so members can recover their own accounts instead of asking an admin. *(Not yet
+  shipped. The delivery pipeline itself exists: org invites already send a tokenised acceptance
+  link through the pluggable `EMAIL_PROVIDER`, which defaults to a `stub` that captures mail
+  instead of sending it.)*
 - **Runtime web configuration.** Move the web client's API base URL from the build-time
   `NEXT_PUBLIC_API_URL` to server-provided runtime config, so one published web image can serve
-  any deployment instead of being baked per-origin.
+  any deployment instead of being baked per-origin. *(Contributions welcome - it would let every
+  self-hoster run the published web image unmodified; see the
+  [caveat](./RELEASING.md#published-web-image-caveat).)*
 
 ## Mid-term (~2-4 quarters out)
 
-- **Connector marketplace.** GitHub, Confluence, Jira, Linear, Zendesk, Salesforce, and a stable
-  connector SDK so third parties can add sources - every connector carries its permission mapping.
+- **Connector ecosystem.** GitHub, Confluence, Jira, Linear, Zendesk, Salesforce, and a stable
+  connector SDK so anyone can add sources - every connector carries its permission mapping.
 - **Advanced governance.** Retention/expiry policies, data-residency controls, PII **redaction**,
   per-collection encryption, and legal-hold. Detection and the oversharing report already ship;
   what is missing is rewriting the sensitive spans out of what gets indexed.
-- **Self-host / private-VPC.** Third Brain is managed-only for now; self-hosting - a supported,
-  documented deployment that runs entirely inside the customer's perimeter while keeping the
-  managed experience - is deferred until we're resourced to support it well (post-funding).
+- **Deployment recipes beyond Compose.** A Helm chart / Kubernetes manifests alongside today's
+  Compose overlays, so a self-host scales past one box without hand-writing the topology from
+  [`DEPLOYMENT.md`](./DEPLOYMENT.md). *(Contributions welcome.)*
 - **Reviewable agent write-back.** Agents already write back today (`add_knowledge` /
   `update_knowledge`, gated by permissions and the secret scanner). The mid-term layer adds
   structure on top: suggested edits, richer provenance, and human-in-the-loop approval queues so
   higher-stakes contributions can be reviewed before they land.
-- **Richer analytics.** Retrieval-quality dashboards, cost attribution by team and workspace, and
-  corpus-level coverage analysis on top of today's query-driven Knowledge Gaps report.
+- **Richer analytics.** Retrieval-quality dashboards, provider-spend attribution by team and
+  collection, and corpus-level coverage analysis on top of today's query-driven Knowledge Gaps
+  report.
 - **Client SDKs.** First-class Python and TypeScript SDKs with typed clients, streaming, and MCP
   helpers. The `third-brain-mcp` CLI shipped first as the fastest way to wire agents in; typed
   SDKs are the next layer for teams building directly against the REST/OpenAI-compatible surfaces.
 
 ## Long-term (vision-scale)
 
-- **The compounding brain as a network moat.** A deduplicated, permission-tagged knowledge graph
-  per deployment that gets more valuable - and more expensive to leave - the longer it runs.
+- **The compounding brain.** A deduplicated, permission-tagged knowledge graph per deployment that
+  gets more useful the longer it runs, because every agent session leaves something behind.
 - **Cross-org knowledge federation.** Opt-in, permission-preserving sharing between organizations
   (e.g. a company and its vendors) without collapsing either side's ACLs.
 - **Automatic knowledge maintenance.** Conflict resolution across sources and proactive "this doc
   contradicts that one" surfacing, on top of today's review-date staleness flagging.
 - **Multimodal knowledge.** Audio and video ingested, embedded, and retrieved under the same
   permission gate. Images already ship.
-- **Region/edge deployment & data-plane isolation** for the most regulated buyers (fintech, health,
-  legal, public sector).
+- **Region/edge deployment & data-plane isolation** for the most regulated operators (fintech,
+  health, legal, public sector).
 - **Vertical governance packs.** Prebuilt policy, retention, and compliance templates (HIPAA, SOC 2,
   FedRAMP-aligned) that shorten security review from months to days.
 
 ---
 
-## How we prioritize
+## How work is prioritized
 
 1. **Permission correctness first.** Anything touching retrieval ships behind the eval harness;
    the permission gate never regresses.
-2. **Revenue unlocks next.** Stripe billing converts the demand the OSS motion creates.
+2. **Then whatever a self-hoster is blocked on.** Setup, upgrade, and operational papercuts beat
+   new surface area: the project is only useful if a stranger can stand it up and keep it running.
 3. **Retrieval quality compounds.** Connectors and reranking make the brain worth plugging every
-   model into - which drives the write-back loop and the moat.
+   model into - which drives the write-back loop that makes it better still.
 
-Have a request or a source you need connected? Open an issue - the roadmap is shaped by what teams
-actually hit the governance wall on.
+## Contributing
+
+Third Brain is developed in the open and every part of it is fair game. Especially welcome:
+
+- **Data-source connectors.** The sync engine, source-ACL mapping and identity resolution already
+  exist behind `local_folder`; a new source is mostly a fetch implementation plus its permission
+  mapping.
+- **Extractors and chunkers** for file types the ingestion pipeline does not handle well yet.
+- **Deployment recipes** - Helm, Kubernetes manifests, Terraform, or a one-click template for a
+  cloud you use.
+- **Retrieval evaluation.** New golden-dataset cases for `make benchmark`, particularly adversarial
+  permission cases: a case that catches a leak is the single most valuable contribution here.
+- **Documentation and rough edges** you hit while standing your own instance up.
+
+Have a request, a source you need connected, or a deployment that fought you? Open an issue at
+<https://github.com/km322/Third-Brain/issues> - the roadmap is shaped by what people actually run
+into. Start with [`CONTRIBUTING.md`](../CONTRIBUTING.md) and
+[`DEVELOPMENT.md`](./DEVELOPMENT.md).

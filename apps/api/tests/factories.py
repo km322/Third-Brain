@@ -32,7 +32,6 @@ from app.models.enums import (
     MembershipStatus,
     OrgRole,
     PermissionLevel,
-    PlanTier,
     PrincipalType,
     ResourceType,
     SourceType,
@@ -58,11 +57,9 @@ def _slug(name: str) -> str:
 # --------------------------------------------------------------------------- #
 # Organizations, users, memberships
 # --------------------------------------------------------------------------- #
-async def create_org(
-    db: AsyncSession, *, name: str | None = None, plan: PlanTier = PlanTier.FREE
-) -> Organization:
+async def create_org(db: AsyncSession, *, name: str | None = None) -> Organization:
     name = name or f"Org {_rand()}"
-    org = Organization(name=name, slug=_slug(name), plan=plan)
+    org = Organization(name=name, slug=_slug(name))
     db.add(org)
     await db.commit()
     await db.refresh(org)

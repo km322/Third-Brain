@@ -43,7 +43,13 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { api, ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
-import type { OrgRole, ScimToken, ScimTokenCreated, SsoConnection, SsoProtocol } from "@/lib/types";
+import type {
+  OrgRole,
+  ScimToken,
+  ScimTokenCreated,
+  SsoConnection,
+  SsoProtocol,
+} from "@/lib/types";
 import { formatDate } from "@/lib/utils";
 
 const PROTOCOLS: SsoProtocol[] = ["oidc", "saml"];
@@ -59,12 +65,14 @@ const PROTOCOL_VARIANT: Record<SsoProtocol, BadgeProps["variant"]> = {
   saml: "success",
 };
 
+// `redirect_uri` is the dashboard's own callback page, so it defaults to
+// `<APP_BASE_URL>/sso/callback` on the server when the config omits it.
 const CONFIG_PLACEHOLDER: Record<SsoProtocol, string> = {
   oidc: `{
   "authorization_endpoint": "https://idp.example.com/authorize",
   "token_endpoint": "https://idp.example.com/token",
   "client_id": "your-client-id",
-  "redirect_uri": "https://api.third-brain.ai/auth/sso/callback"
+  "redirect_uri": "https://your-domain.example/sso/callback"
 }`,
   saml: `{
   "idp_sso_url": "https://idp.example.com/sso",
@@ -270,8 +278,8 @@ export default function SsoPage() {
               SCIM provisioning tokens
             </h2>
             <p className="max-w-2xl text-sm text-muted-foreground">
-              Bearer tokens for your identity provider to create, update and
-              deactivate members via SCIM. Shown once at creation.
+              Bearer tokens for your identity provider to create, update and deactivate
+              members via SCIM. Shown once at creation.
             </p>
           </div>
           <Button className="shrink-0" onClick={() => setTokenFormOpen(true)}>
@@ -312,9 +320,7 @@ export default function SsoPage() {
                     <TableCell>
                       <div className="flex items-center gap-2">
                         <span className="font-medium">{t.name}</span>
-                        {t.revoked ? (
-                          <Badge variant="destructive">Revoked</Badge>
-                        ) : null}
+                        {t.revoked ? <Badge variant="destructive">Revoked</Badge> : null}
                       </div>
                     </TableCell>
                     <TableCell>
@@ -373,8 +379,8 @@ export default function SsoPage() {
             <DialogTitle>Copy your SCIM token</DialogTitle>
             <DialogDescription>
               This is the only time the token for{" "}
-              <span className="font-medium">{revealToken?.name}</span> will be
-              shown. Paste it into your identity provider now.
+              <span className="font-medium">{revealToken?.name}</span> will be shown.
+              Paste it into your identity provider now.
             </DialogDescription>
           </DialogHeader>
           <div className="flex items-center gap-2 rounded-md border bg-muted/40 p-3">
@@ -390,8 +396,8 @@ export default function SsoPage() {
           <div className="flex items-start gap-2 text-xs text-warning">
             <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0" />
             <span>
-              We only store a hash of this token - it can&apos;t be recovered
-              later. If you lose it, revoke it and create a new one.
+              We only store a hash of this token - it can&apos;t be recovered later. If
+              you lose it, revoke it and create a new one.
             </span>
           </div>
           <DialogFooter>
@@ -409,8 +415,8 @@ export default function SsoPage() {
           <DialogHeader>
             <DialogTitle>Delete connection?</DialogTitle>
             <DialogDescription>
-              <span className="font-medium">{deletingConn?.name}</span> will be
-              removed and members will no longer be able to sign in through it.
+              <span className="font-medium">{deletingConn?.name}</span> will be removed
+              and members will no longer be able to sign in through it.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
@@ -424,9 +430,7 @@ export default function SsoPage() {
             <Button
               variant="destructive"
               disabled={deleteConnection.isPending}
-              onClick={() =>
-                deletingConn && deleteConnection.mutate(deletingConn.id)
-              }
+              onClick={() => deletingConn && deleteConnection.mutate(deletingConn.id)}
             >
               {deleteConnection.isPending ? "Deleting…" : "Delete"}
             </Button>
@@ -443,9 +447,8 @@ export default function SsoPage() {
           <DialogHeader>
             <DialogTitle>Revoke token?</DialogTitle>
             <DialogDescription>
-              <span className="font-medium">{revokingToken?.name}</span> will
-              stop working immediately and any provisioning that relies on it
-              will fail.
+              <span className="font-medium">{revokingToken?.name}</span> will stop working
+              immediately and any provisioning that relies on it will fail.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
@@ -459,9 +462,7 @@ export default function SsoPage() {
             <Button
               variant="destructive"
               disabled={revokeToken.isPending}
-              onClick={() =>
-                revokingToken && revokeToken.mutate(revokingToken.id)
-              }
+              onClick={() => revokingToken && revokeToken.mutate(revokingToken.id)}
             >
               {revokeToken.isPending ? "Revoking…" : "Revoke token"}
             </Button>
@@ -609,8 +610,7 @@ function SsoConnectionDialog({
                 onChange={(e) => setEmailDomain(e.target.value)}
               />
               <p className="text-xs text-muted-foreground">
-                Optional. Users with this email domain are routed to this
-                provider.
+                Optional. Users with this email domain are routed to this provider.
               </p>
             </div>
 
@@ -689,8 +689,7 @@ function CreateScimTokenDialog({
   }, [open]);
 
   const create = useMutation({
-    mutationFn: () =>
-      api.post<ScimTokenCreated>("/scim-tokens", { name: name.trim() }),
+    mutationFn: () => api.post<ScimTokenCreated>("/scim-tokens", { name: name.trim() }),
     onSuccess: (token) => {
       onOpenChange(false);
       onCreated(token);
@@ -711,8 +710,7 @@ function CreateScimTokenDialog({
           <DialogHeader>
             <DialogTitle>Create SCIM token</DialogTitle>
             <DialogDescription>
-              Name the token so you can recognize it later. The token is shown
-              once.
+              Name the token so you can recognize it later. The token is shown once.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">

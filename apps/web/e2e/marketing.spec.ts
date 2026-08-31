@@ -1,12 +1,14 @@
 import { expect, test } from "@playwright/test";
 
 import { DEMO_MEDIA } from "@/components/marketing/demo-video";
+import { GITHUB_URL } from "@/components/marketing/links";
 
 /**
- * Marketing landing page: the unauthenticated front door. In the waitlist-first launch the
- * primary call-to-action captures an email rather than routing to self-serve signup. The
- * live demo workspace stays private (unlisted and credential-gated) and is never linked from
- * the marketing UI - the only demo on the page is the recorded walkthrough embedded below.
+ * Marketing landing page: the unauthenticated front door. Third Brain is a free,
+ * open-source, self-hosted project, so nothing here gates the product: the primary
+ * call-to-action routes a stranger to the self-host quick start and the page links the
+ * public repository. The only demo on the page is the recorded walkthrough embedded
+ * below - there is no hosted workspace to sign in to.
  *
  * Note on coverage: CI runs these against the compose `dev` target (`next dev`), which serves
  * public/ straight from the source tree. So the asset assertions below pin the URLs, the range
@@ -14,7 +16,7 @@ import { DEMO_MEDIA } from "@/components/marketing/demo-video";
  * public/ into the standalone bundle - that needs a smoke test against the `runner` target.
  */
 test.describe("marketing landing", () => {
-  test("renders the hero and a waitlist-first primary CTA", async ({ page }) => {
+  test("renders the hero, the self-host CTA and the closing CTA", async ({ page }) => {
     await page.goto("/");
 
     // Hero headline - "The documentation writes itself." - rendered as the page h1.
@@ -22,32 +24,39 @@ test.describe("marketing landing", () => {
     await expect(heading).toBeVisible();
     await expect(heading).toContainText(/documentation writes itself/i);
 
-    // Primary CTA: "Join the waitlist" anchoring to the waitlist section.
-    const cta = page.getByRole("link", { name: /^join the waitlist$/i }).first();
+    // Primary CTA: the free self-host on-ramp, pointing at the docs quick start.
+    const cta = page.getByRole("link", { name: /^self-host it free$/i }).first();
     await expect(cta).toBeVisible();
-    await expect(cta).toHaveAttribute("href", /#waitlist$/);
+    await expect(cta).toHaveAttribute("href", "/docs#quick-start");
 
-    // The live demo is private now: no "Live demo" link is exposed in the marketing UI.
+    // Closing CTA: the same on-ramp plus the one violet text link to the source.
+    await expect(
+      page.getByRole("heading", {
+        name: /give your company a brain that writes itself/i,
+      }),
+    ).toBeVisible();
+    const source = page.getByRole("link", { name: /^view the source$/i });
+    await expect(source).toBeVisible();
+    await expect(source).toHaveAttribute("href", GITHUB_URL);
+
+    // Nothing is gated: no waitlist section, no email capture, no "early access".
+    await expect(page.getByText(/waitlist|early access/i)).toHaveCount(0);
+    await expect(page.getByPlaceholder("you@company.com")).toHaveCount(0);
+
+    // The live demo is private: no "Live demo" link is exposed in the marketing UI.
     await expect(page.getByRole("link", { name: /^live demo$/i })).toHaveCount(0);
 
     // A "Sign in" affordance remains for returning users.
-    await expect(
-      page.getByRole("link", { name: /^sign in$/i }).first(),
-    ).toBeVisible();
+    await expect(page.getByRole("link", { name: /^sign in$/i }).first()).toBeVisible();
 
-    // The source repo is private: nothing on the page (footer included) may link to
-    // github.com/km322 - that URL 404s for every visitor.
-    await expect(page.locator('a[href*="github.com/km322"]')).toHaveCount(0);
-    expect(await page.content()).not.toContain("github.com/km322");
+    // The repo is public now and is the on-ramp: the navbar, the closing CTA and the
+    // footer all point at it.
+    expect(await page.locator(`a[href="${GITHUB_URL}"]`).count()).toBeGreaterThan(0);
 
-    // Following the primary CTA reveals the waitlist form (email capture).
+    // Following the primary CTA lands on the quick start, which is a real section.
     await cta.click();
-    await expect(page).toHaveURL(/#waitlist$/);
-    const emailField = page.getByPlaceholder("you@company.com");
-    await expect(emailField).toBeVisible();
-    await expect(
-      page.getByRole("button", { name: /join the waitlist/i }),
-    ).toBeVisible();
+    await expect(page).toHaveURL(/\/docs#quick-start$/);
+    await expect(page.locator("#quick-start")).toBeVisible();
   });
 
   test("embeds the recorded demo behind a poster and serves the file from the site root", async ({
@@ -66,10 +75,7 @@ test.describe("marketing landing", () => {
     // The recording has no audio track at all; `muted` keeps a backgrounded tab on the
     // browser's cheap throttling path instead of holding an audio-focus slot.
     await expect(video).toHaveAttribute("muted", "");
-    await expect(video).toHaveAttribute(
-      "poster",
-      DEMO_MEDIA.poster,
-    );
+    await expect(video).toHaveAttribute("poster", DEMO_MEDIA.poster);
 
     // Two renditions: a phone renders this frame in roughly 1020 device px, so it must
     // not be handed 1080p to decode. The wide rung is media-gated; the narrow one is the
@@ -99,24 +105,5 @@ test.describe("marketing landing", () => {
       // Frozen at the edge, so a play does not re-stream from the origin every time.
       expect(res.headers()["cache-control"]).toContain("immutable");
     }
-  });
-
-  test("the demo gateway is reachable directly but credential-gated, never handing out the password", async ({
-    page,
-  }) => {
-    await page.goto("/demo/dashboard");
-
-    // The demo is login-locked: it renders a sign-in gateway, not the dashboard.
-    await expect(page.getByText(/explore the live demo/i).first()).toBeVisible();
-    await expect(
-      page.getByRole("button", { name: /^sign in$/i }),
-    ).toBeVisible();
-
-    // Credentials are never advertised or pre-filled: no seeded email appears anywhere,
-    // and both fields start empty (only someone who holds the workspace credentials can
-    // sign in - there is no well-known demo password to leak).
-    await expect(page.getByText(/@third-brain\.ai|@example\.com/)).toHaveCount(0);
-    await expect(page.getByLabel("Work email")).toHaveValue("");
-    await expect(page.getByLabel("Password", { exact: true })).toHaveValue("");
   });
 });

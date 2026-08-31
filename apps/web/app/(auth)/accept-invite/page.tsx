@@ -49,7 +49,9 @@ function AcceptInviteInner() {
       toast.success("Welcome to Third Brain");
       router.replace("/dashboard");
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : "Couldn't accept the invitation");
+      toast.error(
+        err instanceof ApiError ? err.message : "Couldn't accept the invitation",
+      );
     } finally {
       setSubmitting(false);
     }
@@ -67,7 +69,10 @@ function AcceptInviteInner() {
           </CardDescription>
         </CardHeader>
         <CardContent className="p-0 pt-8">
-          <Link href="/login" className="text-sm font-medium text-primary hover:underline">
+          <Link
+            href="/login"
+            className="text-sm font-medium text-primary hover:underline"
+          >
             Back to sign in
           </Link>
         </CardContent>

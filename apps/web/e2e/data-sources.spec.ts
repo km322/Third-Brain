@@ -40,7 +40,10 @@ test.describe("data sources", () => {
       page.getByRole("heading", { name: /data sources/i, level: 1 }),
     ).toBeVisible();
 
-    await page.getByRole("button", { name: /add data source/i }).first().click();
+    await page
+      .getByRole("button", { name: /add data source/i })
+      .first()
+      .click();
     const dialog = page.getByRole("dialog");
     await expect(dialog).toBeVisible();
 

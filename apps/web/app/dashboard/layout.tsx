@@ -91,11 +91,7 @@ function DashboardShell({ children }: { children: React.ReactNode }) {
  * {@link AuthProvider} (identity + active org + logout/switch) and the app
  * shell. Redirects to `/login` when there is no valid session.
  */
-export default function DashboardLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   return (
     <AuthProvider>
       <DashboardShell>{children}</DashboardShell>

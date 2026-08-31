@@ -55,9 +55,7 @@ export function EmptyState({
           {title}
         </h3>
         {description ? (
-          <p className="mx-auto max-w-sm text-sm text-muted-foreground">
-            {description}
-          </p>
+          <p className="mx-auto max-w-sm text-sm text-muted-foreground">{description}</p>
         ) : null}
       </div>
       {actions ? <div className="mt-2 flex items-center gap-2">{actions}</div> : null}

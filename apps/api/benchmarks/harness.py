@@ -46,7 +46,6 @@ from app.models.enums import (
     MembershipStatus,
     OrgRole,
     PermissionLevel,
-    PlanTier,
     PrincipalType,
     ResourceType,
     SourceType,
@@ -232,7 +231,7 @@ async def setup_dataset(db: AsyncSession, ds: BenchmarkDataset) -> Handles:
     org_name = f"benchmark-{ds.name}"
     await _reset_org(db, ds, org_name)
 
-    org = Organization(name=org_name, slug=_slug(org_name), plan=PlanTier.FREE)
+    org = Organization(name=org_name, slug=_slug(org_name))
     db.add(org)
     await db.flush()
 
