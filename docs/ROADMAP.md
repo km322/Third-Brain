@@ -5,7 +5,7 @@
 
 This roadmap is directional, not a commitment of dates. Items ship when they clear the bar for
 correctness - and, for anything in the retrieval path, the permission gate stays provably intact.
-Current version: **1.0.4**.
+Current version: **2.0.0**.
 
 Third Brain is free and Apache-2.0. Everything listed as shipped is in this repository and
 available to everyone: there are no tiers, no paid edition, and nothing is held back for a hosted

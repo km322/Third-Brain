@@ -8,8 +8,15 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-thirdbrain}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-thirdbrain}
       POSTGRES_DB: ${POSTGRES_DB:-thirdbrain}
+    # Every port in this file is published on loopback only. This is the DEVELOPMENT stack:
+    # it runs the .env.example defaults (POSTGRES_PASSWORD=thirdbrain, a placeholder
+    # SECRET_KEY, ENVIRONMENT=development - so the production boot guards never fire), and
+    # Docker's NAT rules are evaluated ahead of the host firewall, so a bare "5432:5432" on
+    # a machine with a public IP would put an open database on the internet regardless of
+    # ufw/iptables. Reach the stack from another host with `make selfhost` (which publishes
+    # deliberately, after generating real secrets) or an SSH tunnel.
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - db_data:/var/lib/postgresql/data
     healthcheck:
@@ -23,7 +30,7 @@ services:
     restart: unless-stopped
     command: ["redis-server", "--appendonly", "yes"]
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
     volumes:
       - redis_data:/data
     healthcheck:
@@ -47,7 +54,7 @@ services:
       redis:
         condition: service_healthy
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     volumes:
       - ./apps/api:/app
       - uploads:/data/uploads
@@ -95,7 +102,7 @@ services:
     depends_on:
       - api
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
     volumes:
       - ./apps/web:/app
       - /app/node_modules
@@ -111,9 +118,9 @@ services:
     profiles: ["observability"]
     restart: unless-stopped
     ports:
-      - "3001:3000"
-      - "4317:4317"
-      - "4318:4318"
+      - "127.0.0.1:3001:3000"
+      - "127.0.0.1:4317:4317"
+      - "127.0.0.1:4318:4318"
     volumes:
       - lgtm_data:/data
 

@@ -142,6 +142,20 @@ sequenceDiagram
     api-->>web: fresh access + refresh pair (rotation)
 ```
 
+**Where the dashboard keeps its tokens - an accepted trade-off.** Both the access token and
+the refresh token live in `localStorage` ([`apps/web/lib/api.ts`](../apps/web/lib/api.ts)),
+which is what lets a page reload keep you signed in without a cookie session. The cost is
+stated here rather than hidden: any script executing on the dashboard's origin can read both,
+and the refresh token is valid for `REFRESH_TOKEN_EXPIRE_DAYS` (30 by default). Single-use
+rotation stops a *replayed* copy, but not a thief who simply rotates the token themselves, so
+an XSS in the dashboard is a month of access rather than 30 minutes.
+[`apps/web/next.config.mjs`](../apps/web/next.config.mjs) sets `X-Frame-Options: DENY`,
+`nosniff`, a referrer policy and `frame-ancestors 'none'`, but **deliberately no `script-src`
+policy** - Next.js relies on inline and hashed scripts, and a strict policy needs per-build
+nonces - so CSP is not a second line of defence against injected script here. If dashboard
+XSS is in your threat model, shorten `REFRESH_TOKEN_EXPIRE_DAYS`; a password change or admin
+reset bumps `token_version` and invalidates every outstanding token at once.
+
 Session revocation is layered:
 
 - **Refresh rotation (single-use tokens).** Exchanging a refresh token - or surrendering
@@ -381,9 +395,25 @@ also makes runaway spend visible quickly.
 
 Security-relevant actions are recorded to `audit_logs`: logins/logouts, password
 changes and admin password resets, API-key create/revoke, permission grant/revoke,
-document create/delete/access, collection creation and searches. Entries capture the actor, resolved email (when available), IP and
-user-agent. Audit reads require an **admin** session (`GET /api/v1/analytics/audit`). Treat
-the audit log as append-only and ship it to durable, tamper-evident storage.
+document create/delete/access, collection creation and searches. Entries capture the actor,
+resolved email (when available), user-agent, and the **peer address of the connection**.
+Audit reads require an **admin** session (`GET /api/v1/analytics/audit`). Treat the audit log
+as append-only and ship it to durable, tamper-evident storage.
+
+> **The recorded address is the direct peer, not necessarily the end user.** `client_ip()`
+> ([`app/core/deps.py`](../apps/api/app/core/deps.py)) returns `request.client.host`; nothing
+> in the stack consumes `X-Forwarded-For`, and uvicorn is started without `--proxy-headers`.
+> In both documented public topologies - a Cloudflare Tunnel, or your own TLS-terminating
+> reverse proxy - the API's peer is that proxy, so **every audit row records the proxy's
+> address rather than the user's**. Do not read audit IPs as user attribution; your proxy's
+> access log (or Cloudflare's `CF-Connecting-IP`) is the record of record for now.
+>
+> The login rate limiter is keyed on `(email, client IP)`, so a constant peer address degrades
+> it to a purely per-account limit. That is not a bypass - the per-account half still caps
+> credential stuffing against one account at 10 attempts a minute, and per-IP was never a
+> defence against spraying across many accounts, since each `(email, IP)` pair gets its own
+> bucket either way. The visible effect is the other direction: users sharing the proxy share
+> a bucket, so repeated failures against one account throttle every client behind it.
 
 ---
 

@@ -1,7 +1,17 @@
 #!/usr/bin/env bash
 # Roll the production compose stack back to a previously published image tag.
 # Run from the repo root on the production host (reads .env for compose vars).
+#
+# Compose file list: the SAME pair the stack was brought up with, because docker-compose.prod.yml
+# alone publishes no host ports - recreating api/web without the ingress overlay would take the
+# instance off the network. Defaults to the single-box self-host pair; export TB_COMPOSE_FILES
+# for another ingress, e.g.
+#   TB_COMPOSE_FILES="-f docker-compose.prod.yml -f docker-compose.cloudflare.yml"
 set -euo pipefail
+
+TB_COMPOSE_FILES="${TB_COMPOSE_FILES:--f docker-compose.prod.yml -f docker-compose.selfhost.yml}"
+read -r -a COMPOSE_FILES <<<"$TB_COMPOSE_FILES"
+compose() { docker compose "${COMPOSE_FILES[@]}" "$@"; }
 
 usage() {
   echo "usage: rollback.sh vX.Y.Z [--yes]" >&2
@@ -36,7 +46,7 @@ fi
 export IMAGE_TAG="$TAG"
 
 echo "Rolling back to images tagged $TAG:"
-IMAGES="$(docker compose -f docker-compose.prod.yml config --images | sort -u)"
+IMAGES="$(compose config --images | sort -u)"
 echo "$IMAGES"
 if echo "$IMAGES" | grep -q '^third-brain-'; then
   echo "WARNING: the third-brain images above are not registry-qualified, so compose"
@@ -45,10 +55,10 @@ fi
 
 echo
 echo "Currently running:"
-docker compose -f docker-compose.prod.yml ps || true
+compose ps || true
 
 echo
-docker compose -f docker-compose.prod.yml pull api worker web
+compose pull api worker web
 
 if [[ "$ASSUME_YES" -ne 1 ]]; then
   read -r -p "Restart api, worker and web on $TAG? [y/N] " reply || reply=""
@@ -85,10 +95,10 @@ echo "Pinned IMAGE_TAG=$TAG in .env"
 # already stamped with ("Can't locate revision ..."), so migrate would fail and
 # its service_completed_successfully gate would keep api and worker down
 # forever. The schema stays where it is - see the NOTE below.
-docker compose -f docker-compose.prod.yml up -d --no-deps --no-build api worker web
+compose up -d --no-deps --no-build api worker web
 
 echo
-docker compose -f docker-compose.prod.yml ps
+compose ps
 
 cat <<EOF
 

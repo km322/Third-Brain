@@ -239,7 +239,9 @@ credentials are Fernet-encrypted at rest, with the encryption key derived from y
 
 ## Nothing phones home
 
-A default self-host is silent. Grounded in how the code is wired:
+A default self-host makes **no server-side outbound call at all**: no telemetry, no
+analytics, no update check, no licence check, and no project-operated endpoint anywhere in
+the data path - none exists. Grounded in how the code is wired:
 
 - **Telemetry is opt-in.** Tracing installs nothing and makes zero network calls unless you
   set `OTEL_EXPORTER_OTLP_ENDPOINT`. Left blank (the default), there is no exporter at all.
@@ -249,7 +251,23 @@ A default self-host is silent. Grounded in how the code is wired:
   into S3.
 - **The only outbound calls are ones you configure.** Your own LLM provider connectors (BYO
   keys, optional), your own data-source connectors, and user-triggered URL ingestion (which
-  is SSRF-gated). There is no project-operated endpoint in the data path - none exists.
+  is SSRF-gated).
+
+Two honest exceptions. Neither is the running stack calling out, and neither touches your
+data, but both are worth knowing before you claim total isolation:
+
+- **The API's interactive docs pages load their UI from a public CDN.** `/docs` (Swagger UI)
+  and `/redoc` (ReDoc) are FastAPI's built-in pages, and they pull their JavaScript from
+  `cdn.jsdelivr.net` - ReDoc also pulls webfonts from `fonts.googleapis.com`. Those requests
+  come from **the operator's browser**, not from the container, so an egress-denied API is
+  unaffected; but on an air-gapped host neither page renders. The schema itself
+  (`/openapi.json`) is served from your instance, so an offline OpenAPI client still works.
+  Both pages are reachable without authentication, so put them behind your proxy or ingress
+  rules if you would rather not describe the API surface publicly.
+- **Building the web image fetches webfonts once.** The dashboard uses `next/font/google`,
+  which downloads Inter and JetBrains Mono at **build** time and self-hosts them in the
+  image. A build host therefore needs to reach Google Fonts; the running container never
+  does, and no visitor's browser ever contacts Google.
 
 **How to verify:** put the `api` and `worker` containers behind an egress-deny network
 policy (allow only your database, Redis, and any LLM/data-source hosts you explicitly use).
@@ -309,20 +327,31 @@ Releases are versioned together across the API, worker, and web app, and publish
 tagged images. Upgrading is repointing at a newer tag (or rebuilding), then letting the
 `migrate` one-shot bring the schema forward.
 
+> [!IMPORTANT]
+> **Always name both compose files.** `docker-compose.prod.yml` publishes no host ports by
+> design - on a `make selfhost` box every bit of ingress comes from the `ports:` in
+> `docker-compose.selfhost.yml`. Run `up` with the prod file alone and Compose recreates
+> `api` and `web` from that definition, dropping the published ports: `docker compose ps`
+> still reports both containers healthy while the box has gone dark. On the public-domain
+> topology the second file is `docker-compose.cloudflare.yml` instead; naming it keeps
+> `cloudflared`, the ingress there, part of the project definition rather than an orphan.
+
 **Upgrade** - build a new version locally, or pull a released tag:
 
 ```bash
 # Build locally from a newer checkout:
 git pull
-docker compose -f docker-compose.prod.yml up -d --build
+docker compose -f docker-compose.prod.yml -f docker-compose.selfhost.yml up -d --build
 
 # Or run a published image tag: set IMAGE_REGISTRY + IMAGE_TAG in .env, then:
-docker compose -f docker-compose.prod.yml pull
-docker compose -f docker-compose.prod.yml up -d
+docker compose -f docker-compose.prod.yml -f docker-compose.selfhost.yml pull
+docker compose -f docker-compose.prod.yml -f docker-compose.selfhost.yml up -d
 ```
 
 The `migrate` one-shot runs `alembic upgrade head` and gates the API and worker, so new
-code starts only once the schema is current.
+code starts only once the schema is current. Upgrading a database that predates v2.0.0 needs
+one extra step - see
+[`DEPLOYMENT.md`](./DEPLOYMENT.md#upgrading-a-database-created-before-v200).
 
 **Rollback** - repoint at the previous released tag:
 
@@ -330,10 +359,24 @@ code starts only once the schema is current.
 make rollback IMAGE_TAG=vPREV
 ```
 
-This restarts `api` / `worker` / `web` on the older images without re-running the migrate
-gate. It works because every release's migrations are backward-compatible with the previous
-release's code (expand/contract). The full runbook is in
-[`RELEASING.md`](./RELEASING.md#rolling-back) and
+That pins `IMAGE_TAG` in `.env`, so a later routine `up` cannot quietly undo the rollback,
+and restarts `api` / `worker` / `web` on the older images with `--no-deps`. Skipping the
+dependency graph is load-bearing: it skips the `migrate` gate, and once a release has added a
+revision the older image's Alembic tree cannot resolve the revision the database is stamped
+with, so `migrate` would fail and its `service_completed_successfully` condition would hold
+`api` and `worker` down. No schema downgrade is involved - every release's migrations are
+backward-compatible with the previous release's code (expand/contract), so the older images
+run correctly against the current schema.
+
+`make rollback` uses the same single-box file pair as the bring-up. On the Cloudflare Tunnel
+topology, name that overlay instead so `cloudflared` stays part of the project:
+
+```bash
+TB_COMPOSE_FILES="-f docker-compose.prod.yml -f docker-compose.cloudflare.yml" \
+  make rollback IMAGE_TAG=vPREV
+```
+
+The full runbook is in [`RELEASING.md`](./RELEASING.md#rolling-back) and
 [`DEPLOYMENT.md`](./DEPLOYMENT.md#upgrade--rollback).
 
 ---

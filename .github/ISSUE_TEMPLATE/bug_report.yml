@@ -91,7 +91,7 @@ body:
       description: >-
         From the VERSION file at the repo root, the version in the dashboard sidebar
         footer, or GET /api/v1/version. Include the commit SHA if you are running main.
-      placeholder: "1.0.4"
+      placeholder: "2.0.0"
     validations:
       required: true
 

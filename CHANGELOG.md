@@ -9,6 +9,60 @@ version covers the API, the worker, and the web app - they release together, and
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-09-03
+
+Third Brain is free, open-source software. The whole product is in this repository under
+Apache-2.0, self-hosting is the supported way to run it, and no part of it sits behind a
+tier, a seat count or a payment. This release removes the pre-launch commercial surface that
+implied otherwise, which is what makes it a major version: published API responses, the
+migration history and the Compose topology all change.
+
+### Breaking
+
+- **One migration revision, `0001_initial`.** The history is folded into a single baseline
+  whose `down_revision` is `None`; there is no chain to replay. A database created by a
+  *released* 1.x still upgrades cleanly - every 1.x tag shipped only `0001_initial`, so such
+  a database is already stamped there and `alembic upgrade head` finds nothing to do - but
+  the fold removed the DDL that created `waitlist_entries` and `organizations.plan`, and
+  Alembic will not drop objects a database already has. Nothing in 2.x reads either one; the
+  idempotent SQL that brings an older database back to baseline parity is in
+  [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md). The case that actually fails is a database
+  built from a **pre-2.0 development checkout**: it is stamped at a revision that no longer
+  exists, and Alembic aborts with `Can't locate revision identified by '0002_drop_waitlist'`
+  (or `'0003_drop_org_plan'`). Recreate that database, or - after verifying its schema
+  matches the baseline - realign it with `alembic stamp --purge 0001_initial`.
+- **The production Compose project is renamed to `third-brain-prod`**
+  ([`docker-compose.prod.yml`](docker-compose.prod.yml)), so the production stack can no
+  longer collide with the development stack's `third-brain` project. Compose namespaces
+  volumes by project and both files declare `db_data` / `redis_data` / `uploads`, so up to
+  1.x a `make up` followed by `make selfhost` on one host fought over the same datastores.
+  Existing `third-brain_*` volumes are left untouched but orphaned, and the self-hosted stack
+  comes up on an **empty** database. `scripts/selfhost-init.sh` detects exactly that case and
+  prints the two ways out: discard leftover development data with `docker compose down -v`,
+  or keep a pre-2.0 self-host by pinning the old project name with
+  `COMPOSE_PROJECT_NAME=third-brain make selfhost`.
+- **Every port in the development Compose file is published on loopback** - Postgres, Redis,
+  the API, the web app, and the observability profile's Grafana and OTLP ports. That stack
+  runs the `.env.example` defaults (a published `SECRET_KEY` and database password, and
+  `ENVIRONMENT=development`, so the production boot guards never fire), and Docker's NAT
+  rules are evaluated ahead of the host firewall, so a bare `5432:5432` on a machine with a
+  public IP put an open database on the internet regardless of ufw/iptables. Reaching a
+  development stack from another machine now needs an SSH tunnel; to publish deliberately,
+  use `make selfhost`, which generates real secrets first.
+- **The waitlist API is removed**: `POST /api/v1/waitlist` and `GET /api/v1/waitlist/stats`,
+  with the model, schemas, tests and marketing form behind them, and the two third-party
+  services that backed it - Cloudflare Turnstile bot verification (`TURNSTILE_SECRET_KEY`,
+  `NEXT_PUBLIC_TURNSTILE_SITE_KEY`) and EmailJS submission notifications
+  (`NEXT_PUBLIC_EMAILJS_*`). Those settings are gone from `.env.example` and the
+  corresponding build arguments are gone from the web image, so a self-host build no longer
+  carries either integration. The static `/demo` dashboard route is removed too: the recorded
+  walkthrough in the landing page's `#demo` section is the demo, and there is no hosted
+  workspace to preview.
+- **`plan` is removed from the organization API.** There are no tiers, so an org has no plan:
+  `GET /api/v1/orgs/*` no longer returns a `plan` field, and the `PlanTier` enum, the
+  `Organization.plan` attribute, the `organizations.plan` column and the dashboard settings
+  page's plan badge are all gone. Any client that read `plan` off an org response must stop.
+
 ### Added
 
 - **The files an open-source project is expected to carry**: a
@@ -16,6 +70,11 @@ version covers the API, the worker, and the web app - they release together, and
   (unchanged) Apache-2.0 `LICENSE`, a [`.github/SECURITY.md`](.github/SECURITY.md) policy
   that routes vulnerability reports through GitHub private advisories instead of an email
   address, and issue / pull-request templates.
+- **CI runs the self-host bring-up.** A `Self-host (prod compose + bootstrap)` job executes
+  the real entry point - `ADMIN_EMAIL=... ./scripts/selfhost-init.sh`, which is what
+  `make selfhost` invokes - building both images from source and asserting against the
+  deployment it produces, then tearing it down. The supported install path had never been
+  executed by CI before; it now runs on every push and pull request to `main`.
 
 ### Changed
 
@@ -34,22 +93,58 @@ version covers the API, the worker, and the web app - they release together, and
 - The usage and analytics `cost_usd` figures stay, and mean what a self-hoster needs them to
   mean: what your OWN OpenAI / Anthropic / Google keys are spending. Nothing in Third Brain
   ever charges anyone.
+- **Documentation corrected against what the code actually does.** The README quickstart
+  carries a warning that it runs on published development secrets and belongs on a laptop
+  only. [`docs/SELF_HOSTING.md`](docs/SELF_HOSTING.md) keeps the "nothing phones home" claim
+  but states it precisely - no server-side egress, telemetry, analytics, update check or
+  licence check - and then names the two real exceptions: `/docs` and `/redoc` load their UI
+  from a public CDN in the *operator's browser*, and `next/font/google` fetches webfonts once
+  at image **build** time. [`docs/SECURITY.md`](docs/SECURITY.md) now says that audit entries
+  record the peer address of the connection, which behind either documented public topology
+  is the proxy rather than the user, and that the dashboard keeps both tokens in
+  `localStorage` with no `script-src` CSP.
+- **`apps/web` is prettier-formatted, and the format check is enforced** by `make lint` and
+  by the frontend CI job, so the documented `make fmt` no longer greets a contributor with a
+  125-file diff.
+- **The five scaffolded connectors are labelled "Not syncing yet"** in the data-source
+  picker, so the UI stops implying integrations that raise `ConnectorNotConfigured`.
+- The signup 403 and its docstring are reworded. `SIGNUP_ENABLED` stays closed by default in
+  production because an open instance lets strangers spend the operator's provider keys, not
+  as an access gate.
+- **The recorded demo is redacted**: the terminal exposed a local home directory, the end
+  card pointed at a domain being decommissioned, and a caption claimed five connectors that
+  do not sync.
+- **The production Compose file sizes the database pools for one box.** `DB_POOL_SIZE` and
+  `DB_MAX_OVERFLOW` default to 5 and 10 there (overridable from `.env`), because every
+  uvicorn worker and the arq worker build their own pool: the app defaults of 10 + 20 peak at
+  `(4 + 1) x 30 = 150` connections against the bundled Postgres's stock limit of 100.
 
-### Removed
+### Fixed
 
-- **The pre-launch waitlist**, end to end: its API route, model, schemas, migration and
-  tests, the marketing form, and the two third-party services that backed it - Cloudflare
-  Turnstile bot verification (`TURNSTILE_SECRET_KEY`, `NEXT_PUBLIC_TURNSTILE_SITE_KEY`) and
-  EmailJS submission notifications (`NEXT_PUBLIC_EMAILJS_*`). The settings are gone from
-  `.env.example` and the corresponding build arguments are gone from the web image, so a
-  self-host build no longer carries either integration. Migration `0002_drop_waitlist`
-  drops the `waitlist_entries` table.
-- **The organization plan tier.** There are no tiers, so an org has no plan: the `PlanTier`
-  enum, `Organization.plan` and the `plan` field on the organization API response are gone,
-  as is the plan badge on the dashboard's settings page. Migration `0003_drop_org_plan`
-  drops the column. **Breaking** for any client that read `plan` off `GET /api/v1/orgs/*`.
-- **The static `/demo` dashboard page** on the web app. The recorded walkthrough on the
-  landing page's `#demo` section is the demo; there is no hosted workspace to preview.
+- The quickstart in the README, [`CONTRIBUTING.md`](CONTRIBUTING.md) and the docs site uses
+  `make up-d`, so the copy-pasted bring-up no longer blocks in the foreground before
+  `make migrate`.
+- **`scripts/selfhost-init.sh` survives a second run and a first mistake.** The publishing
+  knobs it chooses (`TB_BIND_IP`, `WEB_PORT`, `API_PORT`) are written into the generated
+  `.env` and read back from an existing one, so a later bare
+  `docker compose -f docker-compose.prod.yml -f docker-compose.selfhost.yml up -d` reproduces
+  the same binding instead of silently reverting to the overlay defaults - and the no-TLS
+  warning now fires on the effective bind rather than the one this run computed. A new
+  pre-flight mirrors all three production boot guards in `app/main.py` (placeholder or short
+  `SECRET_KEY`, the shipped `thirdbrain` database password, a bare `*` in
+  `BACKEND_CORS_ORIGINS`) using the API's own wording, so an unusable `.env` fails in a
+  second rather than after two image builds and a 300s health wait.
+- **`make rollback` keeps the ingress it rolled back.** `scripts/rollback.sh` ran
+  `docker compose -f docker-compose.prod.yml up -d` with the prod file alone, which recreates
+  `api` and `web` from a definition that publishes no host ports - a rollback took the box
+  off the network while `docker compose ps` still reported healthy containers. It now uses
+  both files by default and takes `TB_COMPOSE_FILES` to name a different ingress overlay
+  (`docker-compose.cloudflare.yml`).
+
+### Security
+
+- Four high-severity advisories in transitive web dependencies, fixed in the lockfile only
+  (`brace-expansion`, `js-yaml`, `nanoid`); no direct dependency version changed.
 
 ## [1.0.4] - 2026-07-27
 
@@ -245,7 +340,8 @@ Initial release.
 - **Offline deterministic LLM stub** - the whole stack builds, seeds, and passes tests
   with zero provider keys.
 
-[Unreleased]: https://github.com/km322/Third-Brain/compare/v1.0.4...HEAD
+[Unreleased]: https://github.com/km322/Third-Brain/compare/v2.0.0...HEAD
+[2.0.0]: https://github.com/km322/Third-Brain/releases/tag/v2.0.0
 [1.0.4]: https://github.com/km322/Third-Brain/releases/tag/v1.0.4
 [1.0.3]: https://github.com/km322/Third-Brain/releases/tag/v1.0.3
 [1.0.2]: https://github.com/km322/Third-Brain/releases/tag/v1.0.2

@@ -38,7 +38,13 @@
 # .env, then drop the `db` / `redis` services and their depends_on entries.
 # ============================================================================
 
-name: third-brain
+# Distinct from the development stack's `third-brain` project so the two topologies can
+# never share datastores: Compose namespaces volumes by project, and both files declare
+# db_data / redis_data / uploads. Sharing them meant a `make up` first, `make selfhost`
+# second reader ended up with a db volume initialised under the .env.example password that
+# the freshly generated one cannot authenticate against. scripts/selfhost-init.sh warns
+# about a leftover `third-brain_db_data` from before this split.
+name: third-brain-prod
 
 # --- Shared fragments so api / worker / migrate run the exact same image ---
 x-api-image: &api-image
@@ -67,6 +73,18 @@ x-api-env: &api-env
     POSTGRES_HOST: db
     POSTGRES_PORT: "5432"
     REDIS_URL: redis://redis:6379/0
+    # Connection budget for the bundled Postgres, which runs stock: max_connections=100,
+    # minus superuser_reserved_connections=3, so 97 are usable. Every uvicorn worker
+    # process and the arq worker build their OWN pool of DB_POOL_SIZE + DB_MAX_OVERFLOW
+    # connections, so the ceiling is
+    #   (UVICORN_WORKERS + 1 arq worker) x (DB_POOL_SIZE + DB_MAX_OVERFLOW)
+    #   = (4 + 1) x (5 + 10) = 75,
+    # leaving headroom for `compose exec` one-shots (bootstrap_admin, seed) and psql. The
+    # app defaults (10 + 20) would peak at 150 and exhaust the server. 15 per process
+    # also covers the arq worker's max_jobs=10. Raising UVICORN_WORKERS or these knobs in
+    # .env means raising the db's max_connections to match (see the db service).
+    DB_POOL_SIZE: ${DB_POOL_SIZE:-5}
+    DB_MAX_OVERFLOW: ${DB_MAX_OVERFLOW:-10}
 
 services:
   # ---- Postgres 16 + pgvector (source of truth: docs, chunks, embeddings, ACLs) ----
@@ -81,6 +99,10 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-thirdbrain}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-thirdbrain}
       POSTGRES_DB: ${POSTGRES_DB:-thirdbrain}
+    # Stock server settings, i.e. max_connections=100. The app-side pool defaults in
+    # x-api-env are sized to fit inside that; if you scale the API out (UVICORN_WORKERS) or
+    # widen the pools, raise the limit here to match:
+    #   command: ["postgres", "-c", "max_connections=200"]
     # No host port: reachable only as `db` on the internal network.
     expose:
       - "5432"

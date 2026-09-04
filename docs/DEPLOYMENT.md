@@ -251,25 +251,42 @@ Run migrations **before** rolling new app code, as a single one-shot task (not p
 or in the container `CMD`, which would race). The initial migration also enables the
 `vector` extension where the role has permission; otherwise pre-create it (see above).
 
-### Upgrading a database stamped at an older baseline
+### Upgrading a database created before v2.0.0
 
-`0001_initial` is a **frozen** baseline. Every schema change since 1.0 ships as a new
-revision on top of it - the first is `0002_drop_waitlist` - so `alembic upgrade head` is what
-carries an existing database forward and must run on every deploy, not only on fresh
-installs. A fresh install replays the whole chain.
+`0001_initial` is the **only** revision: the v2.0.0 open-source release collapsed the entire
+history into that one baseline. It is frozen from here on - every future schema change ships
+as a new revision on top of it, so `alembic upgrade head` is what carries an existing
+database forward and must run on every deploy, not only on fresh installs.
 
-Before 1.0, while no deployment existed that we did not control, schema changes were instead
-folded back into `0001_initial`. A database **already stamped** at `0001_initial` before the
-last fold never ran the folded DDL, and Alembic will not replay it. Bring such a database to
-baseline parity with the idempotent statements below (safe to run repeatedly), then upgrade
-normally:
+A 1.x database is already stamped `0001_initial`, so `alembic upgrade head` finds nothing to
+do and the new code starts normally. What the fold changed is the baseline, not your
+database: it no longer creates the commercial-era `waitlist_entries` table or the
+`organizations.plan` column, and Alembic will not remove them from a database that already
+has them. Nothing in 2.x reads either one, but the statements below bring an older database
+back to baseline parity. They are idempotent and safe to run repeatedly, and they also cover
+the pre-1.0 folds, when schema changes were merged into `0001_initial` while no deployment
+existed that we did not control:
 
 ```sql
+DROP TABLE IF EXISTS waitlist_entries;
+ALTER TABLE organizations DROP COLUMN IF EXISTS plan;
 CREATE INDEX IF NOT EXISTS ix_entities_org_normalized
     ON entities (org_id, normalized);
 CREATE INDEX IF NOT EXISTS ix_documents_meta_file_token
     ON documents ((metadata ->> 'file_token'));
 ```
+
+If the deploy instead fails with **`Can't locate revision identified by '0002_drop_waitlist'`**
+(or `'0003_drop_org_plan'`, or a pre-1.0 id), the database ran a development build whose
+revisions the fold removed. Those revisions did nothing beyond the two drops above, so once
+the schema matches the baseline, realign the stamp and redeploy:
+
+```bash
+docker compose -f docker-compose.prod.yml run --rm migrate alembic stamp --purge 0001_initial
+```
+
+`--purge` is load-bearing: plain `alembic stamp` resolves the *recorded* revision before it
+writes the new one and fails with the same error.
 
 ---
 
@@ -400,6 +417,15 @@ migrations are backward-compatible with the previous release's code (expand/cont
 add columns/tables first, backfill, remove in a later release), so the previous images
 run correctly against the newer schema. See [`RELEASING.md`](./RELEASING.md) for the
 full runbook.
+
+It defaults to the single-box file pair (`docker-compose.prod.yml` +
+`docker-compose.selfhost.yml`). Name the ingress overlay you actually deployed with, so the
+recreated services keep it:
+
+```bash
+TB_COMPOSE_FILES="-f docker-compose.prod.yml -f docker-compose.cloudflare.yml" \
+  make rollback IMAGE_TAG=vPREV
+```
 
 ---
 

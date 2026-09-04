@@ -77,6 +77,13 @@ make migrate && make seed
 # Web/app  -> http://localhost:3000
 ```
 
+> [!WARNING]
+> **Local development only.** This stack runs on the `.env.example` defaults - a `SECRET_KEY`
+> and database password that are published in this repository, `ENVIRONMENT=development` (so
+> the production boot guards never fire), and open signup. On any machine that is not your
+> laptop, use [`make selfhost`](#self-hosting-is-the-product) instead: it generates real
+> secrets and runs in production mode.
+
 Then sign in to the dashboard with the seeded demo login: `admin@example.com`, plus the
 password `make seed` just printed (randomly generated per seed - set `DEMO_PASSWORD` and the
 `DEMO_ADMIN_EMAIL` / `DEMO_ENGINEER_EMAIL` / `DEMO_VIEWER_EMAIL` addresses in `.env` before

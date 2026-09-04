@@ -18,7 +18,7 @@ from sqlalchemy.pool import NullPool
 
 pytestmark = pytest.mark.integration
 
-HEAD_REVISION = "0003_drop_org_plan"
+HEAD_REVISION = "0001_initial"
 
 
 def _public_tables(engine) -> set[str]:

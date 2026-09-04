@@ -258,14 +258,16 @@ the HTTP surface, and [`PERMISSIONS.md`](./PERMISSIONS.md) for the access model.
 - **Alembic can't connect** - migrations use the **sync** psycopg URL derived from your
   env. Ensure `psycopg[binary]` is installed (it is a required runtime dependency, pulled
   in by `pip install -e .`) and the DB host is right.
-- **`Can't locate revision identified by '0002_waitlist'`** (or another pre-1.0 id such as
-  `'0002_device_authorizations'` or `'0003_team_roles_and_hierarchy'`) - those migrations
-  were squashed into the single `0001_initial` baseline while the product was unreleased, so
-  your dev DB is stamped at a revision that no longer exists. Reset it
-  (`docker compose down -v && make up-d && make migrate && make seed`) or keep your data with
-  `docker compose exec db psql -U thirdbrain -c "UPDATE alembic_version SET version_num = '0001_initial'"`,
-  then `make migrate`. This does **not** apply to the post-1.0 revisions that sit on top of
-  the baseline (`0002_drop_waitlist`, `0003_drop_org_plan`): apply those with
-  `alembic upgrade head`, never stamp over them.
+- **`Can't locate revision identified by '0002_drop_waitlist'`** (or `'0003_drop_org_plan'`,
+  or a pre-1.0 id such as `'0002_device_authorizations'`) - v2.0.0 folded the whole history
+  into a single `0001_initial` baseline, so your dev DB is stamped at a revision that no
+  longer exists. There is exactly one revision now, and nothing is layered on top of it.
+  Simplest fix is to reset (`docker compose down -v && make up-d && make migrate && make seed`).
+  To keep your data, check the schema already matches the baseline - no `waitlist_entries`
+  table, no `organizations.plan` column, since those drops are all the missing revisions did -
+  then realign the stamp and re-run `make migrate`:
+  `docker compose exec db psql -U thirdbrain -c "UPDATE alembic_version SET version_num = '0001_initial'"`.
+  Plain `alembic stamp 0001_initial` will not do it: stamping resolves the *recorded*
+  revision first and fails with the same error. `alembic stamp --purge 0001_initial` works.
 - **401 from the API** - your access token expired (30 min by default). The dashboard
   refreshes automatically; `curl`/API callers should re-login or use an API key.
