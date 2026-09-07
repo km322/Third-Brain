@@ -1,0 +1,222 @@
+# ============================================================================
+# Third Brain - production topology (single-host, all-in-one).
+#
+# Runs the BAKED images (no source bind mounts, no --reload). This base file
+# publishes NO ports to the host: db, redis, api, worker and web stay on the
+# internal Compose network and are reachable only by service name. Ingress comes
+# from an overlay that fronts web and api - the outbound-only Cloudflare Tunnel
+# (docker-compose.cloudflare.yml) for a public deployment, or the selfhost
+# overlay (docker-compose.selfhost.yml) which publishes the ports directly.
+#
+#   ingress overlay (cloudflared tunnel OR the selfhost port-publish)
+#         ├─▶ web  (Next.js standalone: `node server.js`)
+#         └─▶ api  (FastAPI / uvicorn workers)
+#   api, worker ──▶ db (Postgres 16 + pgvector) + redis (queue / cache / rate limit)
+#   migrate  (one-shot: `alembic upgrade head`) gates api + worker
+#
+# Usage:
+#   cp .env.example .env      # then fill in SECRET_KEY, provider keys, domains…
+#   # Build the web client against the public API origin (+ SEO canonical):
+#   #   NEXT_PUBLIC_API_URL=https://api.your-domain.example
+#   #   NEXT_PUBLIC_SITE_URL=https://your-domain.example
+#   # And the API's own public origin (baked into image capability links at ingestion):
+#   #   PUBLIC_API_URL=https://api.your-domain.example
+#
+#   # Public deployment (outbound-only Cloudflare Tunnel; the host opens no inbound ports):
+#   docker compose -f docker-compose.prod.yml -f docker-compose.cloudflare.yml up -d --build
+#   # Local/LAN self-host (publishes the web/api ports directly, loopback by default):
+#   docker compose -f docker-compose.prod.yml -f docker-compose.selfhost.yml up -d --build
+#
+#   # Or run RELEASED images instead of building locally: set in .env
+#   #   IMAGE_REGISTRY=ghcr.io/km322    (no trailing slash)
+#   #   IMAGE_TAG=vX.Y.Z
+#   # then re-run your file pair with `pull` and `up -d` instead of `up -d --build`.
+#   # Rollback = repoint IMAGE_TAG, pull, up -d again (see docs/RELEASING.md).
+#
+# For MANAGED Postgres/Redis instead of the bundled containers: set DATABASE_URL
+# (must use the +asyncpg driver, e.g. postgresql+asyncpg://…) and REDIS_URL in
+# .env, then drop the `db` / `redis` services and their depends_on entries.
+# ============================================================================
+
+# Distinct from the development stack's `third-brain` project so the two topologies can
+# never share datastores: Compose namespaces volumes by project, and both files declare
+# db_data / redis_data / uploads. Sharing them meant a `make up` first, `make selfhost`
+# second reader ended up with a db volume initialised under the .env.example password that
+# the freshly generated one cannot authenticate against. scripts/selfhost-init.sh warns
+# about a leftover `third-brain_db_data` from before this split.
+name: third-brain-prod
+
+# --- Shared fragments so api / worker / migrate run the exact same image ---
+x-api-image: &api-image
+  build:
+    context: ./apps/api
+    dockerfile: Dockerfile
+    args:
+      APP_VERSION: ${APP_VERSION:-0.0.0-dev}
+      GIT_COMMIT: ${GIT_COMMIT:-unknown}
+      BUILD_TIME: ${BUILD_TIME:-unknown}
+  # Tag the built image once; worker + migrate reuse it (no rebuild).
+  # Unset IMAGE_REGISTRY: build/tag locally (current behavior). Set IMAGE_REGISTRY=ghcr.io/km322
+  # (no trailing slash) + IMAGE_TAG=vX.Y.Z to pull released images instead.
+  image: ${IMAGE_REGISTRY:+${IMAGE_REGISTRY}/}third-brain-api:${IMAGE_TAG:-latest}
+
+x-api-env: &api-env
+  env_file: .env
+  # Point the app at the in-network datastores. DATABASE_URL/REDIS_URL set in
+  # .env (managed datastores) still win: the app only derives the DB URL from the
+  # POSTGRES_* parts when DATABASE_URL is unset.
+  environment:
+    # Force production mode regardless of what .env (copied from .env.example, which ships
+    # ENVIRONMENT=development) contains, so the SECRET_KEY boot-refusal, sanitized 500s and
+    # HSTS are always active in this topology.
+    ENVIRONMENT: production
+    POSTGRES_HOST: db
+    POSTGRES_PORT: "5432"
+    REDIS_URL: redis://redis:6379/0
+    # Connection budget for the bundled Postgres, which runs stock: max_connections=100,
+    # minus superuser_reserved_connections=3, so 97 are usable. Every uvicorn worker
+    # process and the arq worker build their OWN pool of DB_POOL_SIZE + DB_MAX_OVERFLOW
+    # connections, so the ceiling is
+    #   (UVICORN_WORKERS + 1 arq worker) x (DB_POOL_SIZE + DB_MAX_OVERFLOW)
+    #   = (4 + 1) x (5 + 10) = 75,
+    # leaving headroom for `compose exec` one-shots (bootstrap_admin, seed) and psql. The
+    # app defaults (10 + 20) would peak at 150 and exhaust the server. 15 per process
+    # also covers the arq worker's max_jobs=10. Raising UVICORN_WORKERS or these knobs in
+    # .env means raising the db's max_connections to match (see the db service).
+    DB_POOL_SIZE: ${DB_POOL_SIZE:-5}
+    DB_MAX_OVERFLOW: ${DB_MAX_OVERFLOW:-10}
+
+services:
+  # ---- Postgres 16 + pgvector (source of truth: docs, chunks, embeddings, ACLs) ----
+  db:
+    image: pgvector/pgvector:pg16
+    restart: always
+    # Deliberately NO `env_file: .env`: Postgres only needs POSTGRES_USER/PASSWORD/DB (set
+    # below via ${...} interpolation, which Compose resolves from the project .env). Loading the
+    # whole app .env here would inject SECRET_KEY, OPENAI_API_KEY, S3 credentials, etc. into
+    # the database container's environment for no reason - needless secret sprawl.
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-thirdbrain}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-thirdbrain}
+      POSTGRES_DB: ${POSTGRES_DB:-thirdbrain}
+    # Stock server settings, i.e. max_connections=100. The app-side pool defaults in
+    # x-api-env are sized to fit inside that; if you scale the API out (UVICORN_WORKERS) or
+    # widen the pools, raise the limit here to match:
+    #   command: ["postgres", "-c", "max_connections=200"]
+    # No host port: reachable only as `db` on the internal network.
+    expose:
+      - "5432"
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-thirdbrain} -d ${POSTGRES_DB:-thirdbrain}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  # ---- Redis 7 (arq queue, embedding/search cache, API-key rate limiter) ----
+  redis:
+    image: redis:7-alpine
+    restart: always
+    # AOF persistence so queued ingestion jobs survive a restart.
+    command: ["redis-server", "--appendonly", "yes"]
+    expose:
+      - "6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
+  # ---- Migrations (one-shot): runs to completion, then api/worker start ----
+  migrate:
+    <<: [*api-image, *api-env]
+    restart: "no"
+    command: ["alembic", "upgrade", "head"]
+    depends_on:
+      db:
+        condition: service_healthy
+    # One-shot task - nothing probes it, so silence the image's HTTP healthcheck.
+    healthcheck:
+      disable: true
+
+  # ---- API (FastAPI, multiple uvicorn workers) ----
+  api:
+    <<: [*api-image, *api-env]
+    restart: always
+    # Mirrors the image default; override worker count via UVICORN_WORKERS in .env.
+    command: ["sh", "-c", "exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers ${UVICORN_WORKERS:-4}"]
+    # Internal only; the ingress overlay reaches api:8000 by service name. Uncomment to
+    # expose for debugging.
+    expose:
+      - "8000"
+    # ports:
+    #   - "8000:8000"
+    volumes:
+      - uploads:/data/uploads
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    # Inherits the image HEALTHCHECK (GET /api/v1/health via python urllib).
+
+  # ---- Worker (arq: extract → chunk → embed → index) ----
+  worker:
+    <<: [*api-image, *api-env]
+    restart: always
+    command: ["arq", "app.workers.settings.WorkerSettings"]
+    volumes:
+      - uploads:/data/uploads
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    # The worker serves no HTTP - disable the image's uvicorn healthcheck so it
+    # isn't reported unhealthy. Scale with `--scale worker=N`.
+    healthcheck:
+      disable: true
+
+  # ---- Web (Next.js 15 standalone server) ----
+  web:
+    build:
+      context: ./apps/web
+      dockerfile: Dockerfile
+      args:
+        # NEXT_PUBLIC_* is inlined at build time - bake the public API origin and, for the
+        # marketing pages' canonical/OpenGraph URLs, the public site origin. Defaults keep a
+        # localhost self-host working unchanged; behind a domain, set
+        # NEXT_PUBLIC_API_URL=https://api.your-domain.example and
+        # NEXT_PUBLIC_SITE_URL=https://your-domain.example in .env, then rebuild.
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+        NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:-http://localhost:3000}
+        APP_VERSION: ${APP_VERSION:-0.0.0-dev}
+        GIT_COMMIT: ${GIT_COMMIT:-unknown}
+        BUILD_TIME: ${BUILD_TIME:-unknown}
+    image: ${IMAGE_REGISTRY:+${IMAGE_REGISTRY}/}third-brain-web:${IMAGE_TAG:-latest}
+    restart: always
+    environment:
+      NODE_ENV: production
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+      NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:-http://localhost:3000}
+    # Internal only; the ingress overlay reaches web:3000 by service name.
+    expose:
+      - "3000"
+    depends_on:
+      api:
+        condition: service_healthy
+    # Inherits the image HEALTHCHECK (GET / on the standalone server).
+
+volumes:
+  db_data:
+  redis_data:
+  uploads:

@@ -1,0 +1,35 @@
+"""Schemas for email-based org invitations."""
+
+from __future__ import annotations
+
+import uuid
+from datetime import datetime
+
+from pydantic import BaseModel, EmailStr, Field
+
+from app.models.enums import InviteStatus, OrgRole
+from app.schemas.common import ORMModel
+
+
+class InviteCreate(BaseModel):
+    email: EmailStr
+    role: OrgRole = OrgRole.VIEWER
+
+
+class InviteRead(ORMModel):
+    id: uuid.UUID
+    email: str
+    role: OrgRole
+    status: InviteStatus
+    expires_at: datetime
+    created_at: datetime
+    # Returned ONCE, by POST /invites only: the token is stored hashed, so this is the only
+    # time the acceptance link exists. Populated so an admin can hand it over directly - a
+    # default self-host runs EMAIL_PROVIDER=stub, which never delivers anything.
+    accept_url: str | None = None
+
+
+class InviteAccept(BaseModel):
+    token: str = Field(min_length=8)
+    full_name: str = Field(min_length=1, max_length=255)
+    password: str = Field(min_length=8, max_length=256)

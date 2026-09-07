@@ -1,0 +1,23 @@
+# Single-box self-host overlay, used by `make selfhost` (scripts/selfhost-init.sh).
+#
+# It layers on top of docker-compose.prod.yml to make a one-box deployment reachable
+# without a domain: the dashboard and API are published directly to the host, so
+# http://localhost:3000 (or your --host) and http://localhost:8000 work out of the box.
+#
+#   docker compose -f docker-compose.prod.yml -f docker-compose.selfhost.yml up -d --build
+#
+# For a public, TLS-terminated deployment behind a domain, use the Cloudflare Tunnel
+# overlay (docker-compose.cloudflare.yml) instead, or put your own TLS-terminating proxy
+# in front of web:3000 / api:8000. See docs/SELF_HOSTING.md.
+
+services:
+  api:
+    # Bind to loopback by default so a localhost self-host is NOT exposed on the LAN. The
+    # init script sets TB_BIND_IP=0.0.0.0 only when you pass an explicit --host. Docker
+    # publishes past the host firewall, so a bare 0.0.0.0 bind would be internet-reachable.
+    ports:
+      - "${TB_BIND_IP:-127.0.0.1}:${API_PORT:-8000}:8000"
+
+  web:
+    ports:
+      - "${TB_BIND_IP:-127.0.0.1}:${WEB_PORT:-3000}:3000"

@@ -1,0 +1,128 @@
+name: Bug report
+description: Something in Third Brain does not work the way it should.
+title: "bug: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. Third Brain handles sensitive corporate knowledge, so please
+        read the redaction note below before pasting anything.
+
+        Found a **security vulnerability** instead? Do not file it here - report it
+        privately at
+        https://github.com/km322/Third-Brain/security/advisories/new
+
+  - type: checkboxes
+    id: hygiene
+    attributes:
+      label: Before you file
+      description: Both boxes are required.
+      options:
+        - label:
+            I have **redacted API keys, tokens, passwords, connection strings, and document
+            content** from everything I am about to paste. Third Brain never logs document
+            or prompt content; please do not put it in a public issue either.
+          required: true
+        - label: I searched the existing issues and this is not a duplicate.
+          required: true
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: The actual behavior, including any error message or status code.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected instead
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Minimal reproduction
+      description: The shortest sequence of steps that reproduces it from a clean stack.
+      placeholder: |
+        1. cp .env.example .env
+        2. make up-d && make migrate && make seed
+        3. Sign in as admin@example.com and open Dashboard > Documents
+        4. Upload a PDF, wait for ingestion, then ...
+    validations:
+      required: true
+
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Which surface
+      description: Where the bug shows up.
+      options:
+        - Dashboard (Next.js web app)
+        - REST API (/api/v1)
+        - OpenAI-compatible API (/v1)
+        - MCP server (/mcp)
+        - MCP CLI (third-brain-mcp)
+        - Ingestion worker (arq)
+        - Ingestion pipeline (extraction, chunking, embedding, scanning)
+        - Not sure
+    validations:
+      required: true
+
+  - type: dropdown
+    id: deployment
+    attributes:
+      label: Deployment mode
+      options:
+        - docker compose (make up)
+        - Self-host production stack (make selfhost)
+        - Local dev without Docker
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Third Brain version
+      description: >-
+        From the VERSION file at the repo root, the version in the dashboard sidebar
+        footer, or GET /api/v1/version. Include the commit SHA if you are running main.
+      placeholder: "2.0.0"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: provider
+    attributes:
+      label: LLM provider in use
+      options:
+        - OpenAI-compatible endpoint (OpenAI, Azure OpenAI, Ollama, vLLM, gateway)
+        - Anthropic
+        - Google Gemini
+        - Offline stub provider (no keys set)
+        - Not applicable
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: >-
+        API, worker, or browser-console output. Redact keys, tokens, and document content
+        first. This is formatted into a code block automatically, so no backticks needed.
+      render: shell
+    validations:
+      required: false
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Anything else
+      description: Screenshots for UI bugs, config that differs from .env.example, scale of the data set.
+    validations:
+      required: false

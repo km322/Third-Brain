@@ -1,0 +1,306 @@
+[
+  {
+    "query_id": "q01-oncall-schedule",
+    "text": "How is the on-call schedule structured and who covers as backup?",
+    "principal_key": "engineer",
+    "relevant_doc_ids": ["eng-oncall-rotation"],
+    "reference_answer": "On-call runs on a weekly cycle with a primary engineer and a secondary backup, coordinated in PagerDuty.",
+    "reference_keywords": ["weekly", "secondary", "PagerDuty"]
+  },
+  {
+    "query_id": "q02-release-to-users",
+    "text": "What happens between merging code and it reaching all users in production?",
+    "principal_key": "engineer",
+    "relevant_doc_ids": ["eng-deploy-process"],
+    "reference_answer": "After CI passes on main, a canary deploy sends the build to a small slice of traffic before a full rollout.",
+    "reference_keywords": ["canary", "CI", "rollout"]
+  },
+  {
+    "query_id": "q03-undo-bad-release",
+    "text": "If a release causes problems, how do we undo it quickly?",
+    "principal_key": "viewer",
+    "relevant_doc_ids": ["eng-rollback"],
+    "reference_answer": "Redeploy the previous container image; one command reverts production to the last known-good build.",
+    "reference_keywords": ["previous", "revert"]
+  },
+  {
+    "query_id": "q04-top-priority-incident",
+    "text": "What distinguishes a top-priority incident from a minor one?",
+    "principal_key": "engineer",
+    "relevant_doc_ids": ["eng-incident-severity"],
+    "reference_answer": "A SEV1 is a full customer-facing outage, while lower severities cover partial degradation or minor issues.",
+    "reference_keywords": ["SEV1", "outage"]
+  },
+  {
+    "query_id": "q05-writeup-after-outage",
+    "text": "After a serious outage, what write-up is expected and by when?",
+    "principal_key": "engineer",
+    "relevant_doc_ids": ["eng-postmortem"],
+    "reference_answer": "A blameless postmortem is required within 48 hours of resolving a SEV1 or SEV2.",
+    "reference_keywords": ["blameless", "48"]
+  },
+  {
+    "query_id": "q06-availability-guarantee",
+    "text": "What availability do we guarantee to customers?",
+    "principal_key": "viewer",
+    "relevant_doc_ids": ["eng-slo"],
+    "reference_answer": "We target 99.9% monthly uptime for the core API.",
+    "reference_keywords": ["99.9", "uptime"]
+  },
+  {
+    "query_id": "q07-where-to-keep-credentials",
+    "text": "Where should credentials and API keys be kept?",
+    "principal_key": "engineer",
+    "relevant_doc_ids": ["eng-secrets"],
+    "reference_answer": "Store secrets in the vault; they are rotated every 90 days and never committed in plaintext.",
+    "reference_keywords": ["vault", "rotated"]
+  },
+  {
+    "query_id": "q08-reviewers-before-merge",
+    "text": "How many reviewers must sign off before code can land?",
+    "principal_key": "engineer",
+    "relevant_doc_ids": ["eng-code-review"],
+    "reference_answer": "Two approvals are required, and self-merging your own change is not allowed.",
+    "reference_keywords": ["two", "approvals"]
+  },
+  {
+    "query_id": "q09-release-experimental-feature",
+    "text": "What is the safest way to release an experimental feature gradually?",
+    "principal_key": "engineer",
+    "relevant_doc_ids": ["eng-feature-flags"],
+    "reference_answer": "Ship it behind a feature flag for a gradual rollout, with a kill switch to disable it instantly.",
+    "reference_keywords": ["flag", "rollout"]
+  },
+  {
+    "query_id": "q10-primary-region-fails",
+    "text": "What is our plan if the main region goes down?",
+    "principal_key": "engineer",
+    "relevant_doc_ids": ["eng-dr"],
+    "reference_answer": "Fail over to a secondary region and restore from nightly backups within the recovery objective.",
+    "reference_keywords": ["failover", "backups"]
+  },
+  {
+    "query_id": "q11-live-latency-errors",
+    "text": "Where can I check live latency and error rates?",
+    "principal_key": "viewer",
+    "relevant_doc_ids": ["eng-monitoring"],
+    "reference_answer": "Grafana dashboards show latency, error rate and throughput for each service.",
+    "reference_keywords": ["Grafana", "dashboard"]
+  },
+  {
+    "query_id": "q12-schema-change-no-downtime",
+    "text": "How do we change the database schema without downtime?",
+    "principal_key": "engineer",
+    "relevant_doc_ids": ["eng-db-migrations"],
+    "reference_answer": "Ship backward-compatible Alembic migrations, expanding first and contracting later.",
+    "reference_keywords": ["backward", "Alembic"]
+  },
+  {
+    "query_id": "q13-pager-shift-end-notes",
+    "text": "What should I write down when passing on the pager at the end of my shift?",
+    "principal_key": "engineer",
+    "relevant_doc_ids": ["eng-oncall-handoff"],
+    "reference_answer": "Write handoff notes and leave any open incidents and follow-ups documented for the next engineer.",
+    "reference_keywords": ["handoff", "notes"]
+  },
+  {
+    "query_id": "q14-pager-escalation",
+    "text": "When does an unacknowledged page escalate to the backup engineer?",
+    "principal_key": "engineer",
+    "relevant_doc_ids": ["eng-alerting"],
+    "reference_answer": "If the primary does not acknowledge within fifteen minutes the alert escalates to the secondary.",
+    "reference_keywords": ["escalates", "secondary"]
+  },
+  {
+    "query_id": "q15-traffic-spike-before-launch",
+    "text": "How do we check the system can handle a big traffic spike before a launch?",
+    "principal_key": "engineer",
+    "relevant_doc_ids": ["eng-load-testing"],
+    "reference_answer": "Run load tests against staging with k6 before a major launch.",
+    "reference_keywords": ["load", "staging"]
+  },
+  {
+    "query_id": "q16-checks-on-pull-request",
+    "text": "What checks run automatically on every pull request?",
+    "principal_key": "engineer",
+    "relevant_doc_ids": ["eng-cicd"],
+    "reference_answer": "The pipeline runs lint, unit tests and a build stage, and a failing stage blocks the merge.",
+    "reference_keywords": ["lint", "tests"]
+  },
+  {
+    "query_id": "q17-parental-leave-people-admin",
+    "text": "What leave do new parents get here?",
+    "principal_key": "people-admin",
+    "relevant_doc_ids": ["ppl-parental-leave"],
+    "reference_answer": "New parents get 16 weeks of paid parental leave, for birth or adoption.",
+    "reference_keywords": ["16 weeks", "adoption"]
+  },
+  {
+    "query_id": "q18-parental-leave-engineer-blocked",
+    "text": "How much paid time off do I get when I have a baby?",
+    "principal_key": "engineer",
+    "relevant_doc_ids": ["ppl-parental-leave"],
+    "reference_answer": "New parents get 16 weeks of fully paid parental leave.",
+    "reference_keywords": ["16 weeks", "paid"]
+  },
+  {
+    "query_id": "q19-vacation-days-people-admin",
+    "text": "How much vacation do employees earn annually?",
+    "principal_key": "people-admin",
+    "relevant_doc_ids": ["ppl-pto-accrual"],
+    "reference_answer": "Employees accrue 15 days of paid vacation per year, added monthly.",
+    "reference_keywords": ["15 days", "accrue"]
+  },
+  {
+    "query_id": "q20-vacation-days-viewer-blocked",
+    "text": "How many vacation days do I get in a year?",
+    "principal_key": "viewer",
+    "relevant_doc_ids": ["ppl-pto-accrual"],
+    "reference_answer": "Employees accrue 15 days of paid vacation per year.",
+    "reference_keywords": ["15 days"]
+  },
+  {
+    "query_id": "q21-expense-deadline",
+    "text": "What is the deadline to file expenses and when is a receipt needed?",
+    "principal_key": "people-admin",
+    "relevant_doc_ids": ["ppl-expenses"],
+    "reference_answer": "File expenses within 30 days; a receipt is required for anything over $25.",
+    "reference_keywords": ["30 days", "receipt"]
+  },
+  {
+    "query_id": "q22-change-benefits",
+    "text": "When can I change my benefits elections?",
+    "principal_key": "people-admin",
+    "relevant_doc_ids": ["ppl-benefits-enrollment"],
+    "reference_answer": "During open enrollment each November, or after a qualifying life event.",
+    "reference_keywords": ["November", "enrollment"]
+  },
+  {
+    "query_id": "q23-office-days",
+    "text": "How many days a week are we expected to come into the office?",
+    "principal_key": "people-admin",
+    "relevant_doc_ids": ["ppl-remote-work"],
+    "reference_answer": "We are hybrid, with two office days a week for people near an office.",
+    "reference_keywords": ["hybrid", "office"]
+  },
+  {
+    "query_id": "q24-retirement-match",
+    "text": "Does the company contribute to retirement savings?",
+    "principal_key": "people-admin",
+    "relevant_doc_ids": ["ppl-401k"],
+    "reference_answer": "Yes, the 401(k) has a 4% company match with three-year vesting.",
+    "reference_keywords": ["match", "vesting"]
+  },
+  {
+    "query_id": "q25-sick-days-doctor-note",
+    "text": "How many sick days can I take before I need a doctor's note?",
+    "principal_key": "people-admin",
+    "relevant_doc_ids": ["ppl-sick-leave"],
+    "reference_answer": "Ten paid sick days a year; no doctor's note is needed for absences under three days.",
+    "reference_keywords": ["sick", "doctor"]
+  },
+  {
+    "query_id": "q26-review-frequency",
+    "text": "How frequently are performance reviews carried out?",
+    "principal_key": "people-admin",
+    "relevant_doc_ids": ["ppl-performance-review"],
+    "reference_answer": "Twice a year, with a calibration step across teams.",
+    "reference_keywords": ["twice", "calibration"]
+  },
+  {
+    "query_id": "q27-referral-reward",
+    "text": "What do I get for referring someone the company hires?",
+    "principal_key": "people-admin",
+    "relevant_doc_ids": ["ppl-referral-bonus"],
+    "reference_answer": "A 3,000 dollar referral bonus, paid after the new hire's first 90 days.",
+    "reference_keywords": ["referral", "90 days"]
+  },
+  {
+    "query_id": "q28-holiday-schedule",
+    "text": "What does the paid holiday schedule look like?",
+    "principal_key": "people-admin",
+    "relevant_doc_ids": ["ppl-holidays"],
+    "reference_answer": "Twelve paid holidays plus a company-wide winter break in late December.",
+    "reference_keywords": ["holidays", "winter"]
+  },
+  {
+    "query_id": "q29-medical-plans",
+    "text": "What medical plans does the company offer?",
+    "principal_key": "people-admin",
+    "relevant_doc_ids": ["ppl-health-insurance"],
+    "reference_answer": "A PPO and an HMO plan, with the company covering most of the premium.",
+    "reference_keywords": ["PPO", "premium"]
+  },
+  {
+    "query_id": "q30-reimburse-trip-engineer-blocked",
+    "text": "How do I get reimbursed for a business trip?",
+    "principal_key": "engineer",
+    "relevant_doc_ids": ["ppl-expenses"],
+    "reference_answer": "File the expense within 30 days with a receipt for anything over $25.",
+    "reference_keywords": ["30 days", "receipt"]
+  },
+  {
+    "query_id": "q31-senior-salary-range",
+    "text": "What is the salary range for a senior engineer level?",
+    "principal_key": "exec-analyst",
+    "relevant_doc_ids": ["exec-comp-bands"],
+    "reference_answer": "An L5 senior engineer falls in a defined salary band within the L3 to L7 range.",
+    "reference_keywords": ["band", "L5"]
+  },
+  {
+    "query_id": "q32-pay-bands-engineer-blocked",
+    "text": "What are the pay bands for engineers?",
+    "principal_key": "engineer",
+    "relevant_doc_ids": ["exec-comp-bands"],
+    "reference_answer": "Compensation bands span levels L3 through L7, each with a salary range.",
+    "reference_keywords": ["band", "salary"]
+  },
+  {
+    "query_id": "q33-comp-bands-viewer-blocked",
+    "text": "What are the company compensation bands?",
+    "principal_key": "viewer",
+    "relevant_doc_ids": ["exec-comp-bands"],
+    "reference_answer": "Compensation bands span levels L3 through L7.",
+    "reference_keywords": ["band", "salary"]
+  },
+  {
+    "query_id": "q34-board-cadence",
+    "text": "How often does the board meet and what gets sent beforehand?",
+    "principal_key": "exec-analyst",
+    "relevant_doc_ids": ["exec-board-reporting"],
+    "reference_answer": "The board meets quarterly, with a monthly metrics deck circulated ahead of each meeting.",
+    "reference_keywords": ["board", "quarterly"]
+  },
+  {
+    "query_id": "q35-funding-round-runway",
+    "text": "What funding round are we on and how long is our runway?",
+    "principal_key": "exec-analyst",
+    "relevant_doc_ids": ["exec-fundraising"],
+    "reference_answer": "We are raising a Series B and have about 24 months of runway.",
+    "reference_keywords": ["Series B", "runway"]
+  },
+  {
+    "query_id": "q36-arr-goal",
+    "text": "What is our ARR goal for this year?",
+    "principal_key": "owner",
+    "relevant_doc_ids": ["exec-revenue-targets"],
+    "reference_answer": "The target is to reach 20 million dollars of ARR by year end.",
+    "reference_keywords": ["ARR", "target"]
+  },
+  {
+    "query_id": "q37-hiring-plan",
+    "text": "How many hires are planned this year and in which areas?",
+    "principal_key": "owner",
+    "relevant_doc_ids": ["exec-headcount"],
+    "reference_answer": "The hiring plan adds headcount across engineering, sales and support.",
+    "reference_keywords": ["headcount", "hiring"]
+  },
+  {
+    "query_id": "q38-quarter-objectives",
+    "text": "What are the company objectives this quarter?",
+    "principal_key": "owner",
+    "relevant_doc_ids": ["exec-okrs"],
+    "reference_answer": "This quarter focuses on enterprise expansion and platform reliability.",
+    "reference_keywords": ["objective", "quarter"]
+  }
+]

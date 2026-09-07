@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/km322/Third-Brain/security/advisories/new
+    about: Report privately through GitHub. Never file a security problem as a public issue.

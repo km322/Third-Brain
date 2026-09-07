@@ -1,0 +1,329 @@
+name: Release
+
+# Cut a release from a `vX.Y.Z` tag (pushed by `make release VERSION=X.Y.Z`):
+#   * verify the tag matches the repo's version literals and that CI already
+#     passed on the tagged commit,
+#   * publish the third-brain-mcp CLI to npm via OIDC trusted publishing,
+#   * build + push multi-arch api/web images to GHCR tagged vX.Y.Z and latest,
+#   * publish a GitHub release with the matching CHANGELOG section as notes.
+#
+# A tag-push run executes the workflow AS OF THE TAGGED COMMIT. To re-run a
+# release for an existing tag with the current workflow definition (e.g. after
+# fixing this file), use the manual trigger: Actions -> Release -> Run workflow
+# (or `gh workflow run release.yml -f tag=vX.Y.Z`). Every job checks out and
+# builds the tagged commit either way.
+
+on:
+  push:
+    tags: ["v*.*.*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing vX.Y.Z tag to (re-)release"
+        required: true
+
+permissions:
+  contents: write   # create the GitHub release
+  packages: write   # push images to GHCR
+  actions: read     # query CI run status for the tagged commit
+
+# One fixed group so ALL release runs serialize: a half-finished release is
+# never cancelled, and a tag pushed mid-build waits its turn instead of racing
+# the shared :latest image tag (GitHub keeps the newest pending run per group).
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  # --------------------------------------------------------------------------- #
+  # Gate: tag == VERSION == every other version literal, and CI is green.
+  # --------------------------------------------------------------------------- #
+  verify:
+    name: Verify tag, versions and CI status
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+      owner: ${{ steps.meta.outputs.owner }}
+      tag: ${{ steps.meta.outputs.tag }}
+      sha: ${{ steps.meta.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # Tag pushes check out the tag by default; manual runs must ask for it.
+          ref: ${{ inputs.tag || github.ref }}
+
+      - name: Check the tag against the repo version literals
+        id: meta
+        env:
+          TAG_INPUT: ${{ inputs.tag }}
+        run: |
+          tag="${TAG_INPUT:-$GITHUB_REF_NAME}"
+          version="${tag#v}"
+          file_version="$(tr -d '[:space:]' < VERSION)"
+          if [ "$version" != "$file_version" ]; then
+            echo "::error::Tag $tag does not match the VERSION file ($file_version). Cut releases with 'make release VERSION=$version' so the tag and version literals move together."
+            exit 1
+          fi
+          ./scripts/check_version_sync.sh
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "owner=$(echo "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
+
+      - name: Require green CI on the tagged commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ steps.meta.outputs.sha }}
+        run: |
+          conclusion="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?head_sha=$SHA&status=completed" -q '.workflow_runs[0].conclusion')"
+          if [ "$conclusion" != "success" ]; then
+            echo "::error::CI has not passed on $SHA (found: ${conclusion:-no completed run}). Let CI go green on main for this commit, then re-run this workflow."
+            exit 1
+          fi
+
+  # --------------------------------------------------------------------------- #
+  # Publish the third-brain-mcp CLI to npm via OIDC trusted publishing - no
+  # token, secret, or OTP involved. One-time setup: on npmjs.com the package's
+  # Settings -> Trusted Publisher must list this repo and this workflow file.
+  # --------------------------------------------------------------------------- #
+  npm-publish:
+    name: Publish third-brain-mcp to npm
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: verify
+    permissions:
+      contents: read
+      id-token: write # mint the OIDC token npm exchanges for publish credentials
+    defaults:
+      run:
+        working-directory: packages/mcp-cli
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.verify.outputs.tag }}
+
+      - name: Set up Node 22
+        uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          registry-url: https://registry.npmjs.org
+
+      # Trusted publishing needs npm >= 11.5.1; Node 22 bundles npm 10.
+      - name: Update npm
+        run: npm install -g npm@11
+
+      - name: Publish to npm
+        run: |
+          version=$(node -p "require('./package.json').version")
+          # Idempotent: a re-run of a partially-failed release must not abort on an
+          # already-published version (EPUBLISHCONFLICT). Skip when this exact version
+          # is already on the registry.
+          if npm view "third-brain-mcp@${version}" version >/dev/null 2>&1; then
+            echo "third-brain-mcp@${version} is already published - skipping."
+          else
+            npm publish
+          fi
+
+  # --------------------------------------------------------------------------- #
+  # Build each architecture on its OWN native runner, push by digest, then merge
+  # the digests into one multi-arch tag.
+  #
+  # This used to be a single job building linux/amd64,linux/arm64 together under
+  # QEMU. That is why it is now split: emulating the arm64 leg was both unreliable
+  # and slow. It died with SIGILL mid-build (2026-07-27), and once that was pinned
+  # around it still took over 30 minutes and timed out the release three times on
+  # 2026-09-07. GitHub gives public repositories free native arm64 runners, so the
+  # emulation is unnecessary - each leg now runs on real hardware in a few minutes.
+  # --------------------------------------------------------------------------- #
+  build-push:
+    name: Build ${{ matrix.image }} (${{ matrix.platform }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    needs: verify
+    strategy:
+      fail-fast: false
+      matrix:
+        image: [third-brain-api, third-brain-web]
+        platform: [linux/amd64, linux/arm64]
+        include:
+          - image: third-brain-api
+            context: apps/api
+          - image: third-brain-web
+            context: apps/web
+            # NEXT_PUBLIC_* is inlined at build time - bake the public API origin.
+            # Set the RELEASE_NEXT_PUBLIC_API_URL repository variable for real deploys.
+            extra_build_args: NEXT_PUBLIC_API_URL=${{ vars.RELEASE_NEXT_PUBLIC_API_URL || 'http://localhost:8000' }}
+          - platform: linux/amd64
+            runner: ubuntu-latest
+            arch: amd64
+          - platform: linux/arm64
+            runner: ubuntu-24.04-arm
+            arch: arm64
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.verify.outputs.tag }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Record build time
+        id: build_time
+        run: echo "build_time=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push by digest
+        id: build
+        uses: docker/build-push-action@v7
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.context }}/Dockerfile
+          platforms: ${{ matrix.platform }}
+          # No provenance attestation: it adds unknown/unknown manifest entries
+          # that confuse `docker pull` by digest and GHCR's package UI.
+          provenance: false
+          # Push the untagged single-arch image; the merge job below applies the
+          # real tags to a manifest list built from these digests.
+          outputs: type=image,name=ghcr.io/${{ needs.verify.outputs.owner }}/${{ matrix.image }},push-by-digest=true,name-canonical=true,push=true
+          build-args: |
+            APP_VERSION=${{ needs.verify.outputs.version }}
+            GIT_COMMIT=${{ needs.verify.outputs.sha }}
+            BUILD_TIME=${{ steps.build_time.outputs.build_time }}
+            ${{ matrix.extra_build_args }}
+          cache-from: type=gha,scope=release-${{ matrix.image }}-${{ matrix.arch }}
+          cache-to: type=gha,scope=release-${{ matrix.image }}-${{ matrix.arch }},mode=max
+
+      - name: Export digest
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          mkdir -p /tmp/digests
+          # The filename is the digest with the `sha256:` prefix stripped:
+          # upload-artifact rejects a colon in a path. The merge job puts it back.
+          touch "/tmp/digests/${DIGEST#sha256:}"
+
+      - name: Upload digest
+        uses: actions/upload-artifact@v4
+        with:
+          name: digest-${{ matrix.image }}-${{ matrix.arch }}
+          path: /tmp/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  # --------------------------------------------------------------------------- #
+  # Combine the per-architecture digests into one multi-arch tag per image.
+  # --------------------------------------------------------------------------- #
+  merge-manifests:
+    name: Merge ${{ matrix.image }} manifest
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: [verify, build-push]
+    strategy:
+      matrix:
+        image: [third-brain-api, third-brain-web]
+    steps:
+      - name: Download digests
+        uses: actions/download-artifact@v4
+        with:
+          pattern: digest-${{ matrix.image }}-*
+          merge-multiple: true
+          path: /tmp/digests
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create and push the manifest list
+        working-directory: /tmp/digests
+        env:
+          REPO: ghcr.io/${{ needs.verify.outputs.owner }}/${{ matrix.image }}
+          VERSION: ${{ needs.verify.outputs.version }}
+        run: |
+          # One file per architecture, named after its digest with the `sha256:`
+          # prefix stripped, so both legs must have landed before we tag.
+          count=$(ls -1 | wc -l)
+          if [ "$count" -lt 2 ]; then
+            echo "::error::expected 2 digests for $REPO, found $count"
+            exit 1
+          fi
+          docker buildx imagetools create \
+            -t "$REPO:v$VERSION" \
+            -t "$REPO:latest" \
+            $(printf "$REPO@sha256:%s " *)
+
+      - name: Verify the published manifest
+        env:
+          REPO: ghcr.io/${{ needs.verify.outputs.owner }}/${{ matrix.image }}
+          VERSION: ${{ needs.verify.outputs.version }}
+        run: |
+          docker buildx imagetools inspect "$REPO:v$VERSION"
+          # Both architectures must be present, or a self-hoster on one of them
+          # silently gets no image. Parse the index as JSON rather than grepping
+          # it: `--raw` pretty-prints, so a compact-JSON pattern never matches.
+          raw="$(docker buildx imagetools inspect --raw "$REPO:v$VERSION")"
+          for arch in amd64 arm64; do
+            printf '%s' "$raw" | jq -e --arg a "$arch" \
+              'any(.manifests[]?; .platform.os == "linux" and .platform.architecture == $a)' >/dev/null \
+              || { echo "::error::$REPO:v$VERSION is missing linux/$arch"; exit 1; }
+          done
+
+  # --------------------------------------------------------------------------- #
+  # GitHub release with the CHANGELOG section for this version as the notes.
+  # --------------------------------------------------------------------------- #
+  github-release:
+    name: Publish GitHub release
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: [verify, merge-manifests]
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.verify.outputs.tag }}
+
+      - name: Extract release notes from CHANGELOG.md
+        env:
+          VERSION: ${{ needs.verify.outputs.version }}
+        # index() string matching, not a regex: version dots and [] stay literal.
+        # Stops at the next "## [" header or at the link-reference block.
+        run: |
+          awk -v version="$VERSION" '
+            index($0, "## [" version "]") == 1 { grab = 1; next }
+            grab && index($0, "## [") == 1 { exit }
+            grab && index($0, "[") == 1 && index($0, "]: http") > 0 { exit }
+            grab { print }
+          ' CHANGELOG.md > "$RUNNER_TEMP/notes.md"
+          if ! grep -q '[^[:space:]]' "$RUNNER_TEMP/notes.md"; then
+            echo "::error::No '## [$VERSION]' section with content found in CHANGELOG.md"
+            exit 1
+          fi
+
+      - name: Create or update the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.verify.outputs.tag }}
+        # Idempotent so a re-run (e.g. after the verify guard raced a still-running CI)
+        # updates the existing release instead of failing on "tag_name already exists".
+        run: |
+          if gh release view "$TAG" --json name > /dev/null 2>&1; then
+            gh release edit "$TAG" \
+              --title "Third Brain $TAG" \
+              --notes-file "$RUNNER_TEMP/notes.md"
+          else
+            gh release create "$TAG" \
+              --title "Third Brain $TAG" \
+              --notes-file "$RUNNER_TEMP/notes.md" \
+              --verify-tag
+          fi

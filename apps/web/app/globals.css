@@ -1,0 +1,103 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 222 47% 11%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 222 47% 11%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 47% 11%;
+
+    /* Brand: violet/indigo */
+    --primary: 262 83% 58%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 220 14% 96%;
+    --secondary-foreground: 222 47% 11%;
+
+    --muted: 220 14% 96%;
+    --muted-foreground: 220 9% 46%;
+
+    --accent: 262 83% 96%;
+    --accent-foreground: 262 83% 40%;
+
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+
+    --success: 142 71% 45%;
+    --warning: 38 92% 50%;
+    --info: 199 89% 48%;
+
+    --border: 220 13% 91%;
+    --input: 220 13% 91%;
+    --ring: 262 83% 58%;
+
+    --radius: 0.6rem;
+
+    /* Chart categorical palette (color-blind aware) */
+    --chart-1: 262 83% 58%;
+    --chart-2: 199 89% 48%;
+    --chart-3: 142 71% 45%;
+    --chart-4: 38 92% 50%;
+    --chart-5: 340 82% 59%;
+    --chart-6: 173 58% 39%;
+  }
+
+  .dark {
+    --background: 224 47% 6%;
+    --foreground: 210 40% 98%;
+
+    --card: 224 40% 9%;
+    --card-foreground: 210 40% 98%;
+
+    --popover: 224 40% 9%;
+    --popover-foreground: 210 40% 98%;
+
+    --primary: 263 90% 66%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 223 30% 16%;
+    --secondary-foreground: 210 40% 98%;
+
+    --muted: 223 30% 16%;
+    --muted-foreground: 215 20% 65%;
+
+    --accent: 263 40% 20%;
+    --accent-foreground: 210 40% 98%;
+
+    --destructive: 0 62% 50%;
+    --destructive-foreground: 0 0% 100%;
+
+    --success: 142 69% 48%;
+    --warning: 38 92% 55%;
+    --info: 199 89% 55%;
+
+    --border: 223 25% 18%;
+    --input: 223 25% 18%;
+    --ring: 263 90% 66%;
+
+    --chart-1: 263 90% 66%;
+    --chart-2: 199 89% 60%;
+    --chart-3: 142 69% 55%;
+    --chart-4: 38 92% 60%;
+    --chart-5: 340 82% 66%;
+    --chart-6: 173 58% 50%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-feature-settings:
+      "rlig" 1,
+      "calt" 1;
+  }
+}

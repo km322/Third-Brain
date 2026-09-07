@@ -1,0 +1,62 @@
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+dist/
+build/
+
+# ---- Node / Next.js ----
+node_modules/
+.next/
+out/
+.turbo/
+*.tsbuildinfo
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ---- Env / secrets ----
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# ---- Editors / OS ----
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.swp
+
+# ---- Data / uploads ----
+/data/
+/uploads/
+# Local dev/test scratch: native Postgres cluster (var/pgdata), uploads (var/uploads),
+# logs. Created when running the real stack outside Docker; never commit these
+# (thousands of Postgres data files).
+/var/
+*.sqlite3
+*.rdb
+
+# Playwright / test artifacts
+apps/web/test-results/
+apps/web/playwright-report/
+apps/web/blob-report/
+.pytest_cache/
+
+# ---- Load-test artifacts (the manifest holds synthetic API keys) ----
+apps/api/loadtests/.manifest.json
+
+# ---- Benchmark output (report.md + results.json written by `make benchmark`) ----
+apps/api/benchmarks/.report/

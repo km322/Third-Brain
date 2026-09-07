@@ -1,0 +1,30 @@
+# E2E-only overlay for the compose stack.
+#
+# The Playwright suite runs on the host and the api/worker run in containers, so the
+# `data sources` journey (which creates a local-folder data source and points the
+# connector at a directory of files it just wrote) needs a directory that resolves to the
+# SAME absolute path on the host and inside the containers. This overlay bind-mounts
+# ``E2E_DATA_DIR`` into api + worker at its own path; the test writes the folder there.
+# It also allow-lists that directory for the local_folder connector, which is disabled
+# whenever LOCAL_CONNECTOR_ROOTS is empty (the .env.example default).
+#
+# Used by CI:
+#   COMPOSE_FILE=docker-compose.yml:docker-compose.e2e.yml docker compose up -d --build
+#
+# Not part of the normal dev stack (`make up`), which never needs a host-shared folder.
+
+name: third-brain
+
+services:
+  api:
+    environment:
+      # The connector refuses any root outside this operator allow-list (400 on
+      # data-source create), so the e2e stack must permit the shared dir explicitly.
+      LOCAL_CONNECTOR_ROOTS: ${E2E_DATA_DIR:-/tmp/tb-e2e-data}
+    volumes:
+      - ${E2E_DATA_DIR:-/tmp/tb-e2e-data}:${E2E_DATA_DIR:-/tmp/tb-e2e-data}
+  worker:
+    environment:
+      LOCAL_CONNECTOR_ROOTS: ${E2E_DATA_DIR:-/tmp/tb-e2e-data}
+    volumes:
+      - ${E2E_DATA_DIR:-/tmp/tb-e2e-data}:${E2E_DATA_DIR:-/tmp/tb-e2e-data}
