@@ -109,7 +109,8 @@ TS/JS/JSON/CSS/YAML/Markdown.
 
 Python is linted and formatted by **ruff** (config in
 [`apps/api/pyproject.toml`](apps/api/pyproject.toml), line length 100). TypeScript is linted
-by **eslint** through `next lint` and formatted by **prettier**. The MCP CLI has its own
+by **eslint** (config in [`apps/web/.eslintrc.json`](apps/web/.eslintrc.json), run through
+the ESLint CLI) and formatted by **prettier**. The MCP CLI has its own
 dependency-free lint script. Run the full local check before pushing:
 
 ```bash
