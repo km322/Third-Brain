@@ -1,0 +1,20 @@
+# Normalise line endings so a Windows contributor cannot commit CRLF into the tree.
+* text=auto eol=lf
+
+# Keep these byte-exact regardless of platform: shell scripts must stay LF to run, and
+# binaries must never be touched.
+*.sh          text eol=lf
+*.woff2       binary
+*.mp4         binary
+*.webp        binary
+*.ico         binary
+*.png         binary
+
+# Exclude generated and vendored content from GitHub's language statistics and collapse
+# it in diffs, so the language bar reflects code people actually write here.
+apps/web/package-lock.json     linguist-generated=true -diff
+packages/mcp-cli/package-lock.json linguist-generated=true -diff
+apps/web/app/fonts/*.woff2    linguist-vendored=true
+apps/web/public/fonts/*.txt   linguist-vendored=true
+apps/api/alembic/versions/*   linguist-generated=true
+docs/assets/*                 linguist-documentation=true
