@@ -6,6 +6,7 @@ import { formatDistanceToNow } from "date-fns";
 import { Lock, MailPlus, UserPlus, X } from "lucide-react";
 import { toast } from "sonner";
 
+import { CopyButton } from "@/components/copy-button";
 import { EmptyState } from "@/components/dashboard/empty-state";
 import { TableSkeleton } from "@/components/dashboard/loading";
 import { PageHeader } from "@/components/dashboard/page-header";
@@ -253,6 +254,9 @@ function InviteDialog({
 }) {
   const [email, setEmail] = React.useState("");
   const [inviteRole, setInviteRole] = React.useState<OrgRole>("viewer");
+  // The acceptance link comes back exactly once, from this POST. A default self-host
+  // sends no mail, so closing the dialog on success would destroy the only copy.
+  const [created, setCreated] = React.useState<Invite | null>(null);
 
   const invite = useMutation({
     mutationFn: () =>
@@ -261,11 +265,14 @@ function InviteDialog({
         role: inviteRole,
       }),
     onSuccess: (inv) => {
-      toast.success(`Invitation sent to ${inv.email}`);
+      setCreated(inv);
       setEmail("");
       setInviteRole("viewer");
-      onOpenChange(false);
       onInvited();
+      if (!inv.accept_url) {
+        toast.success(`Invitation sent to ${inv.email}`);
+        onOpenChange(false);
+      }
     },
     // A 409 means the email already belongs to a member; surface the backend
     // message so the admin knows to add them from Members instead.
@@ -278,15 +285,58 @@ function InviteDialog({
     invite.mutate();
   }
 
+  function close(next: boolean) {
+    if (!next) setCreated(null);
+    onOpenChange(next);
+  }
+
+  if (created?.accept_url) {
+    return (
+      <Dialog open={open} onOpenChange={close}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Invitation link for {created.email}</DialogTitle>
+            <DialogDescription>
+              Send this to them yourself. It is shown once - the token is stored hashed,
+              so it cannot be retrieved again. If email delivery is not configured, this
+              is the only copy.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2 py-4">
+            <div className="flex items-start gap-2 rounded-md border bg-muted/40 p-3">
+              <code className="min-w-0 flex-1 break-all font-mono text-xs">
+                {created.accept_url}
+              </code>
+              <CopyButton
+                value={created.accept_url}
+                toastMessage="Invitation link copied"
+              />
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Expires{" "}
+              {formatDistanceToNow(new Date(created.expires_at), { addSuffix: true })}.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button type="button" onClick={() => close(false)}>
+              Done
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    );
+  }
+
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={close}>
       <DialogContent className="max-w-md">
         <form onSubmit={submit}>
           <DialogHeader>
             <DialogTitle>Invite member</DialogTitle>
             <DialogDescription>
-              We&apos;ll email an invitation link. Someone who already has a Third Brain
-              account should be added from Members instead.
+              We&apos;ll email an invitation link, and show it to you afterwards so you
+              can send it yourself if this instance has no mail configured. Someone who
+              already has a Third Brain account should be added from Members instead.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
