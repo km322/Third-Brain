@@ -1,6 +1,8 @@
 # Third Brain - developer convenience targets
 .DEFAULT_GOAL := help
 COMPOSE := docker compose
+# The e2e stack needs the overlay on every invocation (up, exec, down), same as CI.
+E2E_FILES := -f docker-compose.yml -f docker-compose.e2e.yml
 
 .PHONY: help
 help: ## Show this help
@@ -68,15 +70,21 @@ test-integration: ## Run the backend integration tier vs REAL Postgres+pgvector+
 test-e2e: ## Boot the full stack and run the Playwright end-to-end suite
 	# Run in an ISOLATED compose project so the closing `down -v` tears down only the e2e
 	# stack's volumes - never the developer's `make up` Postgres/Redis/uploads data.
-	$(COMPOSE) -p third-brain-e2e up -d --build
+	#
+	# The e2e overlay is REQUIRED, exactly as CI applies it (ci.yml sets
+	# COMPOSE_FILE=docker-compose.yml:docker-compose.e2e.yml). It bind-mounts
+	# E2E_DATA_DIR into api + worker at the same absolute path and sets
+	# LOCAL_CONNECTOR_ROOTS; without it the data-sources journey fails locally while
+	# passing in CI.
+	$(COMPOSE) $(E2E_FILES) -p third-brain-e2e up -d --build
 	# The dev compose stack has no migrate one-shot and the app never auto-creates the schema,
 	# so migrate the freshly-started (empty, because of `down -v`) DB before the browser
 	# journeys write to it. Retry while the API container finishes booting.
 	@for i in $$(seq 1 30); do \
-		$(COMPOSE) -p third-brain-e2e exec -T api alembic upgrade head && break || sleep 2; \
+		$(COMPOSE) $(E2E_FILES) -p third-brain-e2e exec -T api alembic upgrade head && break || sleep 2; \
 	done
 	cd apps/web && npm run test:e2e; \
-		status=$$?; $(COMPOSE) -p third-brain-e2e down -v >/dev/null 2>&1; exit $$status
+		status=$$?; $(COMPOSE) $(E2E_FILES) -p third-brain-e2e down -v >/dev/null 2>&1; exit $$status
 
 SCALE ?= 1000000
 
@@ -94,13 +102,16 @@ benchmark: ## Measure retrieval, answer and permission-correctness quality on th
 
 .PHONY: fmt
 fmt: ## Format backend (ruff) and frontend (prettier)
-	# Run as the host uid so ruff can rewrite the bind-mounted source on Linux (see makemigration).
-	$(COMPOSE) exec -u $$(id -u):$$(id -g) api ruff format app tests
+	# ruff runs on the host, not in the api container: it lives in the `dev` extra and the
+	# image installs `pip install .` only, so `compose exec api ruff` is "not found".
+	cd apps/api && ruff format app tests
 	cd apps/web && npm run format
 
 .PHONY: lint
 lint: ## Lint backend, frontend and the MCP CLI (+ its tests)
-	$(COMPOSE) exec api ruff check app tests
+	# Host-side, same as the frontend and CLI lines below and as CONTRIBUTING documents -
+	# ruff is a `dev` extra and is deliberately absent from the shipped image.
+	cd apps/api && ruff check app tests
 	cd apps/web && npm run lint && npm run format:check
 	cd packages/mcp-cli && npm run lint && npm test
 

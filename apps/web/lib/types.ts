@@ -516,6 +516,13 @@ export interface Invite {
   status: InviteStatus;
   expires_at: string;
   created_at: string;
+  /**
+   * The acceptance link, returned ONCE by `POST /invites` and null everywhere else -
+   * the token is stored hashed, so this response is the only place it ever exists. A
+   * default self-host runs `EMAIL_PROVIDER=stub`, which delivers nothing and does not
+   * log the body, so this is the only way an admin can hand the link over.
+   */
+  accept_url?: string | null;
 }
 
 /** A pending CLI device-authorization request, as shown on the /activate page. */

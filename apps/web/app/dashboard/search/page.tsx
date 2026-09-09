@@ -200,11 +200,16 @@ export default function SearchPage() {
       if (err instanceof DOMException && err.name === "AbortError") return;
       toast.error(err instanceof ApiError ? err.message : "Ask failed");
     } finally {
-      if (!controller.signal.aborted) {
+      // Reset only when no newer run has taken over, which is what the ref identity
+      // tells us. Keying on `signal.aborted` instead meant an abort with no successor -
+      // "New conversation" (or unmount) rather than a replacing question - skipped
+      // setAsking(false) forever, leaving `busy` stuck true and the Ask box permanently
+      // disabled until a page reload.
+      if (askAbortRef.current === controller) {
         setAsking(false);
         patchTurn(turnId, { streaming: false });
+        askAbortRef.current = null;
       }
-      if (askAbortRef.current === controller) askAbortRef.current = null;
     }
   }
 
