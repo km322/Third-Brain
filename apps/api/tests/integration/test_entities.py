@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import uuid
+
 import factories
 import pytest
 
-from app.models.enums import OrgRole, Visibility
+from app.models.document import Document
+from app.models.enums import DocumentStatus, OrgRole, Visibility
 
 pytestmark = pytest.mark.integration
 
@@ -95,3 +98,39 @@ async def test_entity_index_is_permission_scoped(
     listed = await client.get(f"{api}/entities", headers=token_headers(outsider.id, org.id))
     assert listed.status_code == 200, listed.text
     assert listed.json() == []
+
+
+async def test_entities_of_quarantined_document_are_not_browsable(
+    client, db_session, token_headers, api, ingest_now
+) -> None:
+    """Quarantining a previously indexed document withdraws its entities too.
+
+    Entity names are lifted verbatim out of document text, and quarantining an
+    already-indexed document leaves its ``DocumentEntity`` rows in place (the scanner
+    gate returns before the resync). Without a status filter the entity index would be
+    the one surface still exposing content the rest of the app withholds pending review.
+    """
+    org, owner, _ = await factories.create_org_with_owner(db_session)
+    collection = await factories.create_collection(db_session, org=org, owner=owner)
+    headers = token_headers(owner.id, org.id)
+
+    doc_id = await _ingest(client, api, headers, ingest_now, collection.id, "Memo", _CONTENT)
+
+    # Positive control: while INDEXED the entity and its document are both browsable.
+    entities = (await client.get(f"{api}/entities", headers=headers)).json()
+    acme = next(e for e in entities if e["name"] == "Acme Corporation")
+    docs = await client.get(f"{api}/entities/{acme['id']}/documents", headers=headers)
+    assert [d["id"] for d in docs.json()] == [doc_id]
+
+    document = await db_session.get(Document, uuid.UUID(doc_id))
+    document.status = DocumentStatus.QUARANTINED
+    await db_session.commit()
+
+    # The only document mentioning it is withheld, so the entity leaves the index...
+    after = (await client.get(f"{api}/entities", headers=headers)).json()
+    assert "Acme Corporation" not in {e["name"] for e in after}
+
+    # ...and it cannot be reached by asking for that entity's documents directly.
+    docs_after = await client.get(f"{api}/entities/{acme['id']}/documents", headers=headers)
+    assert docs_after.status_code == 200, docs_after.text
+    assert docs_after.json() == []

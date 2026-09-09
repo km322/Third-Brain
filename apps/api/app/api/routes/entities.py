@@ -17,7 +17,7 @@ from app.core.db import get_db
 from app.core.deps import AuthContext, require_read_scope
 from app.models.document import Document
 from app.models.entity import DocumentEntity, Entity
-from app.models.enums import EntityKind
+from app.models.enums import DocumentStatus, EntityKind
 from app.schemas.document import DocumentItem
 from app.schemas.entity import EntityRead
 from app.services.permissions import RetrievalScope, build_retrieval_scope
@@ -26,8 +26,19 @@ router = APIRouter(prefix="/entities", tags=["entities"])
 
 
 def _visible_doc_filters(scope: RetrievalScope) -> list[ColumnElement[bool]] | None:
-    """Predicate list restricting ``Document`` to the caller's scope, or None for no access."""
-    filters: list[ColumnElement[bool]] = [Document.org_id == scope.org_id]
+    """Predicate list restricting ``Document`` to the caller's scope, or None for no access.
+
+    Quarantined documents are excluded here for the same reason both retrievers exclude
+    them (``pgvector_store``) and ``/documents/{id}/chunks`` returns empty: a document
+    held for secret review must not leak content until it is approved. Entity names are
+    extracted verbatim from document text, and re-ingesting an already-indexed document
+    into quarantine leaves its ``DocumentEntity`` rows in place, so without this filter
+    the entity index is the one surface that still exposes them.
+    """
+    filters: list[ColumnElement[bool]] = [
+        Document.org_id == scope.org_id,
+        Document.status != DocumentStatus.QUARANTINED,
+    ]
     if scope.all_access:
         return filters
     allow = []
