@@ -60,7 +60,7 @@ jobs:
       - uses: actions/checkout@v7
 
       - name: Set up Python 3.11
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v7
         with:
           python-version: "3.11"
           cache: pip
@@ -132,7 +132,7 @@ jobs:
       - uses: actions/checkout@v7
 
       - name: Set up Python 3.11
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v7
         with:
           python-version: "3.11"
           cache: pip
@@ -181,7 +181,7 @@ jobs:
       - uses: actions/checkout@v7
 
       - name: Set up Node 22
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
           node-version: "22"
           cache: npm
@@ -220,7 +220,7 @@ jobs:
       - uses: actions/checkout@v7
 
       - name: Set up Node 22
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
           node-version: "22"
           cache: npm
@@ -241,7 +241,7 @@ jobs:
       # Done as extra steps in this job rather than a matrix because the job name is
       # a required status check on main; a matrix would rename it and block every PR.
       - name: Set up Node 18 (the supported floor)
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
           node-version: "18"
 
@@ -379,7 +379,7 @@ jobs:
       # Creating node_modules here first (owned by the runner) means Docker mounts onto the
       # existing directory instead of creating a root-owned one.
       - name: Set up Node 22
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
           node-version: "22"
           cache: npm
