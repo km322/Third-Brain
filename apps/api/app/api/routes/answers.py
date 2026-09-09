@@ -31,9 +31,9 @@ from app.models.enums import (
 )
 from app.schemas.answer import AnswerCreate, AnswerRead, AnswerUpdate, AnswerVerify
 from app.schemas.common import Message
-from app.services.answers import can_read_answer
+from app.services.answers import answer_visibility_filters, can_read_answer
 from app.services.metering import record_audit
-from app.services.permissions import require_permission
+from app.services.permissions import build_retrieval_scope, require_permission
 from app.services.verification import compute_expiry, resolve_interval
 
 router = APIRouter(prefix="/answers", tags=["answers"])
@@ -65,19 +65,22 @@ async def list_answers(
     db: AsyncSession = Depends(get_db),
 ) -> list[AnswerRead]:
     """List answers visible to the caller, newest first."""
+    # The visibility decision is pushed into SQL, as it is for chunk retrieval: the
+    # previous shape loaded every answer in the org and graded each one in Python, which
+    # cost a permission resolution per row and grew without bound.
+    scope = await build_retrieval_scope(db, ctx)
     rows = (
         (
             await db.execute(
-                select(Answer).where(Answer.org_id == ctx.org_id).order_by(Answer.updated_at.desc())
+                select(Answer)
+                .where(*answer_visibility_filters(ctx, scope))
+                .order_by(Answer.updated_at.desc())
             )
         )
         .scalars()
         .all()
     )
-    # One permission resolution per distinct collection, not per answer.
-    perm_cache: dict[uuid.UUID, PermissionLevel] = {}
-    visible = [a for a in rows if await can_read_answer(db, ctx, a, perm_cache=perm_cache)]
-    return [AnswerRead.model_validate(a) for a in visible]
+    return [AnswerRead.model_validate(a) for a in rows]
 
 
 @router.post("", response_model=AnswerRead, status_code=status.HTTP_201_CREATED)
