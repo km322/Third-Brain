@@ -35,6 +35,11 @@ updates:
   # ---- Container base images ---------------------------------------------- #
   # The images every self-hoster pulls. Without these, a CVE in python:3.11-slim or
   # node:22-alpine produces no signal in this repo.
+  #
+  # Patch and minor only. A major base-image bump is a decision, not an update: CI pins
+  # Python 3.11 and Node 22, so moving the runtime without moving the test matrix ships
+  # an interpreter the 763-test suite has never run against. Raise the language version
+  # in CI and the Dockerfile together, by hand.
   - package-ecosystem: docker
     directory: /apps/api
     schedule:
@@ -44,6 +49,9 @@ updates:
     labels: ["dependencies", "backend", "docker"]
     commit-message:
       prefix: "chore(deps)"
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: docker
     directory: /apps/web
@@ -54,6 +62,9 @@ updates:
     labels: ["dependencies", "frontend", "docker"]
     commit-message:
       prefix: "chore(deps)"
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
 
   # ---- GitHub Actions workflows ------------------------------------------- #
   - package-ecosystem: github-actions
