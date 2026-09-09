@@ -15,7 +15,7 @@
 # ============================================================================
 
 # ---- deps: install node_modules from the lockfile ----
-FROM node:22-alpine AS deps
+FROM node:26-alpine AS deps
 WORKDIR /app
 # libc6-compat helps some native deps run on Alpine's musl.
 RUN apk add --no-cache libc6-compat
@@ -27,7 +27,7 @@ RUN if [ -f package-lock.json ]; then npm ci; else npm install; fi
 # docker-compose (dev) targets this stage. The production `runner` stage ships only the
 # standalone trace (no `next` CLI, no devDependencies), so running `npm run dev` against it
 # fails with `next: not found`; this stage keeps the complete node_modules from `deps`.
-FROM node:22-alpine AS dev
+FROM node:26-alpine AS dev
 WORKDIR /app
 RUN apk add --no-cache libc6-compat
 ENV NODE_ENV=development
@@ -38,7 +38,7 @@ EXPOSE 3000
 CMD ["npm", "run", "dev"]
 
 # ---- builder: compile the app ----
-FROM node:22-alpine AS builder
+FROM node:26-alpine AS builder
 WORKDIR /app
 
 # NEXT_PUBLIC_* values are inlined into the client bundle at build time, so the
@@ -62,7 +62,7 @@ ENV GIT_COMMIT=${GIT_COMMIT}
 RUN npm run build
 
 # ---- runner: minimal runtime ----
-FROM node:22-alpine AS runner
+FROM node:26-alpine AS runner
 WORKDIR /app
 
 ENV NODE_ENV=production
