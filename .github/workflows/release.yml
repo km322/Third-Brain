@@ -22,10 +22,11 @@ on:
         description: "Existing vX.Y.Z tag to (re-)release"
         required: true
 
+# Least privilege by default; each job widens only what it needs. Every job here runs
+# third-party docker/* actions, so a compromised action must not inherit the ability to
+# push to the repository or overwrite published images.
 permissions:
-  contents: write   # create the GitHub release
-  packages: write   # push images to GHCR
-  actions: read     # query CI run status for the tagged commit
+  contents: read
 
 # One fixed group so ALL release runs serialize: a half-finished release is
 # never cancelled, and a tag pushed mid-build waits its turn instead of racing
@@ -42,6 +43,9 @@ jobs:
     name: Verify tag, versions and CI status
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read   # query the CI run status for the tagged commit
     outputs:
       version: ${{ steps.meta.outputs.version }}
       owner: ${{ steps.meta.outputs.owner }}
@@ -86,12 +90,17 @@ jobs:
   # Publish the third-brain-mcp CLI to npm via OIDC trusted publishing - no
   # token, secret, or OTP involved. One-time setup: on npmjs.com the package's
   # Settings -> Trusted Publisher must list this repo and this workflow file.
+  #
+  # Runs LAST, after the images are merged and verified, because it is the only
+  # irreversible step in the release: a published npm version can never be reused,
+  # so publishing it before the image build could leave the CLI live at a version
+  # that has no images and no GitHub release, recoverable only by burning a version.
   # --------------------------------------------------------------------------- #
   npm-publish:
     name: Publish third-brain-mcp to npm
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    needs: verify
+    needs: [verify, merge-manifests]
     permissions:
       contents: read
       id-token: write # mint the OIDC token npm exchanges for publish credentials
@@ -141,6 +150,9 @@ jobs:
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 45
     needs: verify
+    permissions:
+      contents: read
+      packages: write   # push the per-architecture image to GHCR
     strategy:
       fail-fast: false
       matrix:
@@ -225,6 +237,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     needs: [verify, build-push]
+    permissions:
+      contents: read
+      packages: write   # push the multi-arch image index to GHCR
     strategy:
       matrix:
         image: [third-brain-api, third-brain-web]
@@ -288,6 +303,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     needs: [verify, merge-manifests]
+    permissions:
+      contents: write   # create the GitHub release
     steps:
       - uses: actions/checkout@v7
         with:

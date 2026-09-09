@@ -1,0 +1,8 @@
+# Generated output - linting build artifacts (including minified bundles under out/)
+# would fail CI on code nobody wrote. Mirrors .prettierignore.
+.next/
+out/
+playwright-report/
+blob-report/
+test-results/
+next-env.d.ts

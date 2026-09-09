@@ -74,7 +74,9 @@ async def list_answers(
         .scalars()
         .all()
     )
-    visible = [a for a in rows if await can_read_answer(db, ctx, a)]
+    # One permission resolution per distinct collection, not per answer.
+    perm_cache: dict[uuid.UUID, PermissionLevel] = {}
+    visible = [a for a in rows if await can_read_answer(db, ctx, a, perm_cache=perm_cache)]
     return [AnswerRead.model_validate(a) for a in visible]
 
 

@@ -23,11 +23,21 @@ Both fonts are licensed under the SIL Open Font License 1.1, which permits redis
 alongside this repository's Apache-2.0 source. The OFL is a separate licence covering only
 these font files; it does not apply to any other part of Third Brain.
 
-- Inter - Copyright (c) 2016 The Inter Project Authors <https://github.com/rsms/inter>
-- JetBrains Mono - Copyright (c) 2020 The JetBrains Mono Project Authors
-  <https://github.com/JetBrains/JetBrainsMono>
+The OFL requires its text and copyright notice to travel with every copy of the font
+files, and these files are redistributed three ways: in this repository, as
+`_next/static/media/*.woff2` on the published site, and inside the web container image.
+So each licence lives in `apps/web/public/fonts/` rather than next to the `.woff2` here -
+`public/` is the one directory that reaches all three, copied verbatim into the static
+export (`out/fonts/`) and into the image. Each is the upstream project's own file, byte
+for byte:
 
-Full licence text: <https://openfontlicense.org>
+| Font           | Licence file                                                                               | Served at                           | Copyright                                   |
+| -------------- | ------------------------------------------------------------------------------------------ | ----------------------------------- | ------------------------------------------- |
+| Inter          | [`public/fonts/inter-LICENSE.txt`](../../public/fonts/inter-LICENSE.txt)                   | `/fonts/inter-LICENSE.txt`          | (c) 2016 The Inter Project Authors          |
+| JetBrains Mono | [`public/fonts/jetbrains-mono-LICENSE.txt`](../../public/fonts/jetbrains-mono-LICENSE.txt) | `/fonts/jetbrains-mono-LICENSE.txt` | (c) 2020 The JetBrains Mono Project Authors |
+
+Replacing a font file means replacing its licence file from the same upstream tag in the
+same commit. The OFL is also available with a FAQ at <https://openfontlicense.org>.
 
 ## Updating
 
