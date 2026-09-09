@@ -9,6 +9,7 @@ org-level answer is governed by its own ``visibility``.
 from __future__ import annotations
 
 import re
+import uuid
 
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -27,12 +28,34 @@ from app.services.permissions import effective_permission
 _WORD_RE = re.compile(r"[A-Za-z0-9]{4,}")
 
 
-async def can_read_answer(db: AsyncSession, ctx: AuthContext, answer: Answer) -> bool:
-    """Whether ``ctx`` may read ``answer`` (org-scoped; caller already org-checked)."""
+async def can_read_answer(
+    db: AsyncSession,
+    ctx: AuthContext,
+    answer: Answer,
+    *,
+    perm_cache: dict[uuid.UUID, PermissionLevel] | None = None,
+) -> bool:
+    """Whether ``ctx`` may read ``answer`` (org-scoped; caller already org-checked).
+
+    ``perm_cache`` memoises the collection lookup across a single request, for callers
+    grading a list of answers. Answers cluster into far fewer collections than there are
+    answers, and ``effective_permission`` costs 2-3 queries each time, so without it a
+    list route spends a query storm re-deriving the same collection's permission. It is a
+    cache of this engine's own answer, never a reimplementation of it - the grading logic
+    below stays the single source of truth. Safe within a request: grants cannot change
+    underneath it.
+    """
     if ctx.is_admin or (ctx.user_id is not None and answer.created_by_id == ctx.user_id):
         return True
     if answer.collection_id is not None:
-        perm = await effective_permission(db, ctx, ResourceType.COLLECTION, answer.collection_id)
+        if perm_cache is not None and answer.collection_id in perm_cache:
+            perm = perm_cache[answer.collection_id]
+        else:
+            perm = await effective_permission(
+                db, ctx, ResourceType.COLLECTION, answer.collection_id
+            )
+            if perm_cache is not None:
+                perm_cache[answer.collection_id] = perm
         return permission_at_least(perm, PermissionLevel.VIEWER)
     return answer.visibility in (Visibility.ORG, Visibility.PUBLIC)
 
@@ -62,8 +85,9 @@ async def matching_answers(
         .all()
     )
     visible: list[Answer] = []
+    perm_cache: dict[uuid.UUID, PermissionLevel] = {}
     for answer in candidates:
-        if await can_read_answer(db, ctx, answer):
+        if await can_read_answer(db, ctx, answer, perm_cache=perm_cache):
             visible.append(answer)
         if len(visible) >= limit:
             break
