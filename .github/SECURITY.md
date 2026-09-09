@@ -10,8 +10,9 @@ lets an unauthenticated caller reach tenant data.
 | Version | Supported |
 | --- | --- |
 | `main` | Yes |
-| Latest `1.x` release | Yes |
-| Older `1.x` releases | No - upgrade to the latest release |
+| Latest `2.x` release | Yes |
+| Older `2.x` releases | No - upgrade to the latest release |
+| `1.x` releases | No - superseded by 2.x |
 
 Fixes land on `main` and ship in the next release. See [`VERSION`](../VERSION) and
 [`CHANGELOG.md`](../CHANGELOG.md).

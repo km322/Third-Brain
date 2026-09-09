@@ -19,9 +19,13 @@ on:
   pull_request:
     branches: [main]
 
-# Cancel superseded runs on the same ref to save CI minutes.
+# Cancel superseded runs to save CI minutes - but only within a pull request. Pushes to
+# main are grouped by commit SHA so they never cancel each other: release.yml gates on the
+# CI run for the tagged commit having concluded `success`, and a run cancelled by the next
+# push to main concludes `cancelled`, which would block the release with no way to make it
+# green short of re-running CI by hand.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
   cancel-in-progress: true
 
 permissions:
@@ -162,6 +166,9 @@ jobs:
   # Frontend: install, lint, format-check and production-build the Next.js app.
   # --------------------------------------------------------------------------- #
   frontend:
+    # NOTE: this name is a required status check in branch protection on main. Renaming it
+    # silently blocks every PR (the old context is never reported again), so change it only
+    # together with the protection rule.
     name: Frontend (lint + format + build)
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -192,6 +199,13 @@ jobs:
       - name: Build
         run: npm run build
 
+      # This is the exact command Cloudflare Pages runs to publish third-brain.ai.
+      # Without it here, a page missing from the PUBLISHED_PAGES allowlist - or any
+      # component that cannot be statically exported - passes CI and only fails at
+      # the host, taking the public site's build down with no signal in the repo.
+      - name: Build static project site
+        run: npm run build:site
+
   # --------------------------------------------------------------------------- #
   # MCP CLI: lint + unit-test the zero-dependency third-brain-mcp package.
   # --------------------------------------------------------------------------- #
@@ -219,6 +233,19 @@ jobs:
         run: npm run lint
 
       - name: Test
+        run: npm test
+
+      # The package declares `engines: {"node": ">=18"}` and its npm page promises
+      # "Node 18 or newer", so the floor has to be exercised or the promise is
+      # unverified - `node --test` on 22 happily accepts APIs that throw on 18.
+      # Done as extra steps in this job rather than a matrix because the job name is
+      # a required status check on main; a matrix would rename it and block every PR.
+      - name: Set up Node 18 (the supported floor)
+        uses: actions/setup-node@v6
+        with:
+          node-version: "18"
+
+      - name: Test on Node 18
         run: npm test
 
   # --------------------------------------------------------------------------- #
@@ -278,6 +305,50 @@ jobs:
           tags: third-brain-web:ci
           cache-from: type=gha,scope=web
           cache-to: type=gha,scope=web,mode=max
+
+  # --------------------------------------------------------------------------- #
+  # The same two images on arm64. The release publishes a two-architecture manifest
+  # and hard-fails if either leg is missing, but the job above builds only the
+  # runner's native amd64 - so an arm64-only break (a dependency with no aarch64
+  # wheel, a base tag with no arm64 variant) passed CI and first surfaced mid-release.
+  # A native runner, not QEMU: emulated arm64 builds died with SIGILL and then timed
+  # out three times on 2026-09-07, which is why the release moved off them.
+  #
+  # Separate job rather than a matrix on docker-build, because that job's name is a
+  # required status check on main and a matrix would rename it, blocking every PR.
+  # Add "Docker build (arm64)" to the required contexts to make this an enforced gate.
+  # --------------------------------------------------------------------------- #
+  docker-build-arm64:
+    name: Docker build (arm64)
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Build API image (arm64)
+        uses: docker/build-push-action@v7
+        with:
+          context: apps/api
+          file: apps/api/Dockerfile
+          push: false
+          load: false
+          tags: third-brain-api:ci-arm64
+          cache-from: type=gha,scope=api-arm64
+          cache-to: type=gha,scope=api-arm64,mode=max
+
+      - name: Build web image (arm64)
+        uses: docker/build-push-action@v7
+        with:
+          context: apps/web
+          file: apps/web/Dockerfile
+          push: false
+          load: false
+          tags: third-brain-web:ci-arm64
+          cache-from: type=gha,scope=web-arm64
+          cache-to: type=gha,scope=web-arm64,mode=max
 
   # --------------------------------------------------------------------------- #
   # End-to-end: boot the real docker-compose stack and drive it with Playwright.
@@ -396,8 +467,9 @@ jobs:
   # The images are BUILT from source here: .env.example leaves IMAGE_REGISTRY and
   # IMAGE_TAG empty, so the prod compose resolves unqualified
   # third-brain-api:latest / third-brain-web:latest and `up -d --build` builds
-  # them. The published GHCR packages are private, so pulling would either fail or
-  # silently test a stale image instead of this commit.
+  # them. The published GHCR packages are public and pullable, but they are the
+  # PREVIOUS release - pulling them would silently test a stale image instead of
+  # the commit under CI.
   # --------------------------------------------------------------------------- #
   selfhost:
     name: Self-host (prod compose + bootstrap)
@@ -424,7 +496,7 @@ jobs:
       - name: Check the stack will build from source, not pull GHCR
         run: |
           if ! grep -qxF 'IMAGE_REGISTRY=' .env.example || ! grep -qxF 'IMAGE_TAG=' .env.example; then
-            echo "::error::.env.example must leave IMAGE_REGISTRY and IMAGE_TAG empty so this job builds the images from source; a registry prefix would make it pull the private GHCR packages instead"
+            echo "::error::.env.example must leave IMAGE_REGISTRY and IMAGE_TAG empty so this job builds the images from source; a registry prefix would make it pull the previous release's GHCR images instead of testing this commit"
             exit 1
           fi
 
