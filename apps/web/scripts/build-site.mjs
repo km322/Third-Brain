@@ -61,11 +61,13 @@ const PUBLISHED_PAGES = new Set([
  * from the root of the published directory. Any other file server ignores the file (see
  * docs/WEBSITE.md for the nginx equivalent), so the site is correct without it.
  *
- * Three jobs: reinstate the baseline hardening headers that next.config.mjs applies in
+ * Four jobs: reinstate the baseline hardening headers that next.config.mjs applies in
  * the app build but `output: "export"` cannot; freeze the demo renditions at the edge so
- * the CDN does not re-stream megabytes on every play; and label the Open Graph card,
- * which Next exports as an extensionless file that a static host would otherwise serve
- * as application/octet-stream, so link previews break.
+ * the CDN does not re-stream megabytes on every play; freeze Next's build assets, whose
+ * filenames are content hashes, so a repeat visitor does not revalidate every script and
+ * stylesheet on the host's short default TTL; and label the Open Graph card, which Next
+ * exports as an extensionless file that a static host would otherwise serve as
+ * application/octet-stream, so link previews break.
  */
 const HEADERS_FILE = `/*
   X-Frame-Options: DENY
@@ -74,6 +76,9 @@ const HEADERS_FILE = `/*
   Content-Security-Policy: frame-ancestors 'none'
   Permissions-Policy: camera=(), microphone=(), geolocation=()
   X-DNS-Prefetch-Control: off
+
+/_next/static/*
+  Cache-Control: public, max-age=31536000, immutable
 
 /media/*
   Cache-Control: public, max-age=31536000, immutable

@@ -47,6 +47,9 @@ out/
   404.html              not-found page (also as 404/index.html)
   favicon.ico  icon.svg
   opengraph-image       link-preview card (PNG, no extension - see below)
+  robots.txt            invites crawlers and points them at the sitemap
+  sitemap.xml           the two published pages
+  fonts/                the SIL OFL texts covering the fonts served from _next/static
   media/                the recorded demo (two renditions) and its poster
   _next/static/         hashed CSS, JS and font files
   _headers              per-path response headers, read by Cloudflare Pages and Netlify
@@ -70,20 +73,41 @@ python3 -m http.server 8000        # or: npx serve .   |   busybox httpd -f -p 8
 Then open <http://localhost:8000>. Every route is exported as `<route>/index.html`, so
 `/docs` resolves on servers that do no clean-URL rewriting at all.
 
-For nginx, the whole configuration is a root and a directory index:
+For nginx it is a root, a directory index, and a headers snippet. The snippet exists
+because nginx discards inherited `add_header` directives in any block that declares its
+own - drop the include from a `location` and those responses go out unprotected.
+
+```nginx
+# /etc/nginx/snippets/third-brain-headers.conf
+add_header X-Frame-Options DENY always;
+add_header X-Content-Type-Options nosniff always;
+add_header Referrer-Policy strict-origin-when-cross-origin always;
+add_header Content-Security-Policy "frame-ancestors 'none'" always;
+add_header Permissions-Policy "camera=(), microphone=(), geolocation=()" always;
+add_header X-DNS-Prefetch-Control off always;
+```
 
 ```nginx
 server {
     root /srv/third-brain-site;
     index index.html;
 
+    include snippets/third-brain-headers.conf;
+
     location / {
         try_files $uri $uri/ $uri/index.html =404;
     }
 
-    # The demo renditions are content-addressed by filename; freeze them.
+    # The demo renditions and Next's build assets are content-addressed by filename,
+    # so freeze them instead of revalidating on every visit.
     location /media/ {
-        add_header Cache-Control "public, max-age=31536000, immutable";
+        include snippets/third-brain-headers.conf;
+        add_header Cache-Control "public, max-age=31536000, immutable" always;
+    }
+
+    location /_next/static/ {
+        include snippets/third-brain-headers.conf;
+        add_header Cache-Control "public, max-age=31536000, immutable" always;
     }
 
     # Next exports the Open Graph card without a file extension, so name its type
@@ -91,17 +115,14 @@ server {
     location = /opengraph-image {
         default_type image/png;
     }
-
-    add_header X-Frame-Options DENY;
-    add_header X-Content-Type-Options nosniff;
-    add_header Referrer-Policy strict-origin-when-cross-origin;
-    add_header Content-Security-Policy "frame-ancestors 'none'";
 }
 ```
 
-The generated `out/_headers` file expresses exactly those rules in the format Cloudflare
-Pages and Netlify read. Hosts that do not understand it just serve it as another file;
-the site is correct either way, minus the headers.
+The generated `out/_headers` file expresses the same rules in the format Cloudflare Pages
+and Netlify read. Those hosts merge every matching rule, so the cache entries above add to
+the site-wide headers rather than replacing them - the inheritance caveat is nginx-specific.
+Hosts that do not understand `_headers` just serve it as another file; the site is correct
+either way, minus the headers.
 
 ## Cloudflare Pages
 
@@ -132,8 +153,8 @@ must be deleted first, or the site keeps resolving to the dead origin.
 1. Copies `apps/web` into a temp directory, minus `app/(auth)` and `app/dashboard`,
    `node_modules` (symlinked instead), build output and local `.env` files.
 2. Runs `next build` there with `STATIC_EXPORT=1`, which switches `next.config.mjs` to
-   `output: "export"` plus `trailingSlash: true` and drops the `rewrites()` and
-   `headers()` that only a Next server can honour.
+   `output: "export"` plus `trailingSlash: true` and drops the `headers()` that only a
+   Next server can honour.
 3. Checks the exported pages against the allowlist described above, writes `_headers`,
    and copies the result to `apps/web/out`.
 
@@ -143,5 +164,12 @@ corrupt the tree. `STATIC_EXPORT` also sets `NEXT_PUBLIC_STATIC_SITE`, which is 
 marketing components know to drop the sign-in affordances - in the app build the flag is
 empty and those links behave exactly as before.
 
-Adding a page to the site means adding it under `app/(marketing)` and listing its
-exported HTML in `PUBLISHED_PAGES` in the build script.
+The same flag decides what `app/robots.ts` emits, and the two builds want opposite things.
+The project site invites crawlers and advertises `sitemap.xml`; the app build answers
+`Disallow: /`, because a self-hosted instance is a company's private knowledge base and has
+no business in a search index. Both files declare `dynamic = "force-static"`, which
+`output: "export"` requires of any metadata route.
+
+Adding a page to the site means adding it under `app/(marketing)`, listing its exported
+HTML in `PUBLISHED_PAGES` in the build script, and adding an entry to `app/sitemap.ts` so
+it is discoverable.
