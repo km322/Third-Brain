@@ -44,7 +44,7 @@ dev = [
     # Pinned exact: ruff's formatter output changes between releases, so a floating spec makes
     # `ruff format --check` in CI fail whenever a new ruff ships a formatting change, even with
     # no code change. Bump this deliberately (and reformat) rather than letting CI drift.
-    "ruff==0.15.20",
+    "ruff==0.16.6",
 ]
 load = [
     "locust>=2.29",
