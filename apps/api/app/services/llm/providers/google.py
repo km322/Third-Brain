@@ -46,9 +46,15 @@ def chat_payload(
     max_tokens: int | None,
     stream: bool,
 ) -> dict[str, Any]:
-    # System-role messages become ``systemInstruction``; assistant maps to "model" and
-    # any "tool" content is treated as user text. The model is addressed in the URL,
-    # not the body, and streaming is selected by the endpoint, not a body flag.
+    """Build the ``generateContent`` request body.
+
+    System-role messages become ``systemInstruction``; assistant maps to "model" and
+    any "tool" content is treated as user text. The model is addressed in the URL,
+    not the body, and streaming is selected by the endpoint, not a body flag.
+
+    Images map to inline_data parts ahead of the text; text-only messages keep their
+    exact single-text-part shape.
+    """
     system_parts: list[str] = []
     contents: list[dict[str, Any]] = []
     for message in messages:
@@ -56,8 +62,6 @@ def chat_payload(
         if role == "system":
             system_parts.append(content)
         else:
-            # Images map to inline_data parts ahead of the text; text-only messages
-            # keep their exact single-text-part shape.
             parts: list[dict[str, Any]] = [
                 {"inline_data": {"mime_type": image["media_type"], "data": image["data"]}}
                 for image in (message.get("images") or [])
@@ -126,8 +130,12 @@ def embeddings_url(base: str, model: str) -> str:
 
 
 def embeddings_payload(model: str, inputs: list[str] | list[list[int]]) -> dict[str, Any]:
-    # Raised as ValueError (not RuntimeError) so the OpenAI-compat surface can report it
-    # as a 400 client error rather than a 502 provider failure.
+    """Build the ``batchEmbedContents`` request body.
+
+    Pre-tokenized input is rejected as ``ValueError`` (not ``RuntimeError``) so the
+    OpenAI-compat surface can report it as a 400 client error rather than a 502 provider
+    failure.
+    """
     if any(not isinstance(item, str) for item in inputs):
         raise ValueError(
             "Pre-tokenized (token-id array) inputs are not supported by the Google "

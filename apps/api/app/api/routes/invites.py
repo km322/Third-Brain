@@ -48,9 +48,10 @@ async def create_invite(
     only as a hash, so this response is the one and only chance to see the link - which
     matters because the default ``EMAIL_PROVIDER=stub`` delivers nothing, so on a self-host
     that has not configured SMTP the admin must pass the link to the invitee themselves.
+
+    An admin must not be able to mint an OWNER via an email invite (privilege escalation);
+    only an owner can grant the owner role - parity with POST /orgs/members/invite.
     """
-    # An admin must not be able to mint an OWNER via an email invite (privilege escalation);
-    # only an owner can grant the owner role - parity with POST /orgs/members/invite.
     if payload.role == OrgRole.OWNER and ctx.org_role != OrgRole.OWNER:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -145,7 +146,14 @@ async def accept_invite(
     request: Request,
     db: AsyncSession = Depends(get_db),
 ) -> Tokens:
-    """Accept an invitation: provision the new account, activate membership, sign in."""
+    """Accept an invitation: provision the new account, activate membership, sign in.
+
+    This closes the invite->account race: the email had no account when the invite was
+    created (``create_invite`` 409s otherwise), but one may have been registered since.
+    Accepting must only ever provision a NEW account - never adopt a pre-existing one - or
+    the token holder would get a session for that account without its password (account
+    takeover).
+    """
     await enforce_login_rate_limit(request, payload.token)
     invite = (
         await db.execute(select(Invite).where(Invite.hashed_token == hash_api_key(payload.token)))
@@ -161,10 +169,6 @@ async def accept_invite(
             status_code=status.HTTP_400_BAD_REQUEST, detail="Invitation has expired"
         )
 
-    # Close the invite->account race: the email had no account when the invite was created
-    # (create_invite 409s otherwise), but one may have been registered since. Accepting must
-    # only ever provision a NEW account - never adopt a pre-existing one - or the token holder
-    # would get a session for that account without its password (account takeover).
     if await get_user_by_email(db, invite.email) is not None:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,

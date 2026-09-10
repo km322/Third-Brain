@@ -97,6 +97,12 @@ async def execute(
 
 
 def main(argv: list[str] | None = None) -> int:
+    """CLI entrypoint. Returns the process exit code (2 = bad config, 1 = failed run).
+
+    An unexpected failure prints only the exception type, never ``str(exc)``: a SQLAlchemy
+    error renders the failing statement and its bound parameters (the bcrypt hash), which
+    must not leak.
+    """
     try:
         password = resolve_password(sys.argv[1:] if argv is None else argv, os.environ)
     except RotateError as exc:
@@ -105,8 +111,6 @@ def main(argv: list[str] | None = None) -> int:
     try:
         asyncio.run(execute(password))
     except Exception as exc:  # pragma: no cover - surfaced to the operator, never logged
-        # Print only the exception type, never str(exc): a SQLAlchemy error renders the
-        # failing statement and its bound parameters (the bcrypt hash), which must not leak.
         print(
             f"error: rotate failed ({type(exc).__name__}). "
             "Check the database is reachable and migrated, then retry.",

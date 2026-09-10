@@ -27,9 +27,11 @@ const SECTIONS: SectionMeta[] = [
   { id: "governance", index: "06", title: "Permissions and governance" },
 ];
 
-// --- Real commands and API surfaces, cross-checked against docs/API.md and
-// --- packages/mcp-cli/README.md. Kept as strings so the code renders verbatim.
-
+/**
+ * Real commands and API surfaces, cross-checked against docs/API.md and
+ * packages/mcp-cli/README.md. This constant and the ones that follow it are kept as
+ * strings so the code renders verbatim.
+ */
 const SELF_HOST = `git clone https://github.com/km322/Third-Brain.git
 cd Third-Brain
 cp .env.example .env       # runs with zero keys: offline stub model
@@ -243,10 +245,15 @@ function Section({
   );
 }
 
+/**
+ * Public documentation page: a hero, then the on-page nav beside the ordered sections.
+ *
+ * On the static project site the reader's login page is their own instance, not a route
+ * on this site, so the quick-start sign-in link is dropped there (see `IS_STATIC_SITE`).
+ */
 export default function DocsPage() {
   return (
     <>
-      {/* Hero */}
       <section className="border-b border-border/60 pt-24 sm:pt-28 lg:pt-32">
         <div className="container pb-14 sm:pb-16">
           <div className="mx-auto max-w-6xl">
@@ -265,7 +272,6 @@ export default function DocsPage() {
         </div>
       </section>
 
-      {/* Body: on-page nav + ordered sections */}
       <div className="container py-14 sm:py-16">
         <div className="mx-auto max-w-6xl lg:grid lg:grid-cols-[200px_minmax(0,1fr)] lg:gap-16">
           <nav aria-label="On this page" className="mb-12 lg:mb-0">
@@ -301,8 +307,6 @@ export default function DocsPage() {
                 The dashboard is then on <Mono>localhost:3000</Mono> and the API on{" "}
                 <Mono>localhost:8000</Mono>. <Mono>make seed</Mono> prints a generated
                 admin password once - use it to{" "}
-                {/* On the static project site the reader's login page is their own
-                    instance, not a route on this site, so the link is dropped there. */}
                 {IS_STATIC_SITE ? "sign in" : <TextLink href="/login">sign in</TextLink>}.
                 Once you are in, two commands wire the tools your team already uses into
                 the brain:

@@ -33,22 +33,30 @@ if TYPE_CHECKING:
 
 
 class Document(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    """An ingested source document plus the governance state attached to it.
+
+    Why each entry in ``__table_args__`` exists, in declaration order:
+
+    * ``ix_documents_org_visibility`` - partial index for the visibility-override lookup
+      in ``permissions.build_retrieval_scope`` (rows whose visibility is not inherited).
+    * ``ix_documents_org_created`` - composite backing the ``list_documents`` newest-first
+      ordering.
+    * ``ix_documents_meta_file_token`` - capability-token lookup for GET /files/{token}, an
+      unauthenticated public endpoint, so the probe must be an index hit, never a full scan.
+    * ``uq_documents_source_external`` - a synced document is uniquely identified by
+      (data source, upstream id); the partial unique index makes re-sync an idempotent
+      upsert.
+    """
+
     __tablename__ = "documents"
     __table_args__ = (
-        # Partial index for the visibility-override lookup in
-        # ``permissions.build_retrieval_scope`` (rows whose visibility is not inherited).
         Index(
             "ix_documents_org_visibility",
             "org_id",
             postgresql_where=text("visibility IS NOT NULL"),
         ),
-        # Composite backing the ``list_documents`` newest-first ordering.
         Index("ix_documents_org_created", "org_id", text("created_at DESC")),
-        # Capability-token lookup for GET /files/{token} - an unauthenticated public
-        # endpoint, so the probe must be an index hit, never a full scan.
         Index("ix_documents_meta_file_token", text("(metadata ->> 'file_token')")),
-        # A synced document is uniquely identified by (data source, upstream id); the
-        # partial unique index makes re-sync an idempotent upsert.
         Index(
             "uq_documents_source_external",
             "source_id",
@@ -76,17 +84,17 @@ class Document(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     storage_key: Mapped[str | None] = mapped_column(String(1024), nullable=True)
     checksum: Mapped[str | None] = mapped_column(String(64), index=True, nullable=True)
     size_bytes: Mapped[int] = mapped_column(BigInteger, default=0, nullable=False)
-    # Data-source linkage (feature: connectors). Set when synced from a DataSource;
-    # (source_id, external_id) is the natural key for idempotent re-sync. Deleting the
-    # data source removes the documents it created.
     source_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("data_sources.id", ondelete="CASCADE"), index=True, nullable=True
     )
     external_id: Mapped[str | None] = mapped_column(String(1024), nullable=True)
-    # ``visibility`` NULL means "inherit from collection".
+    """Data-source linkage (feature: connectors). ``source_id`` is set when the document was
+    synced from a DataSource; (source_id, external_id) is the natural key for idempotent
+    re-sync. Deleting the data source removes the documents it created."""
     visibility: Mapped[Visibility | None] = mapped_column(
         Enum(Visibility, native_enum=False, length=32), nullable=True
     )
+    """NULL means "inherit from collection"."""
     status: Mapped[DocumentStatus] = mapped_column(
         Enum(DocumentStatus, native_enum=False, length=32),
         default=DocumentStatus.PENDING,
@@ -97,30 +105,30 @@ class Document(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     indexed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
-    # ---- Verified answers / content freshness (feature: verification) ----
     verification_status: Mapped[VerificationStatus] = mapped_column(
         Enum(VerificationStatus, native_enum=False, length=16),
         default=VerificationStatus.UNVERIFIED,
         index=True,
         nullable=False,
     )
+    """Verified answers / content freshness (feature: verification)."""
     verified_by_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
     verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     review_interval_days: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    # When the current verification goes stale (verified_at + review_interval_days).
     expires_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), index=True, nullable=True
     )
+    """When the current verification goes stale (verified_at + review_interval_days)."""
 
-    # ---- DLP classification (feature: PII/DLP). NONE unless the sensitivity scan hit. ----
     sensitivity: Mapped[SensitivityLevel] = mapped_column(
         Enum(SensitivityLevel, native_enum=False, length=16),
         default=SensitivityLevel.NONE,
         index=True,
         nullable=False,
     )
+    """DLP classification (feature: PII/DLP). NONE unless the sensitivity scan hit."""
 
     meta: Mapped[dict] = mapped_column("metadata", JSON, default=dict, nullable=False)
 

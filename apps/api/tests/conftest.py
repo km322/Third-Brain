@@ -12,7 +12,15 @@ The suite has two tiers:
 
 Everything runs fully offline: the LLM facade (``app.services.llm``) falls back to a
 deterministic ``fake`` provider whenever no provider API keys are configured, so
-embeddings and completions never touch the network during tests.
+embeddings and completions never touch the network during tests. Import order matters
+for that: the deterministic, offline LLM provider is pinned through the environment
+*before* the app settings are constructed, so no test can accidentally reach a live
+provider (the defaults already omit keys; this just makes the intent explicit and stable
+across environments). Belt-and-suspenders, the live settings object is then forced into
+offline mode regardless of how - or whether - it read the environment. Tracing is pinned
+off for the same reason: the suite stays hermetic even when the developer's shell exports
+an OTLP endpoint (e.g. a local Grafana stack), and tests that want tracing install their
+own provider.
 """
 
 from __future__ import annotations
@@ -21,9 +29,6 @@ import os
 import pathlib
 import uuid
 
-# Pin the deterministic, offline LLM provider *before* the app settings are constructed
-# so no test can accidentally reach a live provider. Defaults already omit keys; this
-# just makes the intent explicit and stable across environments.
 os.environ.setdefault("EMBEDDING_PROVIDER", "fake")
 os.environ.setdefault("SECRET_KEY", "test-secret-key-not-for-production")
 
@@ -31,37 +36,33 @@ import pytest
 
 from app.core.config import settings
 
-# Belt-and-suspenders: force the live settings object into offline mode regardless of
-# how (or whether) it read the environment.
 settings.EMBEDDING_PROVIDER = "fake"
 settings.OPENAI_API_KEY = None
-# Keep the suite hermetic even when the developer's shell exports an OTLP endpoint
-# (e.g. a local Grafana stack): tests assume tracing is disabled unless they install
-# their own provider.
 settings.OTEL_EXPORTER_OTLP_ENDPOINT = None
 
-# --------------------------------------------------------------------------- #
-# Bind the app to the *test* infrastructure BEFORE anything imports
-# ``app.core.db`` (which builds the async engine at import time) or
-# ``app.core.redis``. Integration tests resolve their Postgres/Redis endpoints
-# from the ``TEST_*`` variables first, then the plain ``DATABASE_URL`` /
-# ``REDIS_URL`` (as CI sets), and otherwise fall back to the settings defaults -
-# which point at the docker-compose service hostnames and are therefore
-# unreachable on a bare workstation, so the whole integration tier self-skips and
-# a plain local ``pytest`` stays green. This is production-parity: real Postgres +
-# pgvector and real Redis, never SQLite / fakeredis / in-memory shims.
-# --------------------------------------------------------------------------- #
 _TEST_DB_URL = os.getenv("TEST_DATABASE_URL") or os.getenv("DATABASE_URL")
+"""Postgres endpoint the app is bound to for the integration tier.
+
+Resolved - and pushed into ``settings`` - BEFORE anything imports ``app.core.db`` (which
+builds the async engine at import time) or ``app.core.redis``. Integration tests take
+their Postgres/Redis endpoints from the ``TEST_*`` variables first, then the plain
+``DATABASE_URL`` / ``REDIS_URL`` (as CI sets), and otherwise fall back to the settings
+defaults - which point at the docker-compose service hostnames and are therefore
+unreachable on a bare workstation, so the whole integration tier self-skips and a plain
+local ``pytest`` stays green. This is production-parity: real Postgres + pgvector and
+real Redis, never SQLite / fakeredis / in-memory shims.
+"""
 if _TEST_DB_URL:
     settings.DATABASE_URL = _TEST_DB_URL
 _TEST_REDIS_URL = os.getenv("TEST_REDIS_URL") or os.getenv("REDIS_URL")
+"""Redis endpoint the app is bound to for the integration tier.
+
+Same resolution order and rationale as :data:`_TEST_DB_URL`.
+"""
 if _TEST_REDIS_URL:
     settings.REDIS_URL = _TEST_REDIS_URL
 
 
-# --------------------------------------------------------------------------- #
-# Small helpers reused across tests
-# --------------------------------------------------------------------------- #
 def _unique_email(prefix: str = "user") -> str:
     """A globally-unique email so repeated runs never collide on the users table."""
     return f"{prefix}-{uuid.uuid4().hex[:12]}@example.com"
@@ -96,9 +97,6 @@ async def _reset_redis() -> None:
         redis_mod._redis = None
 
 
-# --------------------------------------------------------------------------- #
-# Integration-tier infrastructure gate (real Postgres + pgvector and real Redis)
-# --------------------------------------------------------------------------- #
 def _database_reachable() -> bool:
     """Probe the resolved Postgres synchronously (psycopg); no side effects."""
     from sqlalchemy import create_engine, text
@@ -132,14 +130,14 @@ def _alembic_config(url: str):
 
     Note that ``alembic/env.py`` resolves the migration URL from app settings, not from
     this Config, so callers must also point ``settings.DATABASE_URL`` at the target DB.
+    ``'%'`` is escaped for ConfigParser interpolation (see ``alembic/env.py``) so a DB URL
+    containing a percent-encoded credential doesn't crash the test upgrade.
     """
     from alembic.config import Config
 
     api_dir = pathlib.Path(__file__).resolve().parent.parent
     cfg = Config(str(api_dir / "alembic.ini"))
     cfg.set_main_option("script_location", str(api_dir / "alembic"))
-    # Escape '%' for ConfigParser interpolation (see alembic/env.py) so a DB URL containing a
-    # percent-encoded credential doesn't crash the test upgrade.
     cfg.set_main_option("sqlalchemy.url", url.replace("%", "%%"))
     return cfg
 
@@ -208,9 +206,6 @@ def integration_infra() -> object:
     return True
 
 
-# --------------------------------------------------------------------------- #
-# Clients
-# --------------------------------------------------------------------------- #
 @pytest.fixture
 async def raw_client():
     """An ``AsyncClient`` bound to the ASGI app with **no** database requirement.
@@ -235,10 +230,12 @@ async def db_ready(integration_infra):
 
     The schema itself is created once per session by :func:`integration_infra`
     (``alembic upgrade head``); this fixture just gives every test a blank slate by
-    truncating all tables (``RESTART IDENTITY CASCADE``) and flushing Redis, then
-    rebinds the engine + Redis client to the current event loop. It depends on
-    :func:`integration_infra`, so it inherits the tier's skip-when-unreachable
-    behaviour - a plain local ``pytest`` never fails here, it skips.
+    truncating every mapped table (``RESTART IDENTITY CASCADE``, which leaves Alembic's
+    version table alone) and flushing Redis - clearing rate-limit buckets and the
+    embedding cache so each test is deterministic - then rebinds the engine + Redis
+    client to the current event loop. It depends on :func:`integration_infra`, so it
+    inherits the tier's skip-when-unreachable behaviour - a plain local ``pytest`` never
+    fails here, it skips.
     """
     from sqlalchemy import text
 
@@ -248,14 +245,12 @@ async def db_ready(integration_infra):
     await _reset_engine_pool()
     await _reset_redis()
 
-    # Blank slate: truncate every mapped table (skip Alembic's version table).
     table_names = ", ".join(t.name for t in Base.metadata.sorted_tables)
     async with engine.begin() as conn:
         await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
         if table_names:
             await conn.execute(text(f"TRUNCATE TABLE {table_names} RESTART IDENTITY CASCADE"))
 
-    # Clear rate-limit buckets + embedding cache so each test is deterministic.
     try:
         from app.core.redis import get_redis
 
@@ -286,7 +281,6 @@ async def client(db_ready, tmp_path, monkeypatch):
     import app.services.storage as storage_mod
     from app.main import app
 
-    # Route stored bytes to a temp dir instead of the configured /data path.
     storage_mod._storage = storage_mod.LocalStorage(str(tmp_path))
 
     async def _no_enqueue(doc_id):  # noqa: ANN001 - matches enqueue_ingest signature
@@ -301,9 +295,6 @@ async def client(db_ready, tmp_path, monkeypatch):
     storage_mod._storage = None
 
 
-# --------------------------------------------------------------------------- #
-# Convenience fixtures for integration tests
-# --------------------------------------------------------------------------- #
 @pytest.fixture
 def api() -> str:
     """The versioned API prefix (e.g. ``/api/v1``)."""

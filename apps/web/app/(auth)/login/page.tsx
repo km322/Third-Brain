@@ -71,11 +71,14 @@ function safeNextPath(): string | null {
   }
 }
 
+/**
+ * Sign-in form. A visitor who already has a session skips the form and goes straight to
+ * the app before paint.
+ */
 export default function LoginPage() {
   const router = useRouter();
   const [showPassword, setShowPassword] = React.useState(false);
 
-  // Already signed in: skip the form and go straight to the app (before paint).
   const redirecting = useRedirectIfAuthenticated(() => safeNextPath() ?? "/dashboard");
 
   const {
@@ -90,8 +93,10 @@ export default function LoginPage() {
 
   const [ssoLoading, setSsoLoading] = React.useState(false);
 
-  // Single sign-on: look up an enabled connection for the typed email's domain and
-  // bounce to the IdP. The email/password form above is untouched.
+  /**
+   * Single sign-on: look up an enabled connection for the typed email's domain and bounce
+   * to the IdP. The email/password form above is untouched.
+   */
   async function continueWithSso() {
     const email = getValues("email");
     if (!email) {
@@ -121,19 +126,21 @@ export default function LoginPage() {
     }
   }
 
+  /**
+   * Sign in with email and password, then resolve the active org so the dashboard boots
+   * against the right tenant. That second call is non-fatal: the dashboard's AuthProvider
+   * re-fetches identity regardless, so a failure there is ignored and reconciled on the
+   * dashboard.
+   */
   async function onSubmit(values: LoginValues) {
     try {
       const tokens = await api.post<AuthTokens>("/auth/login", values);
       auth.setSession(tokens.access_token, tokens.refresh_token);
 
-      // Resolve the active org so the dashboard boots against the right tenant.
-      // Non-fatal: the dashboard's AuthProvider re-fetches identity regardless.
       try {
         const me = await api.get<CurrentUser>("/users/me");
         if (me.active_org?.id) auth.setActiveOrg(me.active_org.id);
-      } catch {
-        /* ignore - active org will be reconciled on the dashboard */
-      }
+      } catch {}
 
       toast.success("Welcome back");
       router.replace(safeNextPath() ?? "/dashboard");

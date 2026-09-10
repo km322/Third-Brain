@@ -89,17 +89,19 @@ function AnswerBody({ text, streaming }: { text: string; streaming: boolean }) {
   );
 }
 
+/**
+ * Search page - two modes over one query box. Search returns ranked chunks; Ask keeps a
+ * multi-turn transcript backed by a server-side conversation, shown above those results.
+ */
 export default function SearchPage() {
   const [mode, setMode] = React.useState<Mode>("ask");
   const [query, setQuery] = React.useState("");
   const [collectionId, setCollectionId] = React.useState<string>(ALL);
   const [web, setWeb] = React.useState(false);
 
-  // Search-mode state
   const [searchResult, setSearchResult] = React.useState<SearchResult | null>(null);
   const [searching, setSearching] = React.useState(false);
 
-  // Ask-mode state: a multi-turn transcript backed by a server conversation.
   const [turns, setTurns] = React.useState<AskTurn[]>([]);
   const [conversationId, setConversationId] = React.useState<string | null>(null);
   const [asking, setAsking] = React.useState(false);
@@ -141,6 +143,17 @@ export default function SearchPage() {
     }
   }
 
+  /**
+   * Run one Ask turn, streaming the answer into the transcript.
+   *
+   * The server-side conversation is opened lazily, so follow-ups are grounded in history.
+   *
+   * The `finally` block resets only when no newer run has taken over, which is what the
+   * ref identity tells us. Keying on `signal.aborted` instead meant an abort with no
+   * successor - "New conversation" (or unmount) rather than a replacing question -
+   * skipped setAsking(false) forever, leaving `busy` stuck true and the Ask box
+   * permanently disabled until a page reload.
+   */
   async function runAsk() {
     askAbortRef.current?.abort();
     const controller = new AbortController();
@@ -168,7 +181,6 @@ export default function SearchPage() {
     ]);
 
     try {
-      // Lazily open a server-side conversation so follow-ups are grounded in history.
       let convId = conversationId;
       if (!convId) {
         const conv = await api.post<Conversation>("/conversations", { web_enabled: web });
@@ -200,11 +212,6 @@ export default function SearchPage() {
       if (err instanceof DOMException && err.name === "AbortError") return;
       toast.error(err instanceof ApiError ? err.message : "Ask failed");
     } finally {
-      // Reset only when no newer run has taken over, which is what the ref identity
-      // tells us. Keying on `signal.aborted` instead meant an abort with no successor -
-      // "New conversation" (or unmount) rather than a replacing question - skipped
-      // setAsking(false) forever, leaving `busy` stuck true and the Ask box permanently
-      // disabled until a page reload.
       if (askAbortRef.current === controller) {
         setAsking(false);
         patchTurn(turnId, { streaming: false });
@@ -348,7 +355,6 @@ export default function SearchPage() {
         ) : null}
       </Card>
 
-      {/* --- Ask transcript --- */}
       {mode === "ask" && turns.length > 0 ? (
         <div className="space-y-6">
           {turns.map((turn) => (
@@ -450,7 +456,6 @@ export default function SearchPage() {
         </div>
       ) : null}
 
-      {/* --- Search results --- */}
       {hasSearchResults ? (
         <div className="space-y-4">
           {searchResult!.answers.length > 0 ? (

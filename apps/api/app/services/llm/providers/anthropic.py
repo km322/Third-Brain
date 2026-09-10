@@ -15,17 +15,14 @@ SUPPORTS_EMBEDDINGS = False
 
 _API_VERSION = "2023-06-01"
 
-# ``max_tokens`` is REQUIRED by the Messages API; used when the caller passes ``None``.
-# Kept generous (every current Claude model supports far more) because on the Claude 5
-# family thinking is on by default and ``max_tokens`` caps thinking PLUS visible text -
-# the budget must leave reasoning headroom or a long grounded answer gets silently
-# truncated (or emptied) on the Anthropic path when no explicit cap is set.
 _DEFAULT_MAX_TOKENS = 16384
+"""``max_tokens`` is REQUIRED by the Messages API; used when the caller passes ``None``.
 
-# Model families that REJECT the ``temperature`` parameter with a 400 (sampling
-# parameters were removed from Opus 4.7+ and the whole Claude 5 family - Opus 5,
-# Sonnet 5, Fable and Mythos). ``temperature`` is sent only to models outside these
-# prefixes.
+Kept generous (every current Claude model supports far more) because on the Claude 5
+family thinking is on by default and ``max_tokens`` caps thinking PLUS visible text -
+the budget must leave reasoning headroom or a long grounded answer gets silently
+truncated (or emptied) on the Anthropic path when no explicit cap is set."""
+
 _NO_TEMPERATURE_PREFIXES = (
     "claude-opus-4-7",
     "claude-opus-4-8",
@@ -34,15 +31,20 @@ _NO_TEMPERATURE_PREFIXES = (
     "claude-fable",
     "claude-mythos",
 )
+"""Model families that REJECT the ``temperature`` parameter with a 400 (sampling
+parameters were removed from Opus 4.7+ and the whole Claude 5 family - Opus 5,
+Sonnet 5, Fable and Mythos). ``temperature`` is sent only to models outside these
+prefixes."""
 
 _STOP_REASONS = {
     "end_turn": "stop",
     "max_tokens": "length",
     "model_context_window_exceeded": "length",
-    # Claude 4.5+/5 safety classifiers decline with HTTP 200 + ``refusal``; normalize to
-    # the OpenAI-style vocabulary the facade exposes.
     "refusal": "content_filter",
 }
+"""Anthropic stop reason -> the OpenAI-style vocabulary the facade exposes.
+
+Claude 4.5+/5 safety classifiers decline with HTTP 200 + ``refusal``, hence its entry."""
 
 
 def headers(key: str | None) -> dict[str, str]:
@@ -68,11 +70,14 @@ def chat_payload(
     max_tokens: int | None,
     stream: bool,
 ) -> dict[str, Any]:
-    # System-role messages become the top-level ``system`` string; every other message
-    # maps to user/assistant ("tool" content is treated as user text - the facade's
-    # chat surface has no native tool-result blocks). A message carrying ``images``
-    # becomes content blocks (images first, per Anthropic's guidance, then the text);
-    # text-only content stays a plain string.
+    """Build the ``/v1/messages`` request body.
+
+    System-role messages become the top-level ``system`` string; every other message
+    maps to user/assistant ("tool" content is treated as user text - the facade's
+    chat surface has no native tool-result blocks). A message carrying ``images``
+    becomes content blocks (images first, per Anthropic's guidance, then the text);
+    text-only content stays a plain string.
+    """
     system_parts: list[str] = []
     turns: list[dict[str, Any]] = []
     for message in messages:

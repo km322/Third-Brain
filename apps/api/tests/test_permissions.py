@@ -18,10 +18,9 @@ from app.models.enums import PermissionLevel, max_permission, permission_at_leas
 from app.services.permissions import RetrievalScope
 
 
-# --------------------------------------------------------------------------- #
-# Permission ordering helpers
-# --------------------------------------------------------------------------- #
 class TestPermissionMath:
+    """The permission ordering helpers."""
+
     def test_max_permission_picks_highest(self) -> None:
         assert (
             max_permission(PermissionLevel.NONE, PermissionLevel.VIEWER, PermissionLevel.MANAGER)
@@ -45,15 +44,14 @@ class TestPermissionMath:
         assert not permission_at_least(PermissionLevel.NONE, PermissionLevel.VIEWER)
 
 
-# --------------------------------------------------------------------------- #
-# RetrievalScope predicate construction
-# --------------------------------------------------------------------------- #
 def _compiled_where(scope: RetrievalScope) -> str:
     """Compile ``scope.apply(select(DocumentChunk.id))`` to a SQL string."""
     return str(scope.apply(select(DocumentChunk.id)))
 
 
 class TestRetrievalScopeApply:
+    """Predicate construction by :meth:`RetrievalScope.apply`."""
+
     def test_is_empty_semantics(self) -> None:
         oid = uuid.uuid4()
         assert RetrievalScope(org_id=oid).is_empty is True
@@ -103,8 +101,10 @@ class TestRetrievalScopeApply:
         assert "document_chunks.document_id NOT IN" in sql
 
     def test_no_access_produces_impossible_predicate(self) -> None:
-        # all_access False with no collections and no extra documents => the caller can
-        # see nothing, which must compile to a predicate that matches no rows.
+        """``all_access`` False with no collections and no extra documents sees nothing.
+
+        That must compile to a predicate which matches no rows.
+        """
         scope = RetrievalScope(org_id=uuid.uuid4())
         sql = _compiled_where(scope)
         assert "document_chunks.id IS NULL" in sql

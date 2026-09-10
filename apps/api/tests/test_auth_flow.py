@@ -17,9 +17,12 @@ from __future__ import annotations
 
 import pytest
 
-# These journeys drive the real app against Postgres+pgvector, so they belong to the
-# integration tier (they were running unmarked, and `pytest -m integration` skipped them).
 pytestmark = pytest.mark.integration
+"""Mark both journeys as integration-tier.
+
+They drive the real app against Postgres+pgvector, so they belong there - they were
+running unmarked, and ``pytest -m integration`` skipped them.
+"""
 
 CONTENT = (
     "Photosynthesis is the process by which green plants convert sunlight into "
@@ -28,10 +31,15 @@ CONTENT = (
 
 
 async def test_register_login_ingest_and_search(client, register, ingest_now, api) -> None:
-    """Full happy path: a user can register, add content and find it again."""
+    """Full happy path: a user can register, add content and find it again.
+
+    Login is driven explicitly so the credential path is exercised independently of
+    registration; the resulting session then resolves to the caller as OWNER of their
+    bootstrap org. The added text document starts life as ``pending`` and ingestion is
+    driven inline (extract -> chunk -> embed -> index) before retrieval is asserted.
+    """
     session = await register(client, full_name="Ada Lovelace")
 
-    # Login exercises the credential path independently of registration.
     login = await client.post(
         f"{api}/auth/login",
         json={"email": session["email"], "password": session["password"]},
@@ -39,13 +47,11 @@ async def test_register_login_ingest_and_search(client, register, ingest_now, ap
     assert login.status_code == 200, login.text
     headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
 
-    # The session resolves to the caller as OWNER of their bootstrap org.
     me = await client.get(f"{api}/users/me", headers=headers)
     assert me.status_code == 200, me.text
     assert me.json()["user"]["email"] == session["email"]
     assert me.json()["role"] == "owner"
 
-    # Create a knowledge base.
     coll = await client.post(
         f"{api}/collections",
         headers=headers,
@@ -54,7 +60,6 @@ async def test_register_login_ingest_and_search(client, register, ingest_now, ap
     assert coll.status_code == 201, coll.text
     collection_id = coll.json()["id"]
 
-    # Add a text document; it starts life as ``pending``.
     doc = await client.post(
         f"{api}/documents/text",
         headers=headers,
@@ -64,7 +69,6 @@ async def test_register_login_ingest_and_search(client, register, ingest_now, ap
     document_id = doc.json()["id"]
     assert doc.json()["status"] == "pending"
 
-    # Drive ingestion inline (extract -> chunk -> embed -> index).
     await ingest_now(document_id)
 
     detail = await client.get(f"{api}/documents/{document_id}", headers=headers)
@@ -76,7 +80,6 @@ async def test_register_login_ingest_and_search(client, register, ingest_now, ap
     assert chunks.status_code == 200, chunks.text
     assert len(chunks.json()) >= 1
 
-    # Retrieval finds the ingested document.
     search = await client.post(
         f"{api}/search",
         headers=headers,
@@ -92,8 +95,14 @@ async def test_register_login_ingest_and_search(client, register, ingest_now, ap
 async def test_private_document_is_not_retrievable_by_outsider(
     client, register, ingest_now, api
 ) -> None:
-    """A member without a grant on a private collection cannot retrieve its content."""
-    # Register the second user first so they exist for the invite lookup.
+    """A member without a grant on a private collection cannot retrieve its content.
+
+    The outsider is registered first so they exist for the invite lookup. The owner's own
+    search runs as a positive control - the org admin CAN retrieve their private document
+    - before the outsider is added to the org as a plain viewer, with no grant on the
+    private collection. That collection is then invisible in their listing, and their
+    search surfaces nothing from it because the org holds only the private collection.
+    """
     outsider = await register(client, full_name="Outsider")
 
     owner = await register(client, full_name="Collection Owner")
@@ -126,12 +135,10 @@ async def test_private_document_is_not_retrievable_by_outsider(
 
     query = {"query": "project aurora launch code"}
 
-    # Positive control: the owner (org admin) CAN retrieve their private document.
     owner_search = await client.post(f"{api}/search", headers=owner_headers, json=query)
     assert owner_search.status_code == 200, owner_search.text
     assert any(h["document_id"] == document_id for h in owner_search.json()["hits"])
 
-    # Add the outsider to the org as a plain viewer (no grant on the private collection).
     invite = await client.post(
         f"{api}/orgs/members/invite",
         headers=owner_headers,
@@ -146,19 +153,16 @@ async def test_private_document_is_not_retrievable_by_outsider(
     )
     assert activate.status_code == 200, activate.text
 
-    # The outsider activates the org context.
     switch = await client.post(
         f"{api}/orgs/switch", headers=outsider["headers"], json={"org_id": org_id}
     )
     assert switch.status_code == 200, switch.text
     outsider_headers = {"Authorization": f"Bearer {switch.json()['access_token']}"}
 
-    # The private collection is invisible to them...
     listed = await client.get(f"{api}/collections", headers=outsider_headers)
     assert listed.status_code == 200, listed.text
     assert all(c["id"] != collection_id for c in listed.json())
 
-    # ...and search surfaces nothing from it (the org holds only the private collection).
     outsider_search = await client.post(f"{api}/search", headers=outsider_headers, json=query)
     assert outsider_search.status_code == 200, outsider_search.text
     assert outsider_search.json()["hits"] == []

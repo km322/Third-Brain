@@ -70,7 +70,7 @@ import { cn, initials } from "@/lib/utils";
 
 const ROLE_OPTIONS: OrgRole[] = ["viewer", "editor", "admin", "owner"];
 
-// Most → least privileged, for the "Roles and access" reference card.
+/** Most → least privileged, for the "Roles and access" reference card. */
 const ROLE_REFERENCE: OrgRole[] = ["owner", "admin", "editor", "viewer"];
 
 function errMsg(e: unknown, fallback = "Something went wrong") {
@@ -89,6 +89,14 @@ function RoleOptionLabel({ role }: { role: OrgRole }) {
   );
 }
 
+/**
+ * Members - the org roster, each row's role, status and management actions.
+ *
+ * Owner-level transitions are owner-only, so for a non-owner the role control is disabled
+ * outright on an owner row (and the owner option is disabled everywhere else), and the row
+ * actions mirror the same backend owner-only gate - a non-owner admin is never offered
+ * actions that always 403.
+ */
 export default function MembersPage() {
   const { org, role, user } = useAuth();
   const admin = isOrgAdmin(role);
@@ -193,8 +201,6 @@ export default function MembersPage() {
       id: "role",
       header: "Role",
       cell: (m) => {
-        // Owner-level transitions are owner-only; disable the whole control on
-        // an owner row (and the owner option elsewhere) for non-owners.
         const locked = !isOwner && m.role === "owner";
         return locked ? (
           <RoleBadge role={m.role} />
@@ -232,8 +238,6 @@ export default function MembersPage() {
       align: "right",
       cell: (m) => {
         const isSelf = m.user_id === user?.id;
-        // Only an owner may change an owner's role, status or membership; mirror the backend
-        // owner-only gate so a non-owner admin isn't offered actions that always 403.
         const ownerLocked = m.role === "owner" && !isOwner;
         const canRemoveOwner = m.role !== "owner" || isOwner;
         return (
@@ -354,7 +358,6 @@ export default function MembersPage() {
         onInvited={() => void invalidate()}
       />
 
-      {/* Reset-password confirm */}
       <Dialog open={resetting !== null} onOpenChange={(o) => !o && setResetting(null)}>
         <DialogContent className="max-w-md">
           <DialogHeader>
@@ -383,7 +386,6 @@ export default function MembersPage() {
         </DialogContent>
       </Dialog>
 
-      {/* One-time temporary-password reveal */}
       <Dialog open={tempReset !== null} onOpenChange={(o) => !o && setTempReset(null)}>
         <DialogContent className="max-w-lg">
           <DialogHeader>

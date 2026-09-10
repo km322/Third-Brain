@@ -97,20 +97,33 @@ class LocalFolderConnector(BaseConnector):
 
     @classmethod
     def validate_config(cls, config: dict, secret: str | None) -> None:
+        """Require a ``root`` path and confine it to an operator-allowed directory.
+
+        The confinement check is what stops a source ever being configured to read /etc,
+        /proc, another tenant's uploads, etc.
+        """
         root = (config or {}).get("root")
         if not root or not isinstance(root, str):
             raise ValueError("local_folder connector requires a 'root' path in config")
-        # Confine the root to an operator-allowed directory so a source can never be
-        # configured to read /etc, /proc, another tenant's uploads, etc.
         _resolve_within_allowed(root)
 
     async def fetch(self, cursor: str | None, secret: str | None) -> SyncBatch:
-        # File I/O is blocking; do the whole scan in a worker thread.
+        """Scan the whole tree. File I/O is blocking, so it runs in a worker thread."""
         return await asyncio.to_thread(self._scan)
 
     def _scan(self) -> SyncBatch:
-        # Re-check confinement at scan time, not just on create: the allow-list (or the
-        # stored config) could have changed since the source was created.
+        """Walk the root and return every readable file as a :class:`RemoteDocument`.
+
+        Confinement is re-checked here, not just on create: the allow-list (or the stored
+        config) could have changed since the source was created.
+
+        A symlink inside the tree can point outside the allowed root, so one is never
+        followed out of bounds (``rglob`` may descend into symlinked directories on some
+        platforms). Hidden files/dirs and the ACL sidecar are skipped.
+
+        A full directory scan is authoritative: anything previously synced but no longer
+        present has been deleted upstream, hence ``full_sync=True``.
+        """
         root = _resolve_within_allowed(self.config.get("root", ""))
         if not root.is_dir():
             raise ConnectorError(f"local_folder root does not exist or is not a directory: {root}")
@@ -120,8 +133,6 @@ class LocalFolderConnector(BaseConnector):
         for path in sorted(root.rglob("*")):
             if not path.is_file():
                 continue
-            # A symlink inside the tree can point outside the allowed root; never follow one
-            # out of bounds (rglob may descend into symlinked directories on some platforms).
             try:
                 real = path.resolve()
             except OSError:
@@ -130,7 +141,6 @@ class LocalFolderConnector(BaseConnector):
                 continue
             relpath = path.relative_to(root)
             rel = relpath.as_posix()
-            # Skip hidden files/dirs and the ACL sidecar.
             if rel == ACL_FILENAME or any(part.startswith(".") for part in relpath.parts):
                 continue
             try:
@@ -151,8 +161,6 @@ class LocalFolderConnector(BaseConnector):
                     acl=[_parse_principal(s) for s in specs],
                 )
             )
-        # A full directory scan is authoritative: anything previously synced but no longer
-        # present has been deleted upstream.
         return SyncBatch(documents=documents, cursor=None, full_sync=True)
 
     def _load_acl(self, root: Path) -> tuple[dict[str, list[str]], list[str]]:

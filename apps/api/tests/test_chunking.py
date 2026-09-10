@@ -13,19 +13,18 @@ from app.core.config import settings
 from app.services.chunking import TextChunk, _windows, chunk_text
 
 
-# --------------------------------------------------------------------------- #
-# Window arithmetic (deterministic, tiktoken-independent)
-# --------------------------------------------------------------------------- #
 class TestWindows:
+    """Window arithmetic - deterministic, and independent of whether tiktoken is installed."""
+
     def test_basic_overlap(self) -> None:
-        # size=4, overlap=1 => step=3.
+        """size=4, overlap=1 => step=3."""
         assert list(_windows(10, 4, 1)) == [(0, 4), (3, 7), (6, 10)]
 
     def test_no_overlap_tiles_exactly(self) -> None:
         assert list(_windows(6, 3, 0)) == [(0, 3), (3, 6)]
 
     def test_dense_overlap(self) -> None:
-        # size=3, overlap=1 => step=2.
+        """size=3, overlap=1 => step=2."""
         assert list(_windows(6, 3, 1)) == [(0, 3), (2, 5), (4, 6)]
 
     def test_single_window_when_shorter_than_size(self) -> None:
@@ -35,26 +34,22 @@ class TestWindows:
         assert list(_windows(0, 4, 1)) == []
 
     def test_terminates_and_last_window_reaches_end(self) -> None:
+        """The last window reaches the end, and windows advance monotonically."""
         windows = list(_windows(100, 10, 3))
         assert windows[0][0] == 0
         assert windows[-1][1] == 100
-        # Windows advance monotonically and never run away.
         for (s0, _), (s1, _) in zip(windows, windows[1:], strict=False):
             assert s1 > s0
 
 
-# --------------------------------------------------------------------------- #
-# TextChunk dataclass
-# --------------------------------------------------------------------------- #
 def test_textchunk_fields() -> None:
     chunk = TextChunk(index=2, content="hello", token_count=1)
     assert (chunk.index, chunk.content, chunk.token_count) == (2, "hello", 1)
 
 
-# --------------------------------------------------------------------------- #
-# chunk_text - invariants that hold under both backends
-# --------------------------------------------------------------------------- #
 class TestChunkText:
+    """Invariants of :func:`chunk_text` that hold under both backends."""
+
     def test_empty_and_whitespace_input_returns_no_chunks(self) -> None:
         assert chunk_text("") == []
         assert chunk_text("   \n\t  ") == []
@@ -68,18 +63,17 @@ class TestChunkText:
         assert chunks[0].token_count > 0
 
     def test_long_text_splits_into_contiguous_indexed_chunks(self) -> None:
+        """Indices are contiguous from 0, and every chunk is non-empty and within budget."""
         text = " ".join(f"word{i}" for i in range(300))
         chunks = chunk_text(text, chunk_size=20, overlap=5)
         assert len(chunks) > 1
-        # Indices are contiguous starting at 0.
         assert [c.index for c in chunks] == list(range(len(chunks)))
-        # Every emitted chunk is non-empty and within the requested size budget.
         for c in chunks:
             assert c.content.strip()
             assert 0 < c.token_count <= 20
 
     def test_overlap_is_clamped_and_does_not_hang(self) -> None:
-        # overlap >= size must be clamped to size-1 (step >= 1) so this terminates.
+        """``overlap >= size`` must be clamped to ``size - 1`` (step >= 1) so this terminates."""
         text = " ".join(f"tok{i}" for i in range(50))
         chunks = chunk_text(text, chunk_size=4, overlap=100)
         assert len(chunks) > 1
@@ -92,8 +86,10 @@ class TestChunkText:
         assert [c.index for c in chunks] == list(range(len(chunks)))
 
     def test_defaults_come_from_settings(self) -> None:
-        # A body far under the configured window collapses to a single chunk whose
-        # token estimate stays within the configured chunk size.
+        """A body far under the configured window collapses to a single chunk.
+
+        Its token estimate stays within the configured chunk size.
+        """
         chunks = chunk_text("a short sentence about knowledge bases")
         assert len(chunks) == 1
         assert chunks[0].token_count <= settings.CHUNK_SIZE_TOKENS

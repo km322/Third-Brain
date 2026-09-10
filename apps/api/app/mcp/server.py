@@ -69,30 +69,31 @@ from app.mcp.tools import TOOL_DEFINITIONS, ToolError, dispatch_tool
 
 logger = get_logger(__name__)
 
-# Protocol constants
 JSONRPC_VERSION = "2.0"
-# MCP protocol revisions this server actually implements. The client's requested version is
-# echoed back only when we support it; otherwise we answer with our latest supported version,
-# per the spec's version-negotiation rules.
+
 SUPPORTED_PROTOCOL_VERSIONS = ("2025-03-26", "2024-11-05")
+"""MCP protocol revisions this server actually implements.
+
+The client's requested version is echoed back only when we support it; otherwise we answer
+with our latest supported version, per the spec's version-negotiation rules.
+"""
+
 DEFAULT_PROTOCOL_VERSION = SUPPORTED_PROTOCOL_VERSIONS[0]
 SERVER_INFO = {"name": "third-brain", "version": __version__}
 
-# JSON-RPC error codes (subset) + a private code for auth failures.
 PARSE_ERROR = -32700
 INVALID_REQUEST = -32600
 METHOD_NOT_FOUND = -32601
 INVALID_PARAMS = -32602
 UNAUTHORIZED = -32001
+"""The standard JSON-RPC error codes this server uses, plus ``UNAUTHORIZED`` - a private
+code for auth failures."""
 
 
 class _AuthError(Exception):
     """Raised when a request cannot be authenticated for a data-touching method."""
 
 
-# --------------------------------------------------------------------------- #
-# JSON-RPC envelope helpers
-# --------------------------------------------------------------------------- #
 def _result(msg_id: Any, result: Any) -> dict[str, Any]:
     return {"jsonrpc": JSONRPC_VERSION, "id": msg_id, "result": result}
 
@@ -125,11 +126,13 @@ def _tool_error(msg_id: Any, message: str) -> dict[str, Any]:
     )
 
 
-# --------------------------------------------------------------------------- #
-# Authentication
-# --------------------------------------------------------------------------- #
 async def _authenticate(request: Request, db: AsyncSession) -> AuthContext:
-    """Resolve the caller from the request's API key header; enforce rate limits."""
+    """Resolve the caller from the request's API key header; enforce rate limits.
+
+    A rate-limit :class:`HTTPException` means a genuine 429 (limit hit) and is surfaced as
+    an auth error; any other limiter failure means the backing store is unreachable, and we
+    fail open.
+    """
     authorization = request.headers.get("authorization")
     x_api_key = request.headers.get("x-api-key")
     try:
@@ -141,7 +144,7 @@ async def _authenticate(request: Request, db: AsyncSession) -> AuthContext:
 
     try:
         await enforce_rate_limit(ctx)
-    except HTTPException as exc:  # 429 - genuine limit hit
+    except HTTPException as exc:
         raise _AuthError(
             exc.detail if isinstance(exc.detail, str) else "Rate limit exceeded"
         ) from exc
@@ -150,12 +153,13 @@ async def _authenticate(request: Request, db: AsyncSession) -> AuthContext:
     return ctx
 
 
-# --------------------------------------------------------------------------- #
-# Method handling
-# --------------------------------------------------------------------------- #
 def _initialize_result(params: dict[str, Any]) -> dict[str, Any]:
+    """Build the ``initialize`` result: negotiated protocol version, capabilities, instructions.
+
+    Only a version we actually implement is affirmed; anything else negotiates down to our
+    latest.
+    """
     requested = params.get("protocolVersion")
-    # Only affirm a version we actually implement; otherwise negotiate down to our latest.
     negotiated = requested if requested in SUPPORTED_PROTOCOL_VERSIONS else DEFAULT_PROTOCOL_VERSION
     return {
         "protocolVersion": negotiated,
@@ -185,7 +189,14 @@ def _initialize_result(params: dict[str, Any]) -> dict[str, Any]:
 async def _handle_message(
     message: Any, request: Request, db: AsyncSession
 ) -> dict[str, Any] | None:
-    """Handle one JSON-RPC message. Returns a response dict, or ``None`` for notifications."""
+    """Handle one JSON-RPC message. Returns a response dict, or ``None`` for notifications.
+
+    JSON-RPC 2.0: a message with no ``id`` is a Notification, and the server MUST NOT reply
+    to it - including for otherwise-request methods (initialize/ping/tools.*) sent id-less.
+
+    An unexpected tool failure never leaks internal exception text to clients in production
+    (parity with the REST 500 handler); the traceback is in the logs under this request.
+    """
     if not isinstance(message, dict):
         return _error(None, INVALID_REQUEST, "Invalid Request: message must be an object")
 
@@ -202,8 +213,6 @@ async def _handle_message(
     if not isinstance(params, dict):
         return _error(msg_id, INVALID_PARAMS, "Invalid params: expected an object")
 
-    # JSON-RPC 2.0: a message with no ``id`` is a Notification, and the server MUST NOT reply
-    # to it - including for otherwise-request methods (initialize/ping/tools.*) sent id-less.
     if is_notification:
         return None
 
@@ -240,8 +249,6 @@ async def _handle_message(
         except Exception as exc:  # pragma: no cover - unexpected tool failure
             await db.rollback()
             logger.exception("MCP tool '%s' failed", name)
-            # Never leak internal exception text to clients in production (parity with the
-            # REST 500 handler); the traceback is in the logs under this request.
             detail = (
                 "Internal error running the tool."
                 if settings.is_production
@@ -252,11 +259,12 @@ async def _handle_message(
     return _error(msg_id, METHOD_NOT_FOUND, f"Method not found: {method}")
 
 
-# --------------------------------------------------------------------------- #
-# HTTP routes
-# --------------------------------------------------------------------------- #
 async def _post_mcp(request: Request, db: AsyncSession = Depends(get_db)) -> Response:
-    """JSON-RPC 2.0 entrypoint for the MCP streamable-HTTP transport."""
+    """JSON-RPC 2.0 entrypoint for the MCP streamable-HTTP transport.
+
+    Handles both a batch (a JSON array) and a single request. A body consisting only of
+    notifications produces no response payload, so it answers ``202`` with an empty body.
+    """
     raw = await request.body()
     try:
         payload = json.loads(raw) if raw else None
@@ -266,7 +274,6 @@ async def _post_mcp(request: Request, db: AsyncSession = Depends(get_db)) -> Res
     if payload is None:
         return JSONResponse(_error(None, INVALID_REQUEST, "Empty request"), status_code=200)
 
-    # Batch request.
     if isinstance(payload, list):
         if not payload:
             return JSONResponse(_error(None, INVALID_REQUEST, "Empty batch"), status_code=200)
@@ -275,13 +282,12 @@ async def _post_mcp(request: Request, db: AsyncSession = Depends(get_db)) -> Res
             resp = await _handle_message(item, request, db)
             if resp is not None:
                 responses.append(resp)
-        if not responses:  # all notifications
+        if not responses:
             return Response(status_code=202)
         return JSONResponse(responses, status_code=200)
 
-    # Single request.
     response = await _handle_message(payload, request, db)
-    if response is None:  # a notification
+    if response is None:
         return Response(status_code=202)
     return JSONResponse(response, status_code=200)
 

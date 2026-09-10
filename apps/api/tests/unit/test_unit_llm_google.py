@@ -39,10 +39,9 @@ def _reset_shared_client() -> None:
     llm_client._client = None
 
 
-# --------------------------------------------------------------------------- #
-# Non-streaming stand-ins
-# --------------------------------------------------------------------------- #
 class _FakeResponse:
+    """A non-streaming stand-in for the ``httpx.Response`` the client reads."""
+
     def __init__(self, payload: dict) -> None:
         self._payload = payload
 
@@ -54,6 +53,11 @@ class _FakeResponse:
 
 
 def _make_post_client(payload: dict, captured: dict | None = None):
+    """An ``httpx.AsyncClient`` stand-in whose ``post`` always answers with ``payload``.
+
+    When ``captured`` is passed, the request's url/headers/json are recorded into it.
+    """
+
     class _Client:
         def __init__(self, *args, **kwargs) -> None:  # noqa: ANN002, ANN003
             pass
@@ -81,11 +85,13 @@ def _generate_content_payload(parts: list[str] | None = None, finish_reason: str
     }
 
 
-# --------------------------------------------------------------------------- #
-# Key/base coupling - no platform key may ever reach an org-supplied base, and the
-# Google platform key is only ever paired with the Google platform base.
-# --------------------------------------------------------------------------- #
 class TestEndpointCoupling:
+    """Key/base coupling.
+
+    No platform key may ever reach an org-supplied base, and the Google platform key is
+    only ever paired with the Google platform base.
+    """
+
     def test_custom_base_never_borrows_any_platform_key(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -116,6 +122,7 @@ class TestEndpointCoupling:
     async def test_completion_to_custom_base_sends_no_platform_key(
         self, provider_mode: None, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        """A keyless org connector pointed at an attacker-controlled base URL sends no key."""
         monkeypatch.setattr(settings, "GOOGLE_API_KEY", "GOOGLE-PLATFORM-SECRET")
         captured: dict = {}
         monkeypatch.setattr(
@@ -124,7 +131,6 @@ class TestEndpointCoupling:
             _make_post_client(_generate_content_payload(), captured),
         )
 
-        # Keyless org connector pointed at an attacker-controlled base URL.
         await complete(
             [ChatMessage(role="user", content="hi")],
             "gemini-2.5-flash",
@@ -138,10 +144,9 @@ class TestEndpointCoupling:
         assert "x-goog-api-key" not in captured["headers"]
 
 
-# --------------------------------------------------------------------------- #
-# complete() - Gemini request/response wire shape
-# --------------------------------------------------------------------------- #
 class TestCompleteGoogle:
+    """:func:`complete` - the Gemini request/response wire shape."""
+
     async def test_request_and_response_shape(
         self, provider_mode: None, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -230,15 +235,19 @@ class TestCompleteGoogle:
         assert "[offline model]" in result.text
 
 
-# --------------------------------------------------------------------------- #
-# embed_texts() - batchEmbedContents shape, normalization and input validation
-# --------------------------------------------------------------------------- #
 class TestEmbedGoogle:
+    """:func:`embed_texts` - ``batchEmbedContents`` shape, normalization, input validation."""
+
     async def test_request_shape_and_l2_normalization(
         self, provider_mode: None, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        """Truncated-dimension Gemini vectors are not unit-normalized on the wire.
+
+        The adapter must L2-normalize so pgvector cosine ranking stays sane. The canned
+        ``(3, 4)`` vector is a 3-4-5 triangle, so it normalizes to ``(0.6, 0.8)``. Token
+        counts are estimated, since Gemini reports no embedding usage.
+        """
         captured: dict = {}
-        # 3-4-5 triangle: normalizes to (0.6, 0.8).
         payload = {"embeddings": [{"values": [3.0, 4.0]}]}
         monkeypatch.setattr(llm_client.httpx, "AsyncClient", _make_post_client(payload, captured))
 
@@ -264,12 +273,10 @@ class TestEmbedGoogle:
                 }
             ]
         }
-        # Truncated-dimension Gemini vectors are not unit-normalized on the wire; the
-        # adapter must L2-normalize so pgvector cosine ranking stays sane.
         assert result.vectors == [[0.6, 0.8]]
         assert math.isclose(sum(v * v for v in result.vectors[0]), 1.0)
         assert result.provider == "google"
-        assert result.tokens > 0  # estimated - Gemini reports no embedding usage
+        assert result.tokens > 0
 
     async def test_token_id_arrays_raise_value_error(self, provider_mode: None) -> None:
         with pytest.raises(ValueError, match="token-id"):
@@ -307,14 +314,20 @@ class TestEmbedGoogle:
             )
 
 
-# --------------------------------------------------------------------------- #
-# Platform fallback: embeddings skip Anthropic (no embeddings API) and substitute the
-# Gemini default model for an OpenAI-family default.
-# --------------------------------------------------------------------------- #
 class TestPlatformFallback:
+    """The platform fallback chain.
+
+    Embeddings skip Anthropic (it has no embeddings API) and substitute the Gemini default
+    model for an OpenAI-family default.
+    """
+
     async def test_google_key_serves_platform_embeddings(
         self, provider_mode: None, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        """Anthropic, despite its key, is skipped for embeddings.
+
+        The OpenAI-family default embedding model is substituted with the Gemini one.
+        """
         monkeypatch.setattr(settings, "OPENAI_API_KEY", None)
         monkeypatch.setattr(settings, "ANTHROPIC_API_KEY", "anthro-platform")
         monkeypatch.setattr(settings, "GOOGLE_API_KEY", "google-platform")
@@ -325,8 +338,6 @@ class TestPlatformFallback:
 
         result = await embed_texts(["hello"])
 
-        # Anthropic (despite its key) is skipped for embeddings; the OpenAI-family
-        # default embedding model is substituted with the Gemini one.
         assert captured["headers"]["x-goog-api-key"] == "google-platform"
         assert ":batchEmbedContents" in captured["url"]
         assert captured["url"].startswith(settings.GOOGLE_BASE_URL)
@@ -356,10 +367,10 @@ class TestPlatformFallback:
     def test_effective_provider_reflects_key_priority(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        """An explicit provider always wins; otherwise the purpose-specific chain applies."""
         monkeypatch.setattr(settings, "OPENAI_API_KEY", None)
         monkeypatch.setattr(settings, "ANTHROPIC_API_KEY", "anthro-platform")
         monkeypatch.setattr(settings, "GOOGLE_API_KEY", "google-platform")
-        # An explicit provider always wins; otherwise the purpose-specific chain applies.
         assert effective_provider("openai", purpose="embedding") == "openai"
         assert effective_provider(purpose="embedding") == "google"
         assert effective_provider(purpose="completion") == "anthropic"
@@ -368,14 +379,14 @@ class TestPlatformFallback:
         assert effective_provider(purpose="embedding") == "offline"
 
 
-# --------------------------------------------------------------------------- #
-# stream_complete() - Gemini SSE shape
-# --------------------------------------------------------------------------- #
 def _sse_chunk(text: str) -> str:
+    """One Gemini SSE chunk as ``:streamGenerateContent?alt=sse`` would emit it."""
     return "data: " + json.dumps({"candidates": [{"content": {"parts": [{"text": text}]}}]})
 
 
 class _FakeStreamResponse:
+    """A streaming stand-in for the ``httpx.Response`` the client iterates."""
+
     def __init__(self, lines: list[str], *, fail_on_status: bool, drop: bool) -> None:
         self._lines = lines
         self._fail_on_status = fail_on_status
@@ -386,10 +397,10 @@ class _FakeStreamResponse:
             raise RuntimeError("provider returned 500")
 
     async def aiter_lines(self):
+        """Yield the canned lines, then optionally drop the connection mid-stream."""
         for line in self._lines:
             yield line
         if self._drop:
-            # Simulate the provider connection dropping mid-stream.
             raise RuntimeError("connection dropped mid-stream")
 
 
@@ -405,6 +416,7 @@ class _FakeStreamCtx:
 
 
 def _make_stream_client(lines: list[str], *, fail_on_status: bool = False, drop: bool = False):
+    """A streaming ``httpx.AsyncClient`` stand-in, plus the dict its request is recorded in."""
     captured: dict = {}
 
     class _Client:
@@ -423,6 +435,8 @@ def _make_stream_client(lines: list[str], *, fail_on_status: bool = False, drop:
 
 
 class TestStreamCompleteGoogle:
+    """:func:`stream_complete` - the Gemini SSE shape."""
+
     async def test_streams_candidate_text_parts_as_deltas(
         self, provider_mode: None, monkeypatch: pytest.MonkeyPatch
     ) -> None:

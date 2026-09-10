@@ -25,6 +25,24 @@ function errMsg(e: unknown, fallback: string) {
   return e instanceof ApiError ? e.message : fallback;
 }
 
+/**
+ * Document detail - the editor, the rendered preview and the indexed chunks for one
+ * document.
+ *
+ * Draft state is seeded from the loaded content and replaced wholesale on refetch unless
+ * the user has unsaved edits (their draft always wins). An unsaved draft is mirrored into
+ * sessionStorage and restored on mount, because client-side navigation unmounts this page
+ * without warning. Preview parsing is O(document), so keystrokes land in the textarea at
+ * urgent priority and the re-parse runs in an interruptible low-priority render behind
+ * them.
+ *
+ * On save the cache is seeded with what was actually saved BEFORE the draft is cleared, so
+ * the editor never flashes back to the pre-save text while the refetch is in flight -
+ * and keystrokes typed during the request are still unsaved work, so they are kept.
+ *
+ * The backend computes `editable` from this caller's effective permission on THIS document
+ * (org role alone is not authoritative - grants and collection visibility are).
+ */
 export default function DocumentDetailPage({
   params,
 }: {
@@ -56,17 +74,12 @@ export default function DocumentDetailPage({
   const chunks = chunksQuery.data ?? [];
   const totalTokens = chunks.reduce((sum, c) => sum + c.token_count, 0);
 
-  // Draft state: seeded from the loaded content, replaced wholesale on refetch
-  // unless the user has unsaved edits (their draft always wins).
   const [draft, setDraft] = React.useState<string | null>(null);
   const serverContent = contentQuery.data?.content ?? null;
   const text = draft ?? serverContent ?? "";
   const dirty = draft !== null && draft !== serverContent;
-  // Preview parsing is O(document), so let keystrokes land in the textarea at urgent
-  // priority and re-parse in an interruptible low-priority render behind them.
   const previewText = React.useDeferredValue(text);
 
-  // Restore an unsaved draft (client-side navigation unmounts this page without warning).
   React.useEffect(() => {
     const stored = sessionStorage.getItem(`doc-draft:${id}`);
     if (stored !== null) setDraft(stored);
@@ -99,12 +112,9 @@ export default function DocumentDetailPage({
       api.put<DocumentItem>(`/documents/${id}/content`, { content }),
     onSuccess: (_doc, savedContent) => {
       toast.success("Saved and re-indexed");
-      // Seed the cache with what was actually saved BEFORE clearing the draft, so the
-      // editor never flashes back to the pre-save text while the refetch is in flight.
       queryClient.setQueryData<DocumentContent>(["document-content", id], (old) =>
         old ? { ...old, content: savedContent } : old,
       );
-      // Keystrokes typed during the request are still unsaved work - keep them.
       setDraft((current) => (current === savedContent ? null : current));
       sessionStorage.removeItem(`doc-draft:${id}`);
       void queryClient.invalidateQueries({ queryKey: ["document", id] });
@@ -115,8 +125,6 @@ export default function DocumentDetailPage({
     onError: (e) => toast.error(errMsg(e, "Couldn't save the document")),
   });
 
-  // The backend computes `editable` from this caller's effective permission on THIS
-  // document (org role alone is not authoritative - grants and collection visibility are).
   const editable = (contentQuery.data?.editable ?? false) && !isImage;
   const convertsToText = Boolean(
     contentQuery.data &&

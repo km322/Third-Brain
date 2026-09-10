@@ -73,19 +73,21 @@ def answer_visibility_filters(ctx: AuthContext, scope: RetrievalScope) -> list[C
     :func:`build_retrieval_scope` already resolves as the collections the caller can read
     at >= VIEWER, mirroring ``effective_permission``. Document-level members of the scope
     are irrelevant here: an answer hangs off a collection or off nothing.
+
+    The branches, in order: ``scope.all_access`` is the org owner/admin, exactly as
+    :func:`can_read_answer` short-circuits; an org-level answer is governed by its own
+    visibility; and your own answer is readable wherever it lives.
     """
     filters: list[ColumnElement[bool]] = [Answer.org_id == scope.org_id]
-    if scope.all_access:  # org owner/admin, exactly as can_read_answer short-circuits
+    if scope.all_access:
         return filters
     allow: list[ColumnElement[bool]] = [
-        # Org-level answer: governed by its own visibility.
         and_(
             Answer.collection_id.is_(None),
             Answer.visibility.in_([Visibility.ORG, Visibility.PUBLIC]),
         )
     ]
     if ctx.user_id is not None:
-        # Your own answer, wherever it lives.
         allow.append(Answer.created_by_id == ctx.user_id)
     if scope.collection_ids:
         allow.append(Answer.collection_id.in_(scope.collection_ids))
@@ -96,15 +98,17 @@ def answer_visibility_filters(ctx: AuthContext, scope: RetrievalScope) -> list[C
 async def matching_answers(
     db: AsyncSession, ctx: AuthContext, query: str, *, limit: int = 3
 ) -> list[Answer]:
-    """Verified answers visible to ``ctx`` whose question shares a word with ``query``."""
+    """Verified answers visible to ``ctx`` whose question shares a word with ``query``.
+
+    Visibility is filtered in SQL *before* the limit. Taking the newest 25 and then dropping
+    the ones the caller cannot read would return nothing to someone whose only visible answer
+    ranks 26th, even though a match exists.
+    """
     words = list(dict.fromkeys(w.lower() for w in _WORD_RE.findall(query)))[:8]
     if not words:
         return []
     conditions = [Answer.question.ilike(f"%{w}%") for w in words]
     scope = await build_retrieval_scope(db, ctx)
-    # Filter in SQL *before* the limit. Taking the newest 25 and then dropping the ones the
-    # caller cannot read would return nothing to someone whose only visible answer ranks
-    # 26th, even though a match exists.
     return list(
         (
             await db.execute(

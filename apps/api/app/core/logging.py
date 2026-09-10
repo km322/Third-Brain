@@ -27,8 +27,6 @@ from app.core.config import settings
 
 _CONFIGURED = False
 
-# Third-party loggers that install their own handlers with ``propagate=False`` at import
-# time; re-routing them funnels their records through the shared root handler.
 _THIRD_PARTY_LOGGERS = (
     "uvicorn",
     "uvicorn.error",
@@ -41,6 +39,8 @@ _THIRD_PARTY_LOGGERS = (
     "arq.jobs",
     "arq.connections",
 )
+"""Third-party loggers that install their own handlers with ``propagate=False`` at import
+time; re-routing them funnels their records through the shared root handler."""
 
 _REDACTED_KEY_MARKERS = (
     "password",
@@ -148,13 +148,15 @@ def _reroute_third_party_loggers() -> None:
     ``configure_logging`` call because these loggers may be created after the first call
     (uvicorn before ``app.main`` import, arq inside the worker), so it must be idempotent
     and catch late arrivals. Re-routed loggers keep their levels; the root level applies.
+
+    Finally, noisy loggers are quietened unless we are debugging (levels only; their
+    handlers have already been cleared).
     """
     for name in _THIRD_PARTY_LOGGERS:
         third_party = logging.getLogger(name)
         third_party.handlers.clear()
         third_party.propagate = True
 
-    # Quiet noisy loggers unless we're debugging (levels only; handlers already cleared).
     level = getattr(logging, settings.LOG_LEVEL.upper(), logging.INFO)
     for noisy in ("uvicorn.access", "httpx", "httpcore"):
         logging.getLogger(noisy).setLevel(max(level, logging.WARNING))

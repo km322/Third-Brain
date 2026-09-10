@@ -73,10 +73,13 @@ async def get_conversation(
     ctx: AuthContext = Depends(get_session_context),
     db: AsyncSession = Depends(get_db),
 ) -> ConversationDetail:
+    """Fetch a conversation with its messages.
+
+    The ``messages`` relationship is ordered by seq (see the model).
+    """
     conv = await get_owned_conversation(db, ctx, conversation_id)
     if conv is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found")
-    # ``messages`` relationship is ordered by seq (see the model).
     await db.refresh(conv, attribute_names=["messages"])
     return ConversationDetail.model_validate(conv)
 

@@ -44,16 +44,16 @@ class QueryInsight(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     )
     result_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     top_score: Mapped[float | None] = mapped_column(Float, nullable=True)
-    # Whether the query produced a usable result (>=1 hit above the confidence floor, or a
-    # grounded chat answer). ``False`` rows are the knowledge gaps.
     answered: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    """Whether the query produced a usable result (>=1 hit above the confidence floor, or a
+    grounded chat answer). ``False`` rows are the knowledge gaps."""
     rating: Mapped[FeedbackRating | None] = mapped_column(
         Enum(FeedbackRating, native_enum=False, length=8), nullable=True
     )
     reason: Mapped[str | None] = mapped_column(String(512), nullable=True)
     rated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    # Present only under opt-in retention (see module docstring).
     query_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    """Present only under opt-in retention (see module docstring)."""
 
     def __repr__(self) -> str:  # pragma: no cover
         return f"<QueryInsight {self.kind} answered={self.answered} rating={self.rating}>"

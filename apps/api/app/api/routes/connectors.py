@@ -49,11 +49,12 @@ async def _validate_endpoint(config: dict | None, credentials: dict | None) -> N
     call path reads, and the same is_global check as URL ingestion, so the two egress paths
     cannot drift. (An operator who genuinely runs an internal LLM should expose it publicly or
     add an egress allow-list; org-configurable private targets are the vulnerability.)
+
+    A connector with no org-supplied base URL passes: native providers (OpenAI/Anthropic/
+    Google) use their platform default base URL, which needs no SSRF gating.
     """
     base = resolver.base_url_from(config, credentials)
     if not base:
-        # No org-supplied base: native providers (OpenAI/Anthropic/Google) use their
-        # platform default base URL, which needs no SSRF gating.
         return
     try:
         await ensure_public_url(base)
@@ -76,9 +77,6 @@ def _validate_purpose(connector_type: ConnectorType, purpose: ConnectorPurpose) 
         )
 
 
-# --------------------------------------------------------------------------- #
-# Helpers
-# --------------------------------------------------------------------------- #
 async def _get_owned(db: AsyncSession, ctx: AuthContext, connector_id: uuid.UUID) -> Connector:
     """Fetch a connector, enforcing org isolation (404 otherwise)."""
     connector = await db.get(Connector, connector_id)
@@ -112,9 +110,6 @@ def _encrypt_credentials(credentials: dict | None) -> str | None:
     return encrypt_secret(json.dumps(credentials))
 
 
-# --------------------------------------------------------------------------- #
-# CRUD
-# --------------------------------------------------------------------------- #
 @router.get("", response_model=list[ConnectorRead])
 async def list_connectors(
     ctx: AuthContext = Depends(get_auth_context),
@@ -145,14 +140,14 @@ async def create_connector(
     """Create a connector. The credential map is encrypted before it touches disk.
 
     The connector becomes the default for its ``(org, purpose)`` when explicitly
-    requested, or automatically when it is the first one for that purpose.
+    requested, or automatically when it is the first one for that purpose. A disabled
+    connector can never be the (effective) default - the resolver only returns enabled ones -
+    so marking one default here is refused: doing so would clear the org's real default and
+    silently drop the provider. Mirrors :func:`update_connector`.
     """
     _validate_purpose(payload.type, payload.purpose)
     await _validate_endpoint(payload.config, payload.credentials)
     existing_default = await resolver.default_connector(db, ctx.org_id, payload.purpose)
-    # A disabled connector can never be the (effective) default - the resolver only
-    # returns enabled ones - so refuse to mark one default here. Doing so would clear the
-    # org's real default and silently drop the provider. Mirrors ``update_connector``.
     make_default = bool(payload.enabled) and (payload.is_default or existing_default is None)
 
     connector = Connector(
@@ -206,23 +201,30 @@ async def update_connector(
     ctx: AuthContext = Depends(require_role(OrgRole.ADMIN)),
     db: AsyncSession = Depends(get_db),
 ) -> ConnectorRead:
-    """Update a connector. Provided ``credentials`` replace the stored secret;
-    an empty object clears it."""
+    """Update a connector.
+
+    ``credentials`` present (even as ``{}``) means "replace"; ``{}`` clears the stored
+    secret. ``model_fields_set`` tells us which fields the client actually sent, so we can
+    distinguish "omitted" from "explicitly set to a falsy value" (e.g. ``credentials={}``).
+
+    The effective post-update provider/purpose pair is validated, so an unsupported
+    combination cannot be smuggled in by changing either field alone. The endpoint is
+    re-validated whenever the config or credentials (where a base URL may live) change,
+    again using the effective post-update values so a private/internal target cannot be
+    smuggled in via an update either.
+
+    A disabled connector can never remain a default. The "exactly one default per
+    (org, purpose)" invariant is preserved even when the purpose changed while the connector
+    stayed the default (which would otherwise leave two defaults for the new purpose).
+    """
     connector = await _get_owned(db, ctx, connector_id)
-    # ``model_fields_set`` tells us which fields the client actually sent, so we can
-    # distinguish "omitted" from "explicitly set to a falsy value" (e.g. credentials={}).
     fields_set = payload.model_fields_set
 
-    # Validate the effective post-update provider/purpose pair, so an unsupported
-    # combination cannot be smuggled in by changing either field alone.
     _validate_purpose(
         payload.type if payload.type is not None else connector.type,
         payload.purpose if payload.purpose is not None else connector.purpose,
     )
 
-    # Re-validate the endpoint whenever the config or credentials (where a base URL may live)
-    # change, using the effective post-update values so a private/internal target cannot be
-    # smuggled in via an update either.
     if payload.config is not None or "credentials" in fields_set:
         effective_config = payload.config if payload.config is not None else connector.config
         effective_creds = (
@@ -244,11 +246,9 @@ async def update_connector(
         connector.config = payload.config
     if payload.enabled is not None:
         connector.enabled = payload.enabled
-    # ``credentials`` present (even as {}) means "replace"; {} clears the secret.
     if "credentials" in fields_set:
         connector.encrypted_credentials = _encrypt_credentials(payload.credentials)
 
-    # A disabled connector can never remain a default.
     if not connector.enabled:
         connector.is_default = False
     elif payload.is_default is True:
@@ -256,9 +256,6 @@ async def update_connector(
     elif payload.is_default is False:
         connector.is_default = False
 
-    # Preserve the "exactly one default per (org, purpose)" invariant, even when the
-    # purpose changed while the connector stayed the default (which would otherwise
-    # leave two defaults for the new purpose).
     if connector.enabled and connector.is_default:
         await _clear_other_defaults(db, ctx.org_id, connector.purpose, keep_id=connector.id)
 
@@ -324,24 +321,32 @@ async def delete_connector(
     await db.commit()
 
 
-# --------------------------------------------------------------------------- #
-# Test - a tiny live round-trip against the configured provider.
-# --------------------------------------------------------------------------- #
 @router.post("/{connector_id}/test", response_model=ConnectorTestResult)
 async def test_connector(
     connector_id: uuid.UUID,
     ctx: AuthContext = Depends(require_role(OrgRole.ADMIN)),
     db: AsyncSession = Depends(get_db),
 ) -> ConnectorTestResult:
-    """Exercise the connector with a minimal embed/completion and report ok + latency.
+    """Exercise the connector with a tiny live round-trip against the configured provider
+    (a minimal embed/completion) and report ok + latency.
 
     The LLM facade falls back to a deterministic offline provider on failure, so when a
     real credential is configured but the live call falls back to ``fake`` we treat the
-    test as failed and say so.
+    test as failed and say so. The offline stub labels itself "offline" (never "fake"), so
+    a billable-provider check is what detects the fallback.
+
+    Legacy rows predating the purpose gate could still hold an unsupported provider/purpose
+    pair; this surfaces the same clear error the create/update path gives.
+
+    The completion probe passes ``max_tokens=256`` rather than something tiny because on the
+    Claude 5 family ``max_tokens`` caps default-on thinking PLUS the visible answer, so a
+    tiny cap yields an empty reply.
+
+    An embedding connector whose vectors have a dimension other than ``EMBEDDING_DIM`` is
+    reported as failed: the ``document_chunks.embedding`` column is a fixed-width vector, so
+    such a connector would pass a naive test but then break every ingestion and search.
     """
     connector = await _get_owned(db, ctx, connector_id)
-    # Legacy rows predating the purpose gate could still hold an unsupported pair;
-    # surface the same clear error the create/update path gives.
     _validate_purpose(connector.type, connector.purpose)
     credentials = resolver.decrypt_credentials(connector)
     api_key = resolver.api_key_of(credentials)
@@ -368,16 +373,12 @@ async def test_connector(
             provider = result.provider
             tokens_in = result.tokens
             produced = bool(result.vectors and result.vectors[0])
-            # The document_chunks.embedding column is a fixed-width vector; a connector whose
-            # embeddings have a different dimension would pass this test but then break every
-            # ingestion and search, so reject a dimension mismatch here.
             if produced and len(result.vectors[0]) != settings.EMBEDDING_DIM:
                 dim_mismatch = (
                     f"Embedding dimension {len(result.vectors[0])} does not match the "
                     f"configured {settings.EMBEDDING_DIM}."
                 )
         else:
-            # Completion connectors validate with a tiny completion call.
             kind = UsageKind.COMPLETION
             result = await complete(
                 [ChatMessage(role="user", content="Reply with 'ok'.")],
@@ -385,8 +386,6 @@ async def test_connector(
                 api_key=api_key,
                 api_base=api_base,
                 provider=provider_kind,
-                # On the Claude 5 family ``max_tokens`` caps default-on thinking PLUS
-                # the visible answer; a tiny cap yields an empty reply.
                 max_tokens=256,
             )
             provider = result.provider
@@ -394,8 +393,6 @@ async def test_connector(
             tokens_out = result.tokens_out
             produced = bool(result.text and result.text.strip())
 
-        # The offline stub labels itself "offline" (never "fake"). If a real credential is
-        # configured but the call still fell back offline, the live call failed.
         used_offline = not is_billable_provider(provider)
         if not produced:
             ok, message = False, "Provider returned no output."

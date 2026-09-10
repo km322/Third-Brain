@@ -43,12 +43,12 @@ __all__ = [
 
 REQUEST_ID_HEADER = "x-request-id"
 
-# Default sentinel so log lines emitted outside any request still format cleanly.
 request_id_ctx: ContextVar[str] = ContextVar("request_id", default="-")
+"""Default sentinel so log lines emitted outside any request still format cleanly."""
 
-# Conservative allow-list for inbound ids: prevents header/log injection while still
-# accepting the common uuid / trace-id shapes callers propagate.
 _SAFE_ID_RE = re.compile(r"^[A-Za-z0-9._\-]{1,200}$")
+"""Conservative allow-list for inbound ids: prevents header/log injection while still
+accepting the common uuid / trace-id shapes callers propagate."""
 
 _access_logger = get_logger("app.access")
 
@@ -71,7 +71,11 @@ def current_request_id() -> str:
 
 
 class RequestIDMiddleware:
-    """Bind a stable request id for the lifetime of each HTTP request."""
+    """Bind a stable request id for the lifetime of each HTTP request.
+
+    The id is written into the ASGI ``state`` so it is exposed to route handlers and to
+    anything else reading ``request.state``.
+    """
 
     def __init__(self, app: ASGIApp) -> None:
         self.app = app
@@ -84,7 +88,6 @@ class RequestIDMiddleware:
         inbound = Headers(scope=scope).get(REQUEST_ID_HEADER)
         request_id = _sanitize_request_id(inbound)
 
-        # Expose to route handlers and to anything reading request.state.
         scope.setdefault("state", {})["request_id"] = request_id
         token = request_id_ctx.set(request_id)
         structlog.contextvars.clear_contextvars()
@@ -103,7 +106,10 @@ class RequestIDMiddleware:
 
 
 class SecurityHeadersMiddleware:
-    """Attach hardening headers to every HTTP response."""
+    """Attach hardening headers to every HTTP response.
+
+    HSTS is sent only in production: sending it in dev would poison localhost over http.
+    """
 
     def __init__(self, app: ASGIApp) -> None:
         self.app = app
@@ -112,7 +118,6 @@ class SecurityHeadersMiddleware:
             "x-frame-options": "DENY",
             "referrer-policy": "strict-origin-when-cross-origin",
         }
-        # HSTS only in production: sending it in dev would poison localhost over http.
         self._hsts = (
             "max-age=63072000; includeSubDomains; preload" if settings.is_production else None
         )
@@ -143,6 +148,9 @@ class BodySizeLimitMiddleware:
     length, a running byte count signals a disconnect once the cap is crossed so the handler
     aborts with bounded memory. Multipart uploads spool to disk, but the cap (well above the
     upload limit) still bounds them.
+
+    A malformed ``Content-Length`` header falls through to that same streaming guard, which
+    stops feeding the oversized body so the handler's read aborts with what it already has.
     """
 
     def __init__(self, app: ASGIApp, max_bytes: int) -> None:
@@ -161,7 +169,7 @@ class BodySizeLimitMiddleware:
                     await self._reject(send)
                     return
             except ValueError:
-                pass  # malformed header - fall through to the streaming guard
+                pass
 
         received = 0
 
@@ -171,7 +179,6 @@ class BodySizeLimitMiddleware:
             if message["type"] == "http.request":
                 received += len(message.get("body", b"") or b"")
                 if received > self.max_bytes:
-                    # Stop feeding the oversized body; the handler's read aborts with what it has.
                     return {"type": "http.disconnect"}
             return message
 
@@ -196,9 +203,9 @@ class BodySizeLimitMiddleware:
         )
 
 
-# The capability token in /files/{token} IS the credential for those bytes, so it must
-# never reach the access log (or any log shipper downstream).
 _CAPABILITY_PATH_RE = re.compile(r"(/files/)[^/?#]+")
+"""The capability token in ``/files/{token}`` IS the credential for those bytes, so it must
+never reach the access log (or any log shipper downstream)."""
 
 
 def scrub_capability_path(path: str) -> str:
@@ -207,7 +214,11 @@ def scrub_capability_path(path: str) -> str:
 
 
 class AccessLogMiddleware:
-    """Emit one structured access-log line per request with timing."""
+    """Emit one structured access-log line per request with timing.
+
+    When the application raises, the response is a 500 synthesized upstream; the timing
+    line is logged here and the exception re-raised.
+    """
 
     def __init__(self, app: ASGIApp) -> None:
         self.app = app
@@ -233,7 +244,6 @@ class AccessLogMiddleware:
         try:
             await self.app(scope, receive, send_capture)
         except Exception:
-            # The response is a 500 synthesized upstream; log the timing then re-raise.
             duration_ms = (time.perf_counter() - start) * 1000.0
             self._emit(method, path, 500, duration_ms, client_ip, logging.ERROR)
             raise

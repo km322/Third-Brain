@@ -34,6 +34,12 @@ function actionVariant(action: string): "success" | "info" | "destructive" | "mu
   return "muted";
 }
 
+/**
+ * Audit log - a record of sensitive actions across the org, for owners and admins.
+ *
+ * The server has no action filter, so the action dropdown and the search box refine the
+ * current page client-side.
+ */
 export default function AuditPage() {
   const { role } = useAuth();
   const admin = isOrgAdmin(role);
@@ -73,7 +79,6 @@ export default function AuditPage() {
   const total = logQuery.data?.total ?? 0;
   const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
-  // Server has no action filter, so refine the current page client-side.
   const actionsOnPage = Array.from(new Set(items.map((i) => i.action))).sort();
   const filtered = items.filter((i) => {
     if (actionFilter !== ALL_ACTIONS && i.action !== actionFilter) return false;

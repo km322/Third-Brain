@@ -22,11 +22,16 @@ if TYPE_CHECKING:
 
 
 class Entity(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    """A named thing (person, org, product, …) mentioned by an org's documents.
+
+    ``ix_entities_org_normalized`` exists because the kind-pin lookup filters on
+    (org_id, normalized) and the ``uq_entity_org_kind_norm`` unique index cannot serve it:
+    ``kind`` sits between the two columns.
+    """
+
     __tablename__ = "entities"
     __table_args__ = (
         UniqueConstraint("org_id", "kind", "normalized", name="uq_entity_org_kind_norm"),
-        # The kind-pin lookup filters on (org_id, normalized); the unique index above
-        # cannot serve it because ``kind`` sits between the two columns.
         Index("ix_entities_org_normalized", "org_id", "normalized"),
         Index("ix_entities_org_kind", "org_id", "kind"),
     )

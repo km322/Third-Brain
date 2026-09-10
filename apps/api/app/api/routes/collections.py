@@ -101,17 +101,19 @@ async def create_collection(
     db: AsyncSession = Depends(get_db),
     ctx: AuthContext = Depends(get_auth_context),
 ) -> CollectionRead:
-    """Create a new knowledge base. Requires an org role of editor or higher."""
+    """Create a new knowledge base. Requires an org role of editor or higher.
+
+    A per-collection ``embedding_model`` override is rejected: all chunks share one global
+    ``vector(EMBEDDING_DIM)`` column and queries embed with the org's single embedding
+    provider, so a model in a different embedding space cannot be honored - it would either
+    fail to insert (wrong dimension) or silently return garbage (same dimension, different
+    space). Reject it rather than accept a setting we cannot keep correct.
+    """
     if not role_at_least(ctx.org_role, OrgRole.EDITOR):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Requires org role 'editor' or higher to create a collection",
         )
-    # All chunks share one global ``vector(EMBEDDING_DIM)`` column and queries embed with
-    # the org's single embedding provider, so a per-collection model in a different
-    # embedding space cannot be honored: it would either fail to insert (wrong dimension)
-    # or silently return garbage (same dimension, different space). Reject it rather than
-    # accept a setting we cannot keep correct.
     if payload.embedding_model and payload.embedding_model != settings.EMBEDDING_MODEL:
         raise HTTPException(
             status_code=422,
@@ -197,13 +199,19 @@ async def delete_collection(
     db: AsyncSession = Depends(get_db),
     ctx: AuthContext = Depends(get_auth_context),
 ) -> Message:
-    """Delete a collection and all of its documents/chunks. Requires MANAGER."""
+    """Delete a collection and all of its documents/chunks. Requires MANAGER.
+
+    Stored blobs are cleaned up on a best-effort basis before the cascade removes the rows.
+
+    Grants on the collection or any of its (cascade-deleted) documents have no FK to the
+    resource, so they are purged here to avoid stranded ACL rows that could later re-apply.
+    An empty ``doc_ids`` makes the document branch match nothing.
+    """
     collection = await _get_owned_collection(db, ctx, collection_id)
     await require_permission(
         db, ctx, ResourceType.COLLECTION, collection_id, PermissionLevel.MANAGER
     )
 
-    # Best-effort cleanup of stored blobs before the cascade removes the rows.
     from app.services.storage import get_storage
 
     storage = get_storage()
@@ -225,9 +233,6 @@ async def delete_collection(
         except Exception:  # pragma: no cover - storage cleanup is best-effort
             pass
 
-    # Grants on the collection or any of its (cascade-deleted) documents have no FK to the
-    # resource, so purge them here to avoid stranded ACL rows that could later re-apply. An
-    # empty ``doc_ids`` makes the document branch match nothing.
     doc_ids = (
         (await db.execute(select(Document.id).where(Document.collection_id == collection.id)))
         .scalars()

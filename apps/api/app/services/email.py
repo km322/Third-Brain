@@ -59,7 +59,12 @@ def _send_smtp(to: str, subject: str, text: str) -> None:  # pragma: no cover - 
 
 
 async def send_email(to: str, subject: str, text: str) -> None:
-    """Send (or capture) a plain-text email via the configured provider."""
+    """Send (or capture) a plain-text email via the configured provider.
+
+    For ``console`` the operator asked for the message in the log, so the body is rendered
+    too - otherwise a link-bearing mail (an invite) is unrecoverable and the provider is a
+    no-op.
+    """
     provider = settings.EMAIL_PROVIDER
     if provider == "stub":
         _OUTBOX.append(CapturedEmail(to=to, subject=subject, text=text))
@@ -72,8 +77,6 @@ async def send_email(to: str, subject: str, text: str) -> None:
         )
         return
     if provider == "console":
-        # The operator asked for the message in the log, so render the body too - otherwise
-        # a link-bearing mail (an invite) is unrecoverable and the provider is a no-op.
         logger.warning(
             "email_not_delivered",
             to=to,

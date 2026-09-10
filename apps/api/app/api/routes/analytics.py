@@ -113,8 +113,9 @@ async def get_usage(
 ) -> UsageSummary:
     """Aggregate metered usage over the last ``days`` days.
 
-    Returns overall totals, a per-day series (with missing days filled with
-    zeros so charts render as a continuous line) and a per-kind breakdown.
+    Returns overall totals, a per-day series (every bucket is pre-seeded with zeros, so
+    missing days are filled in and charts render as a continuous line) and a per-kind
+    breakdown over the same window.
 
     Exposes org-wide token spend and USD cost, so API-key callers must hold the ``manage``
     scope; human sessions carry an implicit wildcard and see it as part of the dashboard.
@@ -126,7 +127,6 @@ async def get_usage(
     tokens_expr = func.coalesce(func.sum(UsageRecord.tokens_in + UsageRecord.tokens_out), 0)
     cost_expr = func.coalesce(func.sum(UsageRecord.cost_usd), 0.0)
 
-    # --- Per-day series (pre-seed every bucket with zeros to close gaps) ---
     buckets: dict[date, dict[str, float]] = {
         start_date + timedelta(days=i): {"requests": 0, "tokens": 0, "cost": 0.0}
         for i in range(days)
@@ -172,7 +172,6 @@ async def get_usage(
     total_tokens = sum(point.tokens for point in by_day)
     total_cost = round(sum(point.cost_usd for point in by_day), 6)
 
-    # --- Per-kind breakdown over the same window ---
     kind_rows = (
         await db.execute(
             select(

@@ -48,9 +48,9 @@ logger = get_logger(__name__)
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
-# Refresh tokens are single-use: once exchanged (or surrendered at logout) their ``jti``
-# is denylisted in Redis until the token's natural expiry.
 _REFRESH_DENYLIST_PREFIX = "denylist:refresh:"
+"""Refresh tokens are single-use: once exchanged (or surrendered at logout) their ``jti``
+is denylisted in Redis under this prefix until the token's natural expiry."""
 
 
 async def _consume_refresh_jti(jti: str, exp: object) -> bool:
@@ -178,11 +178,17 @@ async def refresh(
     Refresh tokens are single-use: the presented token's ``jti`` is denylisted on success,
     so replaying it (e.g. after theft) yields 401. Resumes into the org given by
     ``payload.org_id`` when the user has an ACTIVE membership there; otherwise falls back
-    to the user's default organization.
+    to the user's default organization - without that, a silent refresh would silently drop
+    the user back into their default org mid-session.
+
+    The rate limiter is keyed on the WHOLE token (``enforce_login_rate_limit`` hashes the
+    identifier internally): every HS256 JWT shares the same header prefix, so keying on a
+    slice would collapse all users behind one IP (corporate NAT) into a single bucket.
+
+    The ``jti`` is claimed atomically just before the new pair is minted. A replay - or a
+    concurrent duplicate of the same token - loses the claim and is rejected, so one refresh
+    token can never mint two valid pairs.
     """
-    # Key the limiter on the WHOLE token (enforce_login_rate_limit hashes the identifier
-    # internally): every HS256 JWT shares the same header prefix, so keying on a slice
-    # would collapse all users behind one IP (corporate NAT) into a single bucket.
     await enforce_login_rate_limit(request, payload.refresh_token)
     try:
         claims = decode_token(payload.refresh_token)
@@ -213,9 +219,6 @@ async def refresh(
             detail="Refresh token already used or revoked",
         )
 
-    # Preserve the caller's active org across refresh when they still have an ACTIVE
-    # membership there; otherwise resume into their default org. Without this, a silent
-    # refresh would silently drop the user back into their default org mid-session.
     membership = None
     if payload.org_id is not None:
         membership = (
@@ -234,9 +237,6 @@ async def refresh(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="This account is not a member of any organization",
         )
-    # Single-use: atomically claim the jti now. A replay - or a concurrent duplicate of
-    # the same token - loses the claim and is rejected, so one refresh token can never
-    # mint two valid pairs.
     if not await _consume_refresh_jti(jti, claims.get("exp")):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

@@ -17,7 +17,6 @@ logger = get_logger(__name__)
 
 api_router = APIRouter()
 
-# Order controls docs grouping only; each module owns its own prefix + tags.
 _ROUTE_MODULES = [
     "health",
     "auth",
@@ -45,6 +44,7 @@ _ROUTE_MODULES = [
     "sso",
     "analytics",
 ]
+"""Order controls docs grouping only; each module owns its own prefix + tags."""
 
 
 def _load() -> None:

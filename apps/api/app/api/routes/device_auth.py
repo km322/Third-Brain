@@ -16,6 +16,10 @@ every read resolves ``expires_at`` through :func:`resolve_status`, and a periodi
 sweep (:func:`app.workers.tasks.expire_device_authorizations_task`) is the backstop for a
 flow that is approved but then abandoned before the CLI redeems it - so no orphaned key or
 encrypted plaintext lingers past ``expires_at``.
+
+This module imports from :mod:`app.api.routes.api_keys`: route modules may import from each
+other (both are wired independently by the API router), and the admin-session gate and the
+acts-as escalation guard live with API keys.
 """
 
 from __future__ import annotations
@@ -26,8 +30,6 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-# Route modules may import from each other (both are wired independently by the API
-# router); the admin-session gate and the acts-as escalation guard live with API keys.
 from app.api.routes.api_keys import require_admin_session, validate_acts_as_user
 from app.core.config import settings
 from app.core.db import get_db
@@ -61,15 +63,17 @@ from app.services.metering import record_audit
 
 router = APIRouter(prefix="/device-auth", tags=["device_auth"])
 
-# The whole flow - approval AND redemption - must finish inside this window.
 _EXPIRES_MINUTES = 15
-# Suggested seconds between CLI polls of /device-auth/token. Kept above the window that
-# the shared login limiter (10 requests / 60s) allows, so a well-behaved poller does not
-# throttle itself mid-flow (60 / 7 ~= 8.5 polls per window < 10).
+"""The whole flow - approval AND redemption - must finish inside this window."""
+
 _POLL_INTERVAL_SECONDS = 7
-# Collisions on a fresh 8-char code among *pending* rows are ~impossible; the retry
-# loop (backed by the partial unique index) is defense in depth, not a hot path.
+"""Suggested seconds between CLI polls of /device-auth/token. Kept above the window that
+the shared login limiter (10 requests / 60s) allows, so a well-behaved poller does not
+throttle itself mid-flow (60 / 7 ~= 8.5 polls per window < 10)."""
+
 _USER_CODE_ATTEMPTS = 5
+"""Collisions on a fresh 8-char code among *pending* rows are ~impossible; the retry
+loop (backed by the partial unique index) is defense in depth, not a hot path."""
 
 
 async def _mint_user_code(db: AsyncSession) -> str:
@@ -122,8 +126,10 @@ async def start_device_auth(
     request: Request,
     db: AsyncSession = Depends(get_db),
 ) -> DeviceAuthStarted:
-    """Begin the flow. Unauthenticated and org-less: the org binds at approval time."""
-    # No caller identity exists yet, so the brute-force guard keys on the client IP alone.
+    """Begin the flow. Unauthenticated and org-less: the org binds at approval time.
+
+    No caller identity exists yet, so the brute-force guard keys on the client IP alone.
+    """
     await enforce_login_rate_limit(request, "device-auth:start")
 
     user_code = await _mint_user_code(db)
@@ -157,10 +163,20 @@ async def poll_device_auth(
     request: Request,
     db: AsyncSession = Depends(get_db),
 ) -> DeviceAuthTokenResponse:
-    """The CLI's poll. Hands over the minted API key's plaintext exactly once."""
-    # Keyed by the presented device code, so polling one flow cannot starve another
-    # from the same host (mirrors the refresh-token limiter). A throttled poll is a
-    # plain 429 the CLI treats as "slow down".
+    """The CLI's poll. Hands over the minted API key's plaintext exactly once.
+
+    The rate limiter is keyed by the presented device code, so polling one flow cannot
+    starve another from the same host (mirrors the refresh-token limiter). A throttled poll
+    is a plain 429 the CLI treats as "slow down".
+
+    On an APPROVED row the handover is an atomic one-shot claim. The held plaintext is
+    decrypted BEFORE the consume CAS, so a decryption failure (rotated SECRET_KEY / corrupt
+    blob) does not burn the claim and strand a live key nobody ever received - on failure
+    the row is expired (which revokes the orphan key) and the CLI is told to reconnect. The
+    status CAS then makes concurrent polls safe: only the request that flips
+    APPROVED -> CONSUMED (in this same transaction) returns the plaintext; everyone else
+    sees the row as already redeemed.
+    """
     await enforce_login_rate_limit(request, payload.device_code)
 
     row = (
@@ -186,19 +202,13 @@ async def poll_device_auth(
     if effective == DeviceAuthStatus.CONSUMED:
         raise HTTPException(status_code=400, detail="Device authorization already redeemed")
 
-    # APPROVED: atomic one-shot claim. Decrypt the held plaintext BEFORE the consume CAS,
-    # so a decryption failure (rotated SECRET_KEY / corrupt blob) does not burn the claim
-    # and strand a live key nobody ever received - on failure we expire the row (which
-    # revokes the orphan key) and tell the CLI to reconnect. The status CAS then makes
-    # concurrent polls safe: only the request that flips APPROVED -> CONSUMED (in this same
-    # transaction) returns the plaintext; everyone else sees the row as already redeemed.
     ciphertext = row.encrypted_secret
     key = await db.get(ApiKey, row.api_key_id) if row.api_key_id else None
     if ciphertext is None or key is None:  # pragma: no cover - approval always sets both
         raise HTTPException(status_code=400, detail="Device authorization already redeemed")
     try:
         plaintext = decrypt_secret(ciphertext)
-    except Exception:  # rotated key / corrupt blob - do not consume; revoke and expire
+    except Exception:
         await _lazy_expire(db, row)
         return DeviceAuthTokenResponse(status="expired")
     claimed = await db.execute(
@@ -266,6 +276,11 @@ async def approve_device_auth(
     Mirrors ``POST /api-keys`` (admin session, acts-as outrank guard) with one extra
     restriction: a terminal-initiated key may only carry read/write/search/ingest -
     never ``manage`` or ``*``.
+
+    The key defaults to acting as the approver; an explicit member still may not outrank
+    them. The row is flipped PENDING -> APPROVED with a CAS inside this transaction, so a
+    concurrent approve (or deny) cannot double-mint: the loser's flush is rolled back with
+    its HTTPException.
     """
     scopes = list(payload.scopes) if payload.scopes is not None else list(DEFAULT_DEVICE_SCOPES)
     if not scopes:
@@ -278,7 +293,6 @@ async def approve_device_auth(
             f"Allowed: {', '.join(sorted(DEVICE_GRANTABLE_SCOPES))}",
         )
 
-    # Default the key to act as the approver; an explicit member still may not outrank them.
     acts_as_user_id = payload.acts_as_user_id or ctx.user_id
     await validate_acts_as_user(db, ctx, acts_as_user_id)
 
@@ -298,8 +312,6 @@ async def approve_device_auth(
     db.add(key)
     await db.flush()
 
-    # CAS PENDING -> APPROVED inside this transaction, so a concurrent approve (or deny)
-    # cannot double-mint: the loser's flush is rolled back with its HTTPException.
     claimed = await db.execute(
         update(DeviceAuthorization)
         .where(

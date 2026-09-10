@@ -251,11 +251,15 @@ function CollectionCard({ collection }: { collection: Collection }) {
   );
 }
 
+/**
+ * Knowledge bases - every collection the caller can see, with a create affordance.
+ *
+ * Only editors and above can create a knowledge base; viewers get a 403 from the API, so
+ * they are not offered a button that always fails.
+ */
 export default function CollectionsPage() {
   const [search, setSearch] = React.useState("");
   const { role } = useAuth();
-  // Only editors and above can create a knowledge base; viewers get a 403 from the
-  // API, so don't offer them a button that always fails.
   const canManage = orgRoleAtLeast(role, "editor");
   const { data, isLoading, isError } = useQuery<Collection[]>({
     queryKey: ["collections"],

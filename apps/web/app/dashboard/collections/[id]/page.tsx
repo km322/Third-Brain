@@ -83,12 +83,15 @@ const PERM_RANK: Record<PermissionLevel, number> = {
   manager: 3,
 };
 
-/** True when `perm` is at least `needed`; unknown permission optimistically allows. */
+/**
+ * True when `perm` is at least `needed`; an unknown permission optimistically allows,
+ * because the backend still enforces.
+ */
 function permissionAtLeast(
   perm: PermissionLevel | null | undefined,
   needed: PermissionLevel,
 ): boolean {
-  if (perm == null) return true; // backend still enforces
+  if (perm == null) return true;
   return PERM_RANK[perm] >= PERM_RANK[needed];
 }
 
@@ -194,6 +197,12 @@ const PERMISSION_OPTIONS: { value: PermissionLevel; label: string }[] = [
   { value: "manager", label: "Manager" },
 ];
 
+/**
+ * Collection settings - name, description, visibility and the default permission.
+ *
+ * The form re-syncs every time the dialog opens, so it reflects a collection that may
+ * have been updated since it was last shown.
+ */
 function SettingsDialog({
   collection,
   open,
@@ -211,7 +220,6 @@ function SettingsDialog({
     collection.default_permission,
   );
 
-  // Re-sync when the dialog opens for a (potentially updated) collection.
   React.useEffect(() => {
     if (open) {
       setName(collection.name);
@@ -337,6 +345,12 @@ function SettingsDialog({
   );
 }
 
+/**
+ * Collection detail - the knowledge base's documents, their chunks and its settings.
+ *
+ * The permission-derived flags are computed before the early returns below, so the hooks
+ * always run in the same order.
+ */
 export default function CollectionDetailPage({
   params,
 }: {
@@ -374,7 +388,6 @@ export default function CollectionDetailPage({
     },
   });
 
-  // Derived before the early returns below so hooks always run in the same order.
   const canEdit = permissionAtLeast(collection?.permission, "editor");
   const canManage = permissionAtLeast(collection?.permission, "manager");
 
@@ -651,7 +664,6 @@ export default function CollectionDetailPage({
         onOpenChange={setSettingsOpen}
       />
 
-      {/* Delete document confirm */}
       <Dialog open={!!deleteTarget} onOpenChange={(o) => !o && setDeleteTarget(null)}>
         <DialogContent className="max-w-md">
           <DialogHeader>
@@ -690,7 +702,6 @@ export default function CollectionDetailPage({
         </DialogContent>
       </Dialog>
 
-      {/* Delete collection confirm */}
       <Dialog open={confirmDelete} onOpenChange={setConfirmDelete}>
         <DialogContent className="max-w-md">
           <DialogHeader>

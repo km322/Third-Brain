@@ -2,15 +2,19 @@ import { ImageResponse } from "next/og";
 
 import { LOGO_PATH } from "@/components/brand/logo";
 
-// Link-preview (Open Graph / Twitter) card, so a shared Third Brain link renders a branded
-// preview instead of a blank box.
 export const alt = "Third Brain - the documentation writes itself";
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
-// The card has no request-dependent input, so render it once at build time. The app
-// build already prerendered it; `output: "export"` requires saying so explicitly.
+/**
+ * The card has no request-dependent input, so render it once at build time. The app
+ * build already prerendered it; `output: "export"` requires saying so explicitly.
+ */
 export const dynamic = "force-static";
 
+/**
+ * Link-preview (Open Graph / Twitter) card, so a shared Third Brain link renders a branded
+ * preview instead of a blank box.
+ */
 export default function OpengraphImage() {
   return new ImageResponse(
     <div

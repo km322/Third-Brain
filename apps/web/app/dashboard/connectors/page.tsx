@@ -37,8 +37,10 @@ import { useAuth } from "@/lib/auth-context";
 import type { ConnectorPurpose, ConnectorType } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
-// The connectors API returns extra fields beyond the shared `Connector` type
-// (config, has_credentials, updated_at). Model them locally for this page.
+/**
+ * The connectors API returns extra fields beyond the shared `Connector` type
+ * (config, has_credentials, updated_at). Model them locally for this page.
+ */
 interface ConnectorRow {
   id: string;
   name: string;
@@ -72,7 +74,7 @@ const TYPE_LABELS: Record<ConnectorType, string> = {
   google: "Google Gemini",
 };
 
-// Per-provider model hints for the form's model input.
+/** Per-provider model hints for the form's model input. */
 function modelPlaceholder(type: ConnectorType, purpose: ConnectorPurpose): string {
   if (type === "anthropic") return "claude-opus-5";
   if (type === "google")
@@ -89,6 +91,12 @@ function errMsg(e: unknown, fallback = "Something went wrong") {
   return e instanceof ApiError ? e.message : fallback;
 }
 
+/**
+ * Connectors page - the provider accounts embeddings and completions are routed through.
+ *
+ * All per-connector actions (including Test, which spends metered tokens) are admin-only
+ * on the backend, so they are only rendered for admins.
+ */
 export default function ConnectorsPage() {
   const { role } = useAuth();
   const admin = isOrgAdmin(role);
@@ -246,8 +254,6 @@ export default function ConnectorsPage() {
                     />
                   </div>
 
-                  {/* All actions here (including Test, which spends metered tokens) are
-                      admin-only on the backend, so only render them for admins. */}
                   {admin ? (
                     <div className="flex items-center gap-2">
                       <Button
@@ -340,6 +346,13 @@ export default function ConnectorsPage() {
   );
 }
 
+/**
+ * Create/edit dialog for a connector.
+ *
+ * Credentials are only sent when the user actually touched the field, so an edit that
+ * leaves it blank keeps the stored secret intact. The provider and purpose pickers
+ * disable the Anthropic + embedding combination, because Anthropic has no embeddings API.
+ */
 function ConnectorFormDialog({
   open,
   onOpenChange,
@@ -394,8 +407,6 @@ function ConnectorFormDialog({
         is_default: isDefault,
         enabled,
       };
-      // Only send credentials when the user actually touched the field, so an
-      // edit that leaves it blank keeps the stored secret intact.
       if (!editing) {
         if (apiKey.trim()) body.credentials = { api_key: apiKey.trim() };
       } else if (credsTouched) {
@@ -459,7 +470,6 @@ function ConnectorFormDialog({
                       <SelectItem
                         key={t}
                         value={t}
-                        // Anthropic has no embeddings API.
                         disabled={t === "anthropic" && purpose === "embedding"}
                       >
                         {TYPE_LABELS[t]}
@@ -483,7 +493,6 @@ function ConnectorFormDialog({
                         key={p}
                         value={p}
                         className="capitalize"
-                        // Anthropic has no embeddings API.
                         disabled={p === "embedding" && type === "anthropic"}
                       >
                         {p}

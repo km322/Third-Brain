@@ -33,8 +33,8 @@ class Conversation(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=True
     )
     title: Mapped[str | None] = mapped_column(String(512), nullable=True)
-    # Optional collection scoping for the whole thread (list of collection-id strings).
     collection_ids: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    """Optional collection scoping for the whole thread (list of collection-id strings)."""
     web_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     last_message_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
@@ -63,8 +63,8 @@ class ConversationMessage(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         Enum(MessageRole, native_enum=False, length=16), nullable=False
     )
     content: Mapped[str] = mapped_column(Text, nullable=False)
-    # For assistant turns: the citation payload returned to the client.
     citations: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    """For assistant turns: the citation payload returned to the client."""
 
     conversation: Mapped[Conversation] = relationship(back_populates="messages")
 

@@ -27,15 +27,17 @@ from app.core.logging import get_logger
 
 logger = get_logger(__name__)
 
-# Cache encoders per model name; ``False`` means "tiktoken unavailable, use fallback".
 _ENCODER_CACHE: dict[str, object] = {}
+"""Cache encoders per model name; ``False`` means "tiktoken unavailable, use fallback"."""
 
-# A blank (possibly whitespace-only) line separates paragraphs.
 _PARAGRAPH_SPLIT_RE = re.compile(r"\n\s*\n")
-# End-of-sentence punctuation (Latin or CJK) followed by whitespace.
+"""A blank (possibly whitespace-only) line separates paragraphs."""
+
 _SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?。！？])\s+")
-# A Markdown heading opens a new document section - the strongest break point.
+"""End-of-sentence punctuation (Latin or CJK) followed by whitespace."""
+
 _HEADING_RE = re.compile(r"^#{1,6}\s+\S")
+"""A Markdown heading opens a new document section - the strongest break point."""
 
 
 @dataclass
@@ -119,6 +121,9 @@ def _boundary_pack(
 
     The running total is an upper bound on the joined chunk's real token count (BPE
     merges across a join can only shrink it), so the ``size`` ceiling always holds.
+
+    When a paragraph is broken into sentences its first sentence keeps the paragraph's
+    boundary strength, so a heading-led paragraph still closes the previous chunk.
     """
     contents: list[str] = []
     buf = ""
@@ -152,7 +157,7 @@ def _boundary_pack(
         if paragraph_tokens <= size:
             add(paragraph, paragraph_tokens, "\n\n", threshold)
             continue
-        sentence_threshold = threshold  # first sentence keeps the paragraph's strength
+        sentence_threshold = threshold
         for sentence in _SENTENCE_SPLIT_RE.split(paragraph):
             sentence = sentence.strip()
             if not sentence:

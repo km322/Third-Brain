@@ -39,10 +39,9 @@ def _reset_shared_client() -> None:
     llm_client._client = None
 
 
-# --------------------------------------------------------------------------- #
-# Non-streaming stand-ins
-# --------------------------------------------------------------------------- #
 class _FakeResponse:
+    """A non-streaming stand-in for the ``httpx.Response`` the client reads."""
+
     def __init__(self, payload: dict) -> None:
         self._payload = payload
 
@@ -54,6 +53,11 @@ class _FakeResponse:
 
 
 def _make_post_client(payload: dict, captured: dict | None = None):
+    """An ``httpx.AsyncClient`` stand-in whose ``post`` always answers with ``payload``.
+
+    When ``captured`` is passed, the request's url/headers/json are recorded into it.
+    """
+
     class _Client:
         def __init__(self, *args, **kwargs) -> None:  # noqa: ANN002, ANN003
             pass
@@ -74,15 +78,19 @@ def _make_post_client(payload: dict, captured: dict | None = None):
     return _Client
 
 
-# --------------------------------------------------------------------------- #
-# Endpoint / auth coupling - platform key must never leak to an org-supplied base URL.
-# --------------------------------------------------------------------------- #
 class TestEndpointCoupling:
+    """Endpoint / auth coupling.
+
+    The platform key must never leak to an org-supplied base URL.
+    """
+
     def test_custom_base_never_borrows_platform_key(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """An org connector supplying its own endpoint but no key must send NO key.
+
+        Never the platform's, so the org cannot exfiltrate the platform credential.
+        """
         monkeypatch.setattr(settings, "OPENAI_API_KEY", "PLATFORM-SECRET")
         monkeypatch.setattr(settings, "OPENAI_BASE_URL", "https://api.openai.com/v1")
-        # An org connector supplies its own endpoint but no key: we must send NO key, never
-        # the platform's, so the org cannot exfiltrate the platform credential.
         key, base = _endpoint(None, "http://attacker.example/v1")
         assert key is None
         assert base == "http://attacker.example/v1"
@@ -108,12 +116,12 @@ class TestEndpointCoupling:
     async def test_completion_to_custom_base_sends_no_platform_key(
         self, provider_mode: None, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        """A keyless org connector pointed at an attacker-controlled base URL sends no key."""
         monkeypatch.setattr(settings, "OPENAI_API_KEY", "PLATFORM-SECRET")
         captured: dict = {}
         payload = {"choices": [{"message": {"content": "ok"}, "finish_reason": "stop"}]}
         monkeypatch.setattr(llm_client.httpx, "AsyncClient", _make_post_client(payload, captured))
 
-        # Keyless org connector pointed at an attacker-controlled base URL.
         await complete(
             [ChatMessage(role="user", content="hi")],
             api_key=None,
@@ -125,14 +133,14 @@ class TestEndpointCoupling:
         assert "Authorization" not in captured["headers"]
 
 
-# --------------------------------------------------------------------------- #
-# Streaming stand-ins
-# --------------------------------------------------------------------------- #
 def _delta_line(content: str) -> str:
+    """One SSE delta line as the provider would emit it."""
     return "data: " + json.dumps({"choices": [{"delta": {"content": content}}]})
 
 
 class _FakeStreamResponse:
+    """A streaming stand-in for the ``httpx.Response`` the client iterates."""
+
     def __init__(self, lines: list[str], *, fail_on_status: bool) -> None:
         self._lines = lines
         self._fail_on_status = fail_on_status
@@ -142,9 +150,13 @@ class _FakeStreamResponse:
             raise RuntimeError("provider returned 500")
 
     async def aiter_lines(self):
+        """Yield the canned lines, then simulate the connection dropping mid-stream.
+
+        The drop happens after any real deltas, which is the case the client has to
+        recover from.
+        """
         for line in self._lines:
             yield line
-        # Simulate the provider connection dropping mid-stream, after any real deltas.
         raise RuntimeError("connection dropped mid-stream")
 
 
@@ -160,6 +172,7 @@ class _FakeStreamCtx:
 
 
 def _make_stream_client(lines: list[str], *, fail_on_status: bool = False):
+    """A streaming ``httpx.AsyncClient`` stand-in, plus the dict its request is recorded in."""
     captured: dict = {}
 
     class _Client:
@@ -173,17 +186,19 @@ def _make_stream_client(lines: list[str], *, fail_on_status: bool = False):
             return False
 
         def stream(self, method, url, headers=None, json=None, timeout=None):  # noqa: ANN001
-            # Timeout is now passed per-request on the shared client, not to its constructor.
+            """Record the per-request timeout and hand back the canned stream.
+
+            The timeout is passed per-request on the shared client, not to its constructor.
+            """
             captured["timeout"] = timeout
             return _FakeStreamCtx(_FakeStreamResponse(lines, fail_on_status=fail_on_status))
 
     return _Client, captured
 
 
-# --------------------------------------------------------------------------- #
-# complete() - token metering fall-back
-# --------------------------------------------------------------------------- #
 class TestCompleteTokenMetering:
+    """:func:`complete` - the token-metering fall-back."""
+
     async def test_estimates_tokens_when_usage_omitted(
         self, provider_mode: None, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -233,10 +248,9 @@ class TestCompleteTokenMetering:
         assert result.tokens_out == 45
 
 
-# --------------------------------------------------------------------------- #
-# stream_complete() - bounded timeout + mid-stream fallback
-# --------------------------------------------------------------------------- #
 class TestStreamComplete:
+    """:func:`stream_complete` - bounded timeout plus the mid-stream fallback."""
+
     async def test_uses_a_bounded_timeout(
         self, provider_mode: None, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -254,6 +268,7 @@ class TestStreamComplete:
     async def test_mid_stream_failure_does_not_append_offline_stub(
         self, provider_mode: None, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        """Real content came from the provider, so attribution must stay non-offline."""
         lines = [_delta_line("Hello "), _delta_line("world")]
         client_cls, _ = _make_stream_client(lines)
         monkeypatch.setattr(llm_client.httpx, "AsyncClient", client_cls)
@@ -270,7 +285,6 @@ class TestStreamComplete:
 
         assert out == "Hello world"
         assert "[offline model]" not in out
-        # Real content came from the provider, so attribution must stay non-offline.
         assert meta["provider"] == "openai"
 
     async def test_failure_before_any_content_yields_offline_stub(
@@ -294,11 +308,13 @@ class TestStreamComplete:
         assert meta["provider"] == "offline"
 
 
-# --------------------------------------------------------------------------- #
-# embed_texts() - never silently fake vectors when the platform is live but has no
-# embeddings-capable key (e.g. only ANTHROPIC_API_KEY, which has no embeddings API).
-# --------------------------------------------------------------------------- #
 class TestEmbeddingMisconfig:
+    """:func:`embed_texts` must never silently fake vectors.
+
+    Specifically when the platform is live but has no embeddings-capable key (e.g. only
+    ``ANTHROPIC_API_KEY``, which has no embeddings API).
+    """
+
     async def test_live_completion_without_embeddings_key_raises(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -310,7 +326,7 @@ class TestEmbeddingMisconfig:
             await embed_texts(["corpus text"])
 
     async def test_genuinely_keyless_still_fakes(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        # Fully-offline dev/CI (no keys at all) is legitimate: return the deterministic stub.
+        """Fully-offline dev/CI (no keys at all) is legitimate: return the deterministic stub."""
         monkeypatch.setattr(settings, "EMBEDDING_PROVIDER", "openai")
         monkeypatch.setattr(settings, "OPENAI_API_KEY", None)
         monkeypatch.setattr(settings, "GOOGLE_API_KEY", None)
@@ -321,7 +337,7 @@ class TestEmbeddingMisconfig:
     async def test_explicit_fake_provider_never_raises(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        # EMBEDDING_PROVIDER=fake is an explicit opt-in to the stub, even with a live key set.
+        """``EMBEDDING_PROVIDER=fake`` is an explicit opt-in to the stub, even with a live key."""
         monkeypatch.setattr(settings, "EMBEDDING_PROVIDER", "fake")
         monkeypatch.setattr(settings, "ANTHROPIC_API_KEY", "sk-ant-live")
         result = await embed_texts(["corpus text"])
@@ -330,22 +346,26 @@ class TestEmbeddingMisconfig:
     async def test_org_connector_bypasses_the_platform_guard(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        # A per-connector call carries its own creds and never hits the platform fallback, so
-        # even with only ANTHROPIC set at the platform level it must not raise. The keyless
-        # local endpoint uses the offline stub without a platform key leaking to it.
+        """A per-connector call carries its own creds and never hits the platform fallback.
+
+        So even with only ANTHROPIC set at the platform level it must not raise: the
+        keyless local endpoint uses the offline stub without a platform key leaking to it.
+        A provider explicitly supplied by the org connector is a real target, not the
+        platform fallback - it must not trip the misconfig guard.
+        """
         monkeypatch.setattr(settings, "EMBEDDING_PROVIDER", "openai")
         monkeypatch.setattr(settings, "OPENAI_API_KEY", None)
         monkeypatch.setattr(settings, "GOOGLE_API_KEY", None)
         monkeypatch.setattr(settings, "ANTHROPIC_API_KEY", "sk-ant-live")
-        # A provider explicitly supplied by the org connector is a real target, not the
-        # platform fallback - it must not trip the misconfig guard.
         assert llm_client._embedding_offline_is_misconfig(None, None, "openai") is False
 
 
-# --------------------------------------------------------------------------- #
-# OpenAI wire - image attachments become content parts (text-only passes through)
-# --------------------------------------------------------------------------- #
 class TestOpenAIImageMessages:
+    """The OpenAI wire format: image attachments become content parts.
+
+    Text-only messages pass through unchanged.
+    """
+
     async def test_image_attachment_maps_to_content_parts(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:

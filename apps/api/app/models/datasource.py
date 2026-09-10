@@ -72,21 +72,21 @@ class DataSource(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         default=DataSourceStatus.ACTIVE,
         nullable=False,
     )
-    # Non-secret provider options (root path, repo, channel id, base url, …).
     config: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
-    # Fernet-encrypted OAuth token / API secret (see app.core.security.encrypt_secret).
+    """Non-secret provider options (root path, repo, channel id, base url, …)."""
     encrypted_secret: Mapped[str | None] = mapped_column(String(8192), nullable=True)
-    # Opaque incremental-sync cursor (page token / commit sha / change id).
+    """Fernet-encrypted OAuth token / API secret (see ``app.core.security.encrypt_secret``)."""
     cursor: Mapped[str | None] = mapped_column(String(2048), nullable=True)
-    # Baseline visibility for synced documents. PRIVATE means "only the synced ACL grants
-    # confer access", which is the safe default for permission-mirrored ingestion.
+    """Opaque incremental-sync cursor (page token / commit sha / change id)."""
     default_visibility: Mapped[Visibility] = mapped_column(
         Enum(Visibility, native_enum=False, length=32),
         default=Visibility.PRIVATE,
         nullable=False,
     )
-    # Scheduled cadence in minutes; NULL disables scheduling (manual "sync now" only).
+    """Baseline visibility for synced documents. PRIVATE means "only the synced ACL grants
+    confer access", which is the safe default for permission-mirrored ingestion."""
     sync_interval_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    """Scheduled cadence in minutes; NULL disables scheduling (manual "sync now" only)."""
     last_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
     document_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)

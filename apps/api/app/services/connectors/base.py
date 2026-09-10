@@ -35,16 +35,20 @@ class RemotePrincipal:
 
 @dataclass
 class RemoteDocument:
-    """One document pulled from a source system, with its source-system ACL."""
+    """One document pulled from a source system, with its source-system ACL.
 
-    external_id: str  # stable id within the source (path, file id, message ts, …)
+    ``external_id`` is a stable id within the source (path, file id, message ts, …).
+    ``deleted`` is how incremental connectors signal removals.
+    """
+
+    external_id: str
     title: str
     content: bytes = b""
     mime_type: str | None = None
     source_uri: str | None = None
     updated_at: datetime | None = None
     acl: list[RemotePrincipal] = field(default_factory=list)
-    deleted: bool = False  # incremental connectors signal removals this way
+    deleted: bool = False
 
 
 @dataclass

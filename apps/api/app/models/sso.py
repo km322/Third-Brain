@@ -50,19 +50,19 @@ class SsoConnection(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
-    # Optional email domain for IdP discovery ("acme.com" -> route acme.com logins here).
     email_domain: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    # OIDC: issuer, authorization_endpoint, token_endpoint, jwks_uri, client_id, scopes.
-    # SAML: sp_entity_id, idp_entity_id, idp_sso_url, idp_x509_cert.
+    """Optional email domain for IdP discovery ("acme.com" -> route acme.com logins here)."""
     config: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
-    # Fernet-encrypted OIDC client_secret (SAML needs none).
+    """OIDC: issuer, authorization_endpoint, token_endpoint, jwks_uri, client_id, scopes.
+    SAML: sp_entity_id, idp_entity_id, idp_sso_url, idp_x509_cert."""
     encrypted_secret: Mapped[str | None] = mapped_column(String(8192), nullable=True)
-    # Role assigned to a user provisioned just-in-time on first SSO login.
+    """Fernet-encrypted OIDC client_secret (SAML needs none)."""
     default_role: Mapped[OrgRole] = mapped_column(
         Enum(OrgRole, native_enum=False, length=32),
         default=OrgRole.VIEWER,
         nullable=False,
     )
+    """Role assigned to a user provisioned just-in-time on first SSO login."""
 
     def __repr__(self) -> str:  # pragma: no cover
         return f"<SsoConnection {self.name!r} {self.protocol}>"

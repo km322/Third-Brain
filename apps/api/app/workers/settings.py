@@ -45,25 +45,33 @@ async def shutdown(ctx: dict[str, Any]) -> None:
 
 
 class WorkerSettings:
-    """Configuration consumed by the ``arq`` CLI."""
+    """Configuration consumed by the ``arq`` CLI.
+
+    The concurrency/timeout knobs (``max_jobs``, ``job_timeout``, ``keep_result``) are
+    sized for the fact that ingestion can be slow (large PDFs, remote fetches, embedding
+    round-trips).
+    """
 
     redis_settings = RedisSettings.from_dsn(settings.REDIS_URL)
     functions = [ingest_document_task, sync_data_source_task]
     on_startup = startup
     on_shutdown = shutdown
-    # Sweep for documents stranded mid-ingestion (crash/timeout with no redelivery) every
-    # 15 minutes so they surface as FAILED and can be reprocessed; and run due data-source
-    # syncs every 5 minutes (each source honours its own ``sync_interval_minutes``).
     cron_jobs = [
         cron(reap_stuck_documents_task, minute={0, 15, 30, 45}, run_at_startup=True),
         cron(sync_due_data_sources_task, minute=set(range(0, 60, 5))),
-        # Flip verified-but-past-review documents/answers to STALE once an hour.
         cron(flag_stale_content_task, minute={7}),
-        # Close out CLI device-auth flows abandoned after approval every 5 minutes, so no
-        # orphaned API key or encrypted key plaintext lingers past the flow's expiry.
         cron(expire_device_authorizations_task, minute=set(range(0, 60, 5))),
     ]
-    # Ingestion can be slow (large PDFs, remote fetches, embedding round-trips).
+    """Periodic sweeps, in declaration order.
+
+    Documents stranded mid-ingestion (crash/timeout with no redelivery) are swept every
+    15 minutes so they surface as FAILED and can be reprocessed; due data-source syncs
+    run every 5 minutes (each source honours its own ``sync_interval_minutes``);
+    verified-but-past-review documents/answers are flipped to STALE once an hour; and
+    CLI device-auth flows abandoned after approval are closed out every 5 minutes, so no
+    orphaned API key or encrypted key plaintext lingers past the flow's expiry.
+    """
+
     max_jobs = 10
     job_timeout = 600
     keep_result = 3600

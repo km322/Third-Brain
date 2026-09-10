@@ -53,8 +53,11 @@ does not rest on a library default that could differ across versions or environm
 Real SAML carries no entities or DTD, so nothing legitimate is lost.
 """
 _STATE_TTL_SECONDS = 600
-# Tolerate modest IdP/SP clock drift when checking an assertion's validity window.
+
 _SAML_CLOCK_SKEW_SECONDS = 180
+"""Tolerate modest IdP/SP clock drift when checking an assertion's validity window."""
+
+
 _OIDC_LEEWAY_SECONDS = 120
 
 
@@ -240,7 +243,12 @@ def _enforce_assertion_conditions(connection: SsoConnection, verified) -> None:
 
 
 def verify_saml_response(connection: SsoConnection, saml_response_b64: str) -> SsoIdentity:
-    """Verify a base64 SAMLResponse's signature and extract the subject/email."""
+    """Verify a base64 SAMLResponse's signature and extract the subject/email.
+
+    Verification failure is caught broadly because signxml raises a variety of validation
+    errors. Once the signature is valid the assertion is bounded in time (and audience) so a
+    captured, validly-signed response cannot be replayed indefinitely.
+    """
     cfg = connection.config or {}
     cert = cfg.get("idp_x509_cert")
     if not cert:
@@ -252,11 +260,9 @@ def verify_saml_response(connection: SsoConnection, saml_response_b64: str) -> S
         raise SsoError("Malformed SAML response") from exc
     try:
         verified = XMLVerifier().verify(doc, x509_cert=cert).signed_xml
-    except Exception as exc:  # signxml raises a variety of validation errors
+    except Exception as exc:
         raise SsoError(f"SAML signature verification failed: {exc}") from exc
 
-    # Signature is valid; now bound the assertion in time (and audience) so a captured,
-    # validly-signed response cannot be replayed indefinitely.
     _enforce_assertion_conditions(connection, verified)
 
     name_id = verified.find(f".//{{{_SAML_ASSERTION_NS}}}NameID")
@@ -291,7 +297,30 @@ async def _has_other_org_membership(
 
 
 async def provision_sso_user(db: AsyncSession, connection: SsoConnection, identity: SsoIdentity):
-    """Map an IdP identity to a Third Brain user, creating it on first login."""
+    """Map an IdP identity to a Third Brain user, creating it on first login.
+
+    An already-federated subject respects an admin's offboarding: a previously-federated
+    user whose membership was later suspended must not be able to SSO back in.
+
+    On the first federation for an IdP subject the user is just-in-time provisioned. But
+    NEVER adopt a pre-existing account this org does not EXCLUSIVELY own. An org supplies
+    its own IdP and signing certificate, so without this guard a malicious org could sign an
+    assertion claiming someone else's email and have the ACS/callback mint a session for
+    that existing account - a full account takeover (and, via /orgs/switch, a pivot into the
+    victim's other orgs). Org membership is NOT proof of ownership: an admin can create an
+    INVITED membership for any existing email WITHOUT the target's consent (see
+    ``routes/orgs.invite_member``), so "is a member" is attacker-controllable. We therefore
+    adopt only an account this org exclusively owns - one with no self-set password AND no
+    membership in any OTHER org - and provision a brand-new email fresh. An
+    independently-owned account (self-registered, or a member of another tenant) must sign in
+    with its password or an explicit, authenticated account-link, never via this org's
+    unverified IdP. Mirrors ``reset_member_password``'s cross-tenant guard. (``email_domain``
+    is not a boundary here: it is unverified/attacker-set.)
+
+    A first SSO login must never silently reactivate a suspended (offboarded) member, so a
+    SUSPENDED membership is refused; a newly-created or still-INVITED membership is activated
+    instead.
+    """
     provider = _provider_key(connection)
     fed = (
         await db.execute(
@@ -304,26 +333,11 @@ async def provision_sso_user(db: AsyncSession, connection: SsoConnection, identi
     if fed is not None:
         user = await db.get(User, fed.user_id)
         if user is not None:
-            # Respect an admin's offboarding: a previously-federated user whose membership was
-            # later suspended must not be able to SSO back in.
             membership = await get_membership(db, connection.org_id, user.id)
             if membership is not None and membership.status == MembershipStatus.SUSPENDED:
                 raise SsoError("Your membership of this organization is suspended.")
             user.last_login_at = datetime.now(UTC)
         return user
-    # First federation for this IdP subject: just-in-time provision. But NEVER adopt a
-    # pre-existing account this org does not EXCLUSIVELY own. An org supplies its own IdP and
-    # signing certificate, so without this guard a malicious org could sign an assertion
-    # claiming someone else's email and have the ACS/callback mint a session for that existing
-    # account - a full account takeover (and, via /orgs/switch, a pivot into the victim's other
-    # orgs). Org membership is NOT proof of ownership: an admin can create an INVITED membership
-    # for any existing email WITHOUT the target's consent (see routes/orgs.invite_member), so
-    # "is a member" is attacker-controllable. We therefore adopt only an account this org
-    # exclusively owns - one with no self-set password AND no membership in any OTHER org - and
-    # provision a brand-new email fresh. An independently-owned account (self-registered, or a
-    # member of another tenant) must sign in with its password or an explicit, authenticated
-    # account-link, never via this org's unverified IdP. Mirrors reset_member_password's
-    # cross-tenant guard. (email_domain is not a boundary here: it is unverified/attacker-set.)
     existing = await get_user_by_email(db, identity.email)
     if existing is not None:
         membership = await get_membership(db, connection.org_id, existing.id)
@@ -333,7 +347,6 @@ async def provision_sso_user(db: AsyncSession, connection: SsoConnection, identi
                 "organization; it cannot be claimed via SSO."
             )
         if membership.status == MembershipStatus.SUSPENDED:
-            # Never let a first SSO login silently reactivate a suspended (offboarded) member.
             raise SsoError("Your membership of this organization is suspended.")
         if existing.hashed_password is not None or await _has_other_org_membership(
             db, existing.id, connection.org_id
@@ -351,8 +364,6 @@ async def provision_sso_user(db: AsyncSession, connection: SsoConnection, identi
         role=connection.default_role,
         status=MembershipStatus.ACTIVE,
     )
-    # Activate a newly-created or still-INVITED membership on first successful SSO. A SUSPENDED
-    # membership is refused above, so this can never reactivate an offboarded member.
     if membership.status != MembershipStatus.SUSPENDED:
         membership.status = MembershipStatus.ACTIVE
     user.last_login_at = datetime.now(UTC)

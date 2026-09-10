@@ -22,6 +22,9 @@ This is a tripwire for accidental credential ingestion, not a full DLP system.
 Reviewers approve or discard quarantined documents from the redacted findings alone;
 approval is stamped into ``Document.meta`` keyed to the document checksum via
 :func:`mark_approved` / :func:`is_approved`.
+
+Laid out, in order: redaction / scoring helpers, validators (run per regex match, before
+the match is counted), the detector table, then the public API.
 """
 
 from __future__ import annotations
@@ -36,13 +39,14 @@ SCAN_META_KEY = "secret_scan"
 
 _MAX_SAMPLES = 3
 _MAX_COUNTED_MATCHES = 1000
-# Hard bound on how many raw regex candidates a single detector inspects, counted BEFORE
-# the validator runs. Without it, a document full of validator-failing candidates (e.g.
-# millions of ``sk-...``-shaped slugs, or ``"type": "service_account"`` blocks with no
-# key) would make ``finditer`` walk the entire input while nothing ever counts, turning a
-# cheap scan into an attacker-controlled sink. Set above ``_MAX_COUNTED_MATCHES`` so the
-# counted cap is still reachable on all-valid input.
+
 _MAX_EXAMINED_MATCHES = 5000
+"""Hard bound on how many raw regex candidates a single detector inspects, counted BEFORE
+the validator runs. Without it, a document full of validator-failing candidates (e.g.
+millions of ``sk-...``-shaped slugs, or ``"type": "service_account"`` blocks with no
+key) would make ``finditer`` walk the entire input while nothing ever counts, turning a
+cheap scan into an attacker-controlled sink. Set above ``_MAX_COUNTED_MATCHES`` so the
+counted cap is still reachable on all-valid input."""
 
 _SEVERITY_RANK = {"high": 0, "medium": 1, "low": 2}
 
@@ -82,9 +86,6 @@ class ScanReport:
         return bool(self.findings)
 
 
-# --------------------------------------------------------------------------- #
-# Redaction / scoring helpers
-# --------------------------------------------------------------------------- #
 def _redact(value: str) -> str:
     """Redact a matched secret: first four + ellipsis + last two, or fully masked."""
     if len(value) > 8:
@@ -181,9 +182,6 @@ def _looks_placeholder(value: str) -> bool:
     return bool(_ENV_CONST_RE.fullmatch(value))
 
 
-# --------------------------------------------------------------------------- #
-# Validators (run per regex match, before the match is counted)
-# --------------------------------------------------------------------------- #
 def _has_variety(match: re.Match[str]) -> bool:
     """Reject mask-style bodies (``sk_live_xxxxxxxx…``); real keys are high-variety."""
     body = match.group(match.lastindex or 0)
@@ -259,12 +257,12 @@ def _keyword_value_ok(match: re.Match[str]) -> bool:
     return _shannon_entropy(value) >= 3.3
 
 
-# Presence of this pattern anywhere in the document is what promotes a
-# ``"type": "service_account"`` block from "documentation of the JSON shape" to "leaked
-# credential". It is a property of the whole text, not of any individual match, so it is
-# evaluated ONCE per :func:`scan_text` call (see ``has_gcp_key``) rather than re-scanned
-# per match: doing the latter is quadratic on a document full of service-account markers.
 _GCP_PRIVATE_KEY_RE = re.compile(r'"private_key"|-----BEGIN [A-Z ]{0,32}PRIVATE KEY')
+"""Presence of this pattern anywhere in the document is what promotes a
+``"type": "service_account"`` block from "documentation of the JSON shape" to "leaked
+credential". It is a property of the whole text, not of any individual match, so it is
+evaluated ONCE per :func:`scan_text` call (see ``has_gcp_key``) rather than re-scanned
+per match: doing the latter is quadratic on a document full of service-account markers."""
 
 
 _JWT_EXAMPLE_PREFIXES = frozenset(
@@ -288,9 +286,6 @@ def _jwt_ok(match: re.Match[str]) -> bool:
     return _has_variety(match)
 
 
-# --------------------------------------------------------------------------- #
-# Detector table
-# --------------------------------------------------------------------------- #
 @dataclass(frozen=True)
 class _Detector:
     """One compiled detection rule.
@@ -469,9 +464,6 @@ _DETECTORS: tuple[_Detector, ...] = (
 )
 
 
-# --------------------------------------------------------------------------- #
-# Public API
-# --------------------------------------------------------------------------- #
 def scan_text(text: str) -> ScanReport:
     """Scan ``text`` and return aggregated, redacted findings.
 
@@ -480,13 +472,15 @@ def scan_text(text: str) -> ScanReport:
     inspecting at most ``_MAX_EXAMINED_MATCHES`` raw candidates; ``truncated`` records
     that some detector reached either cap. The examined cap keeps cost linear even when a
     document is engineered so that most candidates fail their validator.
+
+    ``has_gcp_key`` is a document-level property, evaluated once: whether any private-key
+    material is present at all. Detectors flagged ``requires_gcp_key`` (the GCP
+    service-account block) are pure documentation without it, so they are skipped wholesale
+    rather than re-scanning the full text on every match - the source of the previous
+    O(n^2) blowup.
     """
     if not text:
         return ScanReport(findings=[], truncated=False)
-    # Document-level property, evaluated once: whether any private-key material is present
-    # at all. Detectors flagged ``requires_gcp_key`` (the GCP service-account block) are
-    # pure documentation without it, so they are skipped wholesale rather than re-scanning
-    # the full text on every match - the source of the previous O(n^2) blowup.
     has_gcp_key = bool(_GCP_PRIVATE_KEY_RE.search(text))
     findings: list[SecretFinding] = []
     truncated = False

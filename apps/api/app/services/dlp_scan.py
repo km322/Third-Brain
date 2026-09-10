@@ -24,12 +24,12 @@ _MAX_COUNTED_MATCHES = 1000
 _MAX_EXAMINED_MATCHES = 5000
 _SEVERITY_RANK = {"high": 0, "medium": 1, "low": 2}
 
-# High-severity PII (financial / government id) implies CONFIDENTIAL; anything else PII.
 _SEVERITY_TO_LEVEL = {
     "high": SensitivityLevel.CONFIDENTIAL,
     "medium": SensitivityLevel.PII,
     "low": SensitivityLevel.PII,
 }
+"""High-severity PII (financial / government id) implies CONFIDENTIAL; anything else PII."""
 
 
 @dataclass(frozen=True)
@@ -89,7 +89,7 @@ def _credit_card_ok(match: re.Match[str]) -> bool:
 
 
 def _ssn_ok(match: re.Match[str]) -> bool:
-    # Reject structurally-invalid US SSNs (area 000/666/9xx, group 00, serial 0000).
+    """Reject structurally-invalid US SSNs (area 000/666/9xx, group 00, serial 0000)."""
     area, group, serial = match.group(1), match.group(2), match.group(3)
     if area in {"000", "666"} or area[0] == "9":
         return False
@@ -141,11 +141,6 @@ _DETECTORS: tuple[_Detector, ...] = (
         id="email",
         label="Email address",
         severity="low",
-        # Every quantifier is bounded and no two adjacent classes overlap, so match cost is
-        # constant per attempt and the scan stays linear in the input size. The previous
-        # ``[A-Za-z0-9.-]+\.[A-Za-z]{2,}`` had an unbounded ``+`` over a class that also
-        # contained the following literal ``.``, which backtracked quadratically on crafted
-        # zero-match input (``('a.'*n)@('b.'*n)!``) - a worker-pegging DoS.
         pattern=re.compile(
             r"\b[A-Za-z0-9._%+-]{1,64}@[A-Za-z0-9-]{1,63}(?:\.[A-Za-z0-9-]{1,63}){0,10}"
             r"\.[A-Za-z]{2,24}\b"
@@ -153,6 +148,13 @@ _DETECTORS: tuple[_Detector, ...] = (
         redactor=_redact_email,
     ),
 )
+r"""The detectors, in the order they are run.
+
+Every quantifier is bounded and no two adjacent classes overlap, so match cost is constant
+per attempt and the scan stays linear in the input size. The email detector is the
+cautionary tale: its previous ``[A-Za-z0-9.-]+\.[A-Za-z]{2,}`` had an unbounded ``+`` over a
+class that also contained the following literal ``.``, which backtracked quadratically on
+crafted zero-match input (``('a.'*n)@('b.'*n)!``) - a worker-pegging DoS."""
 
 
 def scan_text(text: str) -> DlpReport:

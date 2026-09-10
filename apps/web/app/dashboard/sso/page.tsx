@@ -65,8 +65,10 @@ const PROTOCOL_VARIANT: Record<SsoProtocol, BadgeProps["variant"]> = {
   saml: "success",
 };
 
-// `redirect_uri` is the dashboard's own callback page, so it defaults to
-// `<APP_BASE_URL>/sso/callback` on the server when the config omits it.
+/**
+ * `redirect_uri` is the dashboard's own callback page, so it defaults to
+ * `<APP_BASE_URL>/sso/callback` on the server when the config omits it.
+ */
 const CONFIG_PLACEHOLDER: Record<SsoProtocol, string> = {
   oidc: `{
   "authorization_endpoint": "https://idp.example.com/authorize",
@@ -164,7 +166,6 @@ export default function SsoPage() {
         description="Let your team sign in with your identity provider and keep membership in sync automatically."
       />
 
-      {/* Section 1: Single sign-on */}
       <section className="space-y-4">
         <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-start">
           <div className="min-w-0 space-y-1">
@@ -270,7 +271,6 @@ export default function SsoPage() {
 
       <Separator />
 
-      {/* Section 2: SCIM provisioning tokens */}
       <section className="space-y-4">
         <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-start">
           <div className="min-w-0 space-y-1">
@@ -369,7 +369,6 @@ export default function SsoPage() {
         }}
       />
 
-      {/* One-time SCIM token reveal */}
       <Dialog
         open={revealToken !== null}
         onOpenChange={(o) => !o && setRevealToken(null)}
@@ -406,7 +405,6 @@ export default function SsoPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Delete connection confirm */}
       <Dialog
         open={deletingConn !== null}
         onOpenChange={(o) => !o && setDeletingConn(null)}
@@ -438,7 +436,6 @@ export default function SsoPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Revoke token confirm */}
       <Dialog
         open={revokingToken !== null}
         onOpenChange={(o) => !o && setRevokingToken(null)}
