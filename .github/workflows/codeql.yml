@@ -47,6 +47,16 @@ jobs:
           languages: ${{ matrix.language }}
           build-mode: ${{ matrix.build-mode }}
           queries: security-extended
+          # Test code is excluded on purpose. The suites here deliberately contain
+          # hostile-looking material - the secret scanner's fixtures are literal fake AWS
+          # keys and GitHub tokens, and the provider tests assert on URL substrings - so
+          # scanning them produces findings that can only ever be dismissed. A Security
+          # tab full of alerts nobody can action is one nobody reads.
+          config: |
+            paths-ignore:
+              - apps/api/tests
+              - apps/web/e2e
+              - packages/mcp-cli/test
 
       - name: Analyze
         uses: github/codeql-action/analyze@v4

@@ -36,6 +36,22 @@ from app.services.identity import get_membership, get_user_by_email, provision_u
 logger = get_logger(__name__)
 
 _SAML_ASSERTION_NS = "urn:oasis:names:tc:SAML:2.0:assertion"
+
+_SAML_PARSER = etree.XMLParser(
+    resolve_entities=False,
+    load_dtd=False,
+    no_network=True,
+    huge_tree=False,
+)
+"""Hardened parser for the SAMLResponse.
+
+The assertion's signature is verified immediately after parsing, but that cannot protect
+this step: parsing happens first, and the ACS endpoint is unauthenticated by design (it
+has to be - the IdP posts to it), so these bytes are attacker-controlled. Current lxml
+already declines external entities by default; stating it explicitly means the guarantee
+does not rest on a library default that could differ across versions or environments.
+Real SAML carries no entities or DTD, so nothing legitimate is lost.
+"""
 _STATE_TTL_SECONDS = 600
 # Tolerate modest IdP/SP clock drift when checking an assertion's validity window.
 _SAML_CLOCK_SKEW_SECONDS = 180
@@ -231,7 +247,7 @@ def verify_saml_response(connection: SsoConnection, saml_response_b64: str) -> S
         raise SsoError("SAML connection has no IdP certificate configured")
     try:
         xml_bytes = base64.b64decode(saml_response_b64)
-        doc = etree.fromstring(xml_bytes)  # noqa: S320 - verified below before any trust
+        doc = etree.fromstring(xml_bytes, parser=_SAML_PARSER)
     except (ValueError, etree.XMLSyntaxError) as exc:
         raise SsoError("Malformed SAML response") from exc
     try:
