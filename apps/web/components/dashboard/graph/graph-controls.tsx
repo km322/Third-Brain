@@ -27,7 +27,9 @@ interface GraphControlsProps {
 
 /**
  * Compact toolbar for the graph: a collection filter, a similarity threshold
- * slider (debounced so dragging does not spam the API) and a reset control.
+ * slider (debounced so dragging does not spam the API) and a reset control. The
+ * slider tracks its own local value so it stays snappy under the thumb, while the
+ * query-driving commit is what gets debounced.
  */
 export function GraphControls({
   collections,
@@ -38,7 +40,6 @@ export function GraphControls({
   onReset,
   isFetching,
 }: GraphControlsProps) {
-  // Keep the slider snappy locally while debouncing the query-driving commit.
   const [localSim, setLocalSim] = React.useState(similarity);
   React.useEffect(() => setLocalSim(similarity), [similarity]);
 

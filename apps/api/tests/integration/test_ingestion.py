@@ -30,6 +30,8 @@ def _document(org, collection, *, status, age: timedelta) -> Document:
 
 
 async def test_reaper_fails_stuck_documents_but_spares_fresh_ones(db_session) -> None:
+    """The long-stranded document is failed and carries a human-readable reason; a document
+    that only just started processing is left alone so a slow-but-live job is never killed."""
     org, owner, _ = await factories.create_org_with_owner(db_session)
     collection = await factories.create_collection(db_session, org=org, owner=owner)
 
@@ -43,8 +45,6 @@ async def test_reaper_fails_stuck_documents_but_spares_fresh_ones(db_session) ->
 
     await db_session.refresh(stuck)
     await db_session.refresh(fresh)
-    # The long-stranded document is failed and carries a human-readable reason; a document
-    # that only just started processing is left alone so a slow-but-live job is never killed.
     assert stuck.status == DocumentStatus.FAILED
     assert stuck.error
     assert fresh.status == DocumentStatus.PROCESSING

@@ -9,10 +9,10 @@ from app.models.enums import OrgRole, Visibility
 
 pytestmark = pytest.mark.integration
 
-# A canonical valid 1x1 PNG (magic bytes + IHDR/IDAT/IEND), small enough to inline.
 _PNG_1PX = __import__("base64").b64decode(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="
 )
+"""A canonical valid 1x1 PNG (magic bytes + IHDR/IDAT/IEND), small enough to inline."""
 
 _TEXT = (
     "Retrieval augmented generation grounds a language model in an organization's own "
@@ -23,6 +23,8 @@ _TEXT = (
 async def test_text_document_ingests_to_indexed_with_chunks(
     client, db_session, token_headers, api, ingest_now
 ) -> None:
+    """``ingest_now`` drives ingestion inline, since the enqueue is neutralised by the client
+    fixture."""
     org, owner, _ = await factories.create_org_with_owner(db_session)
     collection = await factories.create_collection(db_session, org=org, owner=owner)
     headers = token_headers(owner.id, org.id)
@@ -37,7 +39,6 @@ async def test_text_document_ingests_to_indexed_with_chunks(
     assert doc["status"] == "pending"
     document_id = doc["id"]
 
-    # Drive ingestion inline (the enqueue is neutralised by the client fixture).
     await ingest_now(document_id)
 
     detail = await client.get(f"{api}/documents/{document_id}", headers=headers)
@@ -175,6 +176,7 @@ async def test_content_read_and_edit_roundtrip(
 async def test_content_save_with_secret_is_rejected_and_document_untouched(
     client, db_session, token_headers, api, ingest_now
 ) -> None:
+    """The stored document must be left untouched by the rejected save."""
     org, owner, _ = await factories.create_org_with_owner(db_session)
     collection = await factories.create_collection(db_session, org=org, owner=owner)
     headers = token_headers(owner.id, org.id)
@@ -196,7 +198,6 @@ async def test_content_save_with_secret_is_rejected_and_document_untouched(
     assert saved.status_code == 422, saved.text
     assert "secrets" in saved.json()["detail"]
 
-    # The stored document is untouched by the rejected save.
     reread = await client.get(f"{api}/documents/{document_id}/content", headers=headers)
     assert reread.json()["content"].strip() == _TEXT
 
@@ -234,6 +235,8 @@ async def test_content_edit_requires_editor(
 async def test_image_upload_indexes_summary_chunk_with_capability_link(
     client, db_session, token_headers, api, ingest_now
 ) -> None:
+    """The summary chunk names the image and carries the absolute capability link, and a wrong
+    token of plausible shape 404s without leaking anything."""
     org, owner, _ = await factories.create_org_with_owner(db_session)
     collection = await factories.create_collection(db_session, org=org, owner=owner)
     headers = token_headers(owner.id, org.id)
@@ -255,7 +258,6 @@ async def test_image_upload_indexes_summary_chunk_with_capability_link(
     chunks = await client.get(f"{api}/documents/{document_id}/chunks", headers=headers)
     assert chunks.status_code == 200
     content = chunks.json()[0]["content"]
-    # The summary chunk names the image and carries the absolute capability link.
     assert content.startswith("[Image] diagram.png")
     assert "/api/v1/files/" in content
 
@@ -266,7 +268,6 @@ async def test_image_upload_indexes_summary_chunk_with_capability_link(
     assert served.headers["x-content-type-options"] == "nosniff"
     assert served.content == _PNG_1PX
 
-    # A wrong token of plausible shape 404s without leaking anything.
     missing = await client.get(f"{api}/files/{'x' * len(token)}")
     assert missing.status_code == 404
 
@@ -276,7 +277,8 @@ async def test_non_image_bytes_labelled_as_image_are_still_scanned_and_not_serve
 ) -> None:
     """A client-supplied image/* mime must not become a scan bypass or a public
     byte-server: the ingest path sniffs the real bytes, so a secret-bearing file
-    mislabelled as a PNG still quarantines and never gets a capability link."""
+    mislabelled as a PNG still quarantines and never gets a capability link. The secret gate
+    saw the REAL bytes, which is why the document ends up quarantined rather than indexed."""
     org, owner, _ = await factories.create_org_with_owner(db_session)
     collection = await factories.create_collection(db_session, org=org, owner=owner)
     headers = token_headers(owner.id, org.id)
@@ -293,7 +295,6 @@ async def test_non_image_bytes_labelled_as_image_are_still_scanned_and_not_serve
 
     await ingest_now(document_id)
     detail = await client.get(f"{api}/documents/{document_id}", headers=headers)
-    # The secret gate saw the REAL bytes, so the document is quarantined, not indexed.
     assert detail.json()["status"] == "quarantined"
     assert detail.json()["image_url"] is None
 
@@ -304,7 +305,8 @@ async def test_non_image_bytes_labelled_as_image_are_still_scanned_and_not_serve
 async def test_image_document_cannot_be_text_edited(
     client, db_session, token_headers, api, ingest_now
 ) -> None:
-    """PUT /content on an image would overwrite the original image blob - refuse it."""
+    """PUT /content on an image would overwrite the original image blob - refuse it, and prove
+    the original bytes are still served intact afterwards."""
     org, owner, _ = await factories.create_org_with_owner(db_session)
     collection = await factories.create_collection(db_session, org=org, owner=owner)
     headers = token_headers(owner.id, org.id)
@@ -329,7 +331,6 @@ async def test_image_document_cannot_be_text_edited(
     )
     assert saved.status_code == 409, saved.text
 
-    # The original bytes are still served intact.
     doc = await client.get(f"{api}/documents/{document_id}", headers=headers)
     token = doc.json()["image_url"].rsplit("/files/", 1)[1]
     served = await client.get(f"{api}/files/{token}")

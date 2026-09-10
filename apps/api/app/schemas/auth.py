@@ -29,10 +29,10 @@ class LoginRequest(BaseModel):
 
 class RefreshRequest(BaseModel):
     refresh_token: str
-    # Optional: resume into this org (the caller's active org) instead of the default one,
-    # so a silent token refresh preserves which organization the user is working in. Honored
-    # only when the user has an ACTIVE membership there.
     org_id: uuid.UUID | None = None
+    """Optional: resume into this org (the caller's active org) instead of the default one,
+    so a silent token refresh preserves which organization the user is working in. Honored
+    only when the user has an ACTIVE membership there."""
 
 
 class LogoutRequest(BaseModel):

@@ -138,14 +138,23 @@ async def chat(
     db: AsyncSession = Depends(get_db),
     ctx: AuthContext = Depends(require_scope("search")),
 ):
-    """Answer a question from the caller's knowledge base, grounded in citations."""
+    """Answer a question from the caller's knowledge base, grounded in citations.
+
+    Conversation history and optional web grounding are resolved once up front, shared by
+    both the streaming and non-streaming paths.
+
+    \f
+
+    On the non-streaming path the answer is metered as a COMPLETION by ``rag.answer``
+    (retrieval as EMBEDDING), so we audit but don't also record a SEARCH, which would
+    double-count the Ask.
+    """
     await enforce_rate_limit(ctx)
 
     top_k = payload.top_k or settings.RETRIEVAL_TOP_K
     ip = _client_ip(request)
     user_agent = request.headers.get("user-agent")
 
-    # Resolve conversation history + optional web grounding once, shared by both paths.
     conv = None
     history = None
     if payload.conversation_id is not None:
@@ -161,17 +170,28 @@ async def chat(
     if payload.stream:
 
         async def token_stream():
-            # SSE JSON frames: {"type":"token","text":...} per delta, a final
-            # {"type":"citations","citations":[...]} carrying the passages the answer was
-            # grounded in, then [DONE]. Streaming the citations here lets the client render
-            # the Sources panel from this one retrieval instead of firing a second, fully
-            # metered /search - which double-counted every Ask.
+            """Yield the answer as SSE JSON frames.
+
+            ``{"type":"token","text":...}`` per delta, a final
+            ``{"type":"citations","citations":[...]}`` carrying the passages the answer was
+            grounded in, then ``[DONE]``. Streaming the citations here lets the client render
+            the Sources panel from this one retrieval instead of firing a second, fully
+            metered /search - which double-counted every Ask.
+
+            ``aclosing`` propagates a mid-stream disconnect down through ``rag.stream_answer``
+            to the inner LLM generator, so their finally blocks (metering, span finalization)
+            run promptly instead of at GC time.
+
+            The audit + commit run in a ``finally`` so a mid-stream client disconnect still
+            audits and commits the usage already recorded (EMBEDDING during retrieval and the
+            COMPLETION metered in ``rag.stream_answer``'s own finally) rather than rolling it
+            back when the session closes - otherwise streams can be aborted to evade metering.
+            The answer is metered as a COMPLETION, not a SEARCH, so recording a SEARCH here
+            too would double-count each Ask.
+            """
             cited: list[SearchHit] = []
             answer_parts: list[str] = []
             try:
-                # aclosing propagates a mid-stream disconnect down through rag.stream_answer to
-                # the inner LLM generator, so their finally blocks (metering, span finalization)
-                # run promptly instead of at GC time.
                 async with contextlib.aclosing(
                     rag.stream_answer(
                         db,
@@ -217,12 +237,6 @@ async def chat(
                 )
                 yield "data: [DONE]\n\n"
             finally:
-                # Finalize in a ``finally`` so a mid-stream client disconnect still audits
-                # and commits the usage already recorded (EMBEDDING during retrieval and the
-                # COMPLETION metered in ``rag.stream_answer``'s own finally) rather than
-                # rolling it back when the session closes - otherwise streams can be aborted
-                # to evade metering. The answer is metered as a COMPLETION, not a SEARCH, so
-                # recording a SEARCH here too would double-count each Ask.
                 try:
                     meta = {"query": payload.query[:500], "top_k": top_k, "streamed": True}
                     await record_audit(
@@ -256,8 +270,6 @@ async def chat(
     )
     citations = [_to_citation(h) for h in cited]
 
-    # The answer is metered as a COMPLETION by ``rag.answer`` (retrieval as EMBEDDING), so
-    # we audit but don't also record a SEARCH, which would double-count the Ask.
     meta = {
         "query": payload.query[:500],
         "top_k": top_k,

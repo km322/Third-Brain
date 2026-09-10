@@ -38,17 +38,20 @@ def test_user_codes_are_random() -> None:
 
 
 def test_normalize_user_code() -> None:
+    """Spacing and casing are normalised to the canonical form; anything else passes through
+    cleaned rather than being rejected here (the lookup simply misses)."""
     assert normalize_user_code("  bcdf-2345 ") == "BCDF-2345"
     assert normalize_user_code("bcdf2345") == "BCDF-2345"
     assert normalize_user_code("BCDF 2345") == "BCDF-2345"
-    # Anything else passes through cleaned (the lookup simply misses).
     assert normalize_user_code("nope") == "NOPE"
 
 
 def test_device_code_shape_matches_api_key_generator() -> None:
+    """A device code shares the API-key generator's shape but wears its own ``tbd_`` prefix, so
+    it never routes down the API-key auth path."""
     full, prefix, hashed = generate_device_code()
     assert full.startswith("tbd_")
-    assert not full.startswith("tb_")  # never routes down the API-key auth path
+    assert not full.startswith("tb_")
     assert prefix == full[:12]
     assert hashed == hash_api_key(full)
     assert generate_device_code()[0] != full

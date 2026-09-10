@@ -10,7 +10,7 @@ import type { MembershipStatus, OrgRole } from "@/lib/types";
  * and how to gate admin-only UI without re-deriving the role hierarchy.
  */
 
-// Least → most privileged. Mirrors `OrgRole` in the backend enums.
+/** Least → most privileged. Mirrors `OrgRole` in the backend enums. */
 const ROLE_ORDER: OrgRole[] = ["viewer", "editor", "admin", "owner"];
 
 /** True when `role` is at least as privileged as `min`. */

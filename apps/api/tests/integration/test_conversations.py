@@ -11,6 +11,8 @@ pytestmark = pytest.mark.integration
 
 
 async def test_multi_turn_persists_history(client, db_session, token_headers, api) -> None:
+    """Both turns land on the same conversation in order, and assistant turns carry their
+    citation payload (possibly empty on an empty knowledge base)."""
     org, owner, _ = await factories.create_org_with_owner(db_session)
     headers = token_headers(owner.id, org.id)
 
@@ -32,11 +34,12 @@ async def test_multi_turn_persists_history(client, db_session, token_headers, ap
     messages = detail.json()["messages"]
     assert [m["role"] for m in messages] == ["user", "assistant", "user", "assistant"]
     assert messages[0]["content"] == "Who is Alice Johnson?"
-    # Assistant turns carry their citation payload (possibly empty on an empty KB).
     assert "citations" in messages[1]
 
 
 async def test_conversation_ownership_enforced(client, db_session, token_headers, api) -> None:
+    """A different user in the same org can neither read someone else's conversation nor drive
+    a chat turn against it."""
     org, owner, _ = await factories.create_org_with_owner(db_session)
     other, _ = await factories.add_member(db_session, org=org)
     created = await client.post(
@@ -44,12 +47,10 @@ async def test_conversation_ownership_enforced(client, db_session, token_headers
     )
     conv_id = created.json()["id"]
 
-    # A different user cannot read someone else's conversation.
     resp = await client.get(
         f"{api}/conversations/{conv_id}", headers=token_headers(other.id, org.id)
     )
     assert resp.status_code == 404, resp.text
-    # Nor drive a chat turn against it.
     chat = await client.post(
         f"{api}/search/chat",
         headers=token_headers(other.id, org.id),

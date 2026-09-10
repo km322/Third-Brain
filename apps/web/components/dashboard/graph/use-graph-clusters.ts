@@ -22,8 +22,10 @@ const EMPTY: ClusterResult = {
   clusters: [],
 };
 
-// Common words plus generic document/file noise that should never become a
-// topic label.
+/**
+ * Common words plus generic document/file noise that should never become a topic
+ * label.
+ */
 const STOPWORDS = new Set([
   "the",
   "a",
@@ -155,12 +157,20 @@ const titleCase = (w: string) => w.charAt(0).toUpperCase() + w.slice(1);
  * Derive a short topic label for a community: the most frequent significant
  * words across its document titles, falling back to the highest-degree member's
  * title when the titles share no common vocabulary.
+ *
+ * Each significant word is counted once per document so a single long title
+ * cannot dominate the topic, and a keyword label is only trusted when two
+ * significant words genuinely recur across the topic - a single dominant word
+ * (e.g. "call" from several on-call docs) makes a weak label, so the fallback to
+ * the most-connected document's title reads better.
+ *
+ * A single community that spans the whole graph has no distinguishing topic, so
+ * naming it after one member document would read as if the entire knowledge base
+ * were about that file; it gets a neutral label instead.
  */
 function clusterLabel(members: GraphNode[], isWholeGraph = false): string {
   const freq = new Map<string, number>();
   for (const m of members) {
-    // Count each significant word once per document so a single long title
-    // cannot dominate the topic.
     for (const w of new Set(significantWords(m.title))) {
       freq.set(w, (freq.get(w) ?? 0) + 1);
     }
@@ -169,17 +179,11 @@ function clusterLabel(members: GraphNode[], isWholeGraph = false): string {
     (a, b) => b[1] - a[1] || a[0].localeCompare(b[0]),
   );
 
-  // Only trust a keyword label when two significant words genuinely recur across
-  // the topic; a single dominant word (e.g. "call" from several on-call docs)
-  // makes a weak label, so fall back to the most-connected document's title.
   const top = ranked.filter(([, c]) => c >= 2).slice(0, 2);
   if (top.length >= 2) {
     return top.map(([w]) => titleCase(w)).join(" ");
   }
 
-  // A single community that spans the whole graph has no distinguishing topic, so
-  // naming it after one member document reads as if the entire knowledge base were
-  // about that file. Use a neutral label instead.
   if (isWholeGraph) return "All documents";
 
   const hub = members.reduce((best, m) => (m.degree > best.degree ? m : best));
@@ -188,6 +192,14 @@ function clusterLabel(members: GraphNode[], isWholeGraph = false): string {
   return label.length > 26 ? `${label.slice(0, 25)}…` : label;
 }
 
+/**
+ * Partition the nodes into topic communities.
+ *
+ * Louvain needs edges to work; with none, every document is its own island, so
+ * they are all grouped together instead. The raw community ids it returns are
+ * re-indexed by size, so the largest topic is cluster 0 and gets the first
+ * palette color - a stable, readable ordering.
+ */
 function computeClusters(nodes: GraphNode[], edges: GraphEdge[]): ClusterResult {
   if (nodes.length === 0) return EMPTY;
 
@@ -204,8 +216,6 @@ function computeClusters(nodes: GraphNode[], edges: GraphEdge[]): ClusterResult 
     graph.addEdge(e.source, e.target, { weight: e.weight });
   }
 
-  // Raw community id per node. Louvain needs edges to work; with none, every
-  // document is its own island - group them all together instead.
   const rawByNode = new Map<string, number>();
   if (graph.size > 0) {
     const partition = louvain(graph, {
@@ -217,8 +227,6 @@ function computeClusters(nodes: GraphNode[], edges: GraphEdge[]): ClusterResult 
     for (const n of nodes) rawByNode.set(n.id, 0);
   }
 
-  // Group members by raw community, then re-index by size so the largest topic
-  // is cluster 0 and gets the first palette color (stable, readable ordering).
   const groups = new Map<number, GraphNode[]>();
   for (const n of nodes) {
     const raw = rawByNode.get(n.id) ?? 0;

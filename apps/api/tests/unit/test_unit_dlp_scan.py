@@ -40,7 +40,7 @@ class TestClassification:
 
 class TestValidators:
     def test_luhn_invalid_card_not_detected(self) -> None:
-        # Last digit altered so Luhn fails.
+        """The last digit of a valid test card is altered so Luhn fails."""
         report = scan_text("card 4111 1111 1111 1112 on file")
         assert not any(f.detector == "credit-card" for f in report.findings)
 
@@ -69,11 +69,11 @@ class TestLinearSafety:
 
 class TestRedaction:
     def test_raw_values_never_emitted(self) -> None:
+        """No raw match survives into the persisted metadata - only the redacted tails do."""
         report = scan_text("SSN 123-45-6789, card 4111 1111 1111 1111, mail bob@corp.com")
         blob = json.dumps(report_to_meta(report))
         assert "123-45-6789" not in blob
         assert "4111111111111111" not in blob
         assert "4111 1111 1111 1111" not in blob
         assert "bob@corp.com" not in blob
-        # But the redacted tails are present.
         assert "6789" in blob and "1111" in blob

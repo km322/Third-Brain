@@ -14,9 +14,9 @@ from pydantic import BaseModel, Field
 
 from app.schemas.common import ORMModel
 
-# Scopes an admin may grant through the browser approval. Deliberately narrower than
-# ``ALLOWED_SCOPES``: a terminal-initiated key never gets ``manage`` or ``*``.
 DEVICE_GRANTABLE_SCOPES: frozenset[str] = frozenset({"read", "write", "search", "ingest"})
+"""Scopes an admin may grant through the browser approval. Deliberately narrower than
+``ALLOWED_SCOPES``: a terminal-initiated key never gets ``manage`` or ``*``."""
 DEFAULT_DEVICE_SCOPES: tuple[str, ...] = ("search", "read", "ingest")
 
 

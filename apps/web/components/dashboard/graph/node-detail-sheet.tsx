@@ -55,8 +55,11 @@ function MetaRow({ label, children }: { label: string; children: React.ReactNode
   );
 }
 
-/** Slide-over showing the exact document behind a node, plus a jumping-off point
- * to expand its local web or open it in the documents view. */
+/**
+ * Slide-over showing the exact document behind a node, plus a jumping-off point
+ * to expand its local web or open it in the documents view. The first indexed
+ * chunk is pulled for a real content preview, best-effort.
+ */
 export function NodeDetailSheet({
   node,
   cluster,
@@ -65,7 +68,6 @@ export function NodeDetailSheet({
   onExpand,
   expanding,
 }: NodeDetailSheetProps) {
-  // Pull the first indexed chunk for a real content preview (best-effort).
   const { data: chunks, isLoading } = useQuery<DocumentChunk[]>({
     queryKey: ["document-chunks", node?.id],
     queryFn: () => api.get<DocumentChunk[]>(`/documents/${node!.id}/chunks`),

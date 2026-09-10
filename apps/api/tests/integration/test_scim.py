@@ -20,6 +20,8 @@ async def _scim_token(client, api, headers) -> str:
 
 
 async def test_scim_provisions_and_deactivates_user(client, db_session, token_headers, api) -> None:
+    """A provisioned SCIM user is a real org member, is findable through a filtered list, and a
+    PATCH that clears ``active`` suspends the membership."""
     org, owner, _ = await factories.create_org_with_owner(db_session)
     raw = await _scim_token(client, api, token_headers(owner.id, org.id))
     scim_headers = {"Authorization": f"Bearer {raw}"}
@@ -34,20 +36,17 @@ async def test_scim_provisions_and_deactivates_user(client, db_session, token_he
     user_id = created.json()["id"]
     assert created.json()["active"] is True
 
-    # A real member now exists in the org.
     user = await get_user_by_email(db_session, email)
     assert user is not None
     membership = await get_membership(db_session, org.id, user.id)
     assert membership is not None and membership.status == MembershipStatus.ACTIVE
 
-    # Filtered list finds them.
     listed = await client.get(
         f"{api}/scim/v2/Users", headers=scim_headers, params={"filter": f'userName eq "{email}"'}
     )
     assert listed.status_code == 200, listed.text
     assert listed.json()["totalResults"] == 1
 
-    # Deactivate via PATCH -> membership suspended.
     patched = await client.patch(
         f"{api}/scim/v2/Users/{user_id}",
         headers=scim_headers,

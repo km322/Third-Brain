@@ -41,20 +41,22 @@ logger = get_logger(__name__)
 tracer = get_tracer(__name__)
 
 _REQUEST_TIMEOUT = httpx.Timeout(60.0, connect=10.0)
-# Streaming keeps the same connect/write/pool budget as the non-streaming path but a
-# generous per-read timeout for inter-chunk gaps. Never ``None``: an unbounded timeout
-# lets a hung provider connection block forever and pin the request/DB connection.
+
 _STREAM_TIMEOUT = httpx.Timeout(connect=10.0, read=60.0, write=10.0, pool=10.0)
+"""Streaming keeps the same connect/write/pool budget as the non-streaming path but a
+generous per-read timeout for inter-chunk gaps. Never ``None``: an unbounded timeout lets a
+hung provider connection block forever and pin the request/DB connection."""
 
-# Keep-alive pool for the shared client below. Bounded so a burst of concurrent requests
-# can't open unbounded provider connections.
 _HTTPX_LIMITS = httpx.Limits(max_keepalive_connections=20, max_connections=100)
+"""Keep-alive pool for the shared client below. Bounded so a burst of concurrent requests
+can't open unbounded provider connections."""
 
-# One process-wide httpx client (connection pool) reused across every provider call.
-# Rebuilding a client per call tears down and re-establishes the TCP+TLS pool on each
-# request - e.g. once per embedding batch during ingestion - so the pool is shared and
-# created lazily on first use inside the running event loop.
 _client: httpx.AsyncClient | None = None
+"""One process-wide httpx client (connection pool) reused across every provider call.
+
+Rebuilding a client per call tears down and re-establishes the TCP+TLS pool on each request
+- e.g. once per embedding batch during ingestion - so the pool is shared and created lazily
+on first use inside the running event loop."""
 
 
 def _http_client() -> httpx.AsyncClient:
@@ -89,10 +91,14 @@ class ImageAttachment:
 
 @dataclass
 class ChatMessage:
+    """One turn of a chat request.
+
+    ``images`` holds optional vision inputs; each provider adapter maps them to its wire
+    shape and the offline stub ignores them (its deterministic answers stay text-only).
+    """
+
     role: Literal["system", "user", "assistant", "tool"]
     content: str
-    # Optional vision inputs; each provider adapter maps these to its wire shape and
-    # the offline stub ignores them (its deterministic answers stay text-only).
     images: list[ImageAttachment] = field(default_factory=list)
 
     def as_dict(self) -> dict[str, Any]:
@@ -158,12 +164,12 @@ def _is_openai_family(model: str) -> bool:
     return model.startswith(("gpt-", "o1", "o3", "o4", "chatgpt", "text-embedding-"))
 
 
-# Default models used when the platform fallback lands on a non-OpenAI provider while
-# the configured default model is still an OpenAI-family name.
 _PLATFORM_DEFAULT_MODELS: dict[str, dict[str, str]] = {
     "completion": {"anthropic": "claude-opus-5", "google": "gemini-2.5-flash"},
     "embedding": {"google": "gemini-embedding-001"},
 }
+"""Default models used when the platform fallback lands on a non-OpenAI provider while the
+configured default model is still an OpenAI-family name."""
 
 
 def _resolve_target(
@@ -279,9 +285,6 @@ def _auth_headers(key: str | None) -> dict[str, str]:
     return openai_provider.headers(key)
 
 
-# --------------------------------------------------------------------------- #
-# Deterministic offline provider
-# --------------------------------------------------------------------------- #
 def _fake_embedding(text: str, dim: int) -> list[float]:
     """A stable, unit-normalized pseudo-embedding derived from token hashes.
 
@@ -299,10 +302,10 @@ def _fake_embedding(text: str, dim: int) -> list[float]:
     return [v / norm for v in vec]
 
 
-# Matches the ``<passage id="N" title="…">body</passage>`` blocks that
-# ``app.services.rag`` assembles into the grounding prompt, so the offline stub can
-# answer *from* the retrieved passages instead of echoing the prompt scaffolding.
 _PASSAGE_RE = re.compile(r'<passage id="(\d+)" title="([^"]*)">\s*(.*?)\s*</passage>', re.DOTALL)
+"""Matches the ``<passage id="N" title="…">body</passage>`` blocks that
+:mod:`app.services.rag` assembles into the grounding prompt, so the offline stub can answer
+*from* the retrieved passages instead of echoing the prompt scaffolding."""
 
 
 def _first_sentences(text: str, limit: int = 240) -> str:
@@ -325,13 +328,14 @@ def _offline_completion(messages: list[ChatMessage]) -> str:
     For a retrieval-grounded prompt (the RAG ``user`` message carries ``<passage>``
     blocks) it synthesizes a readable, *cited* extract from the retrieved passages -
     never echoing the internal prompt scaffolding - so the zero-key demo still shows
-    grounded, permission-filtered, citable answers. For a plain chat it simply
-    acknowledges the question. Either way it says up front that it is an offline stub.
+    grounded, permission-filtered, citable answers; the real user question is recovered
+    from the trailing "Question: …" line the RAG prompt appends. For a plain chat it simply
+    acknowledges the question without fabricating an answer. Either way it says up front
+    that it is an offline stub.
     """
     last_user = next((m.content for m in reversed(messages) if m.role == "user"), "")
     passages = _PASSAGE_RE.findall(last_user)
     if passages:
-        # The real user question is the trailing "Question: …" line the RAG prompt appends.
         question = ""
         if "\nQuestion:" in last_user:
             question = last_user.rsplit("\nQuestion:", 1)[-1].strip()
@@ -354,7 +358,6 @@ def _offline_completion(messages: list[ChatMessage]) -> str:
                 f"(+{extra} more permitted source{'s' if extra != 1 else ''} in the sources panel.)"
             )
         return "\n".join(lines)
-    # Plain (non-RAG) chat: acknowledge the question without fabricating an answer.
     return (
         "[offline model] No live LLM provider is configured, so this is a stub response. "
         "Set OPENAI_API_KEY (or a connector) to enable real generation. "
@@ -374,13 +377,17 @@ def _estimate_tokens(texts: list[str]) -> int:
 
 def _estimate_tokens_any(items: list[str] | list[list[int]]) -> int:
     """Token estimate over mixed embedding inputs: ~4 chars/token for strings, and one token
-    per element for pre-tokenized (int-array) inputs."""
+    per element for pre-tokenized (int-array) inputs.
+
+    Everything is accumulated as a character count, so an int-array element contributes 4 -
+    the char budget :func:`_approx_tokens_from_chars` then counts back as one whole token.
+    """
     total = 0
     for item in items:
         if isinstance(item, str):
             total += len(item)
         else:
-            total += len(item) * 4  # counted as whole tokens by _approx_tokens_from_chars
+            total += len(item) * 4
     return _approx_tokens_from_chars(total)
 
 
@@ -422,9 +429,6 @@ def _log_llm_call(
     logger.info("llm_call", **fields)
 
 
-# --------------------------------------------------------------------------- #
-# Embeddings
-# --------------------------------------------------------------------------- #
 def _embedding_input_key(item: str | list[int]) -> str:
     """Stable string key for one embedding input (a string, or an OpenAI token-id array)."""
     if isinstance(item, str):
@@ -440,6 +444,21 @@ async def embed_texts(
     api_base: str | None = None,
     provider: str | None = None,
 ) -> EmbeddingResult:
+    """Embed ``texts`` (strings, or OpenAI-style token-id arrays) with the resolved provider.
+
+    Every failure path raises rather than substituting offline pseudo-vectors. Unlike a chat
+    answer, a bad embedding is persisted into the vector store (ingestion) or handed back to
+    an embeddings client, corrupting retrieval while looking successful; failing loudly makes
+    ingestion record the document as FAILED and shows the caller the real error. The same
+    loud-failure contract covers the two misconfigurations that would otherwise fake vectors
+    silently: a live platform with no embeddings-capable key, and a provider with no
+    embeddings API at all. The genuinely offline stub keys token-id arrays by their
+    stringified tokens so it still returns one vector per input.
+
+    The request is built BEFORE the ``try`` so input-shape errors (e.g. token-id arrays sent
+    to Gemini) raise ``ValueError`` for the caller to surface as a 400 client error, distinct
+    from the ``RuntimeError`` of a failed provider call.
+    """
     model = model or settings.EMBEDDING_MODEL
     model, wire = _resolve_target(model, api_key, api_base, provider, "embedding")
     dim = settings.EMBEDDING_DIM
@@ -453,16 +472,12 @@ async def embed_texts(
 
         if _offline(api_key, api_base, provider, purpose="embedding"):
             if _embedding_offline_is_misconfig(api_key, api_base, provider):
-                # Same loud-failure contract as a provider error: never silently fake vectors
-                # into the store when the platform is live but has no embeddings-capable key.
                 raise RuntimeError(
                     "No embeddings-capable provider is configured: set OPENAI_API_KEY or "
                     "GOOGLE_API_KEY (Anthropic has no embeddings API), or set "
                     "EMBEDDING_PROVIDER=fake for offline development."
                 )
             span.set_attribute("gen_ai.system", "offline")
-            # Token-id arrays (OpenAI/LangChain tokenized input) are keyed by their stringified
-            # tokens so the deterministic stub still returns one vector per input.
             vectors = [_fake_embedding(_embedding_input_key(t), dim) for t in texts]
             result = EmbeddingResult(vectors, "offline", _estimate_tokens_any(texts), "offline")
         else:
@@ -470,14 +485,10 @@ async def embed_texts(
             span.set_attribute("gen_ai.system", wire)
             _set_server_address(span, base)
             if not adapter.SUPPORTS_EMBEDDINGS:
-                # Same loud-failure contract as a provider error below: never fake vectors.
                 raise RuntimeError(
                     f"The '{wire}' provider has no embeddings API; use an OpenAI-compatible "
                     "or Google connector for embeddings."
                 )
-            # Build the request before the try: input-shape errors (e.g. token-id arrays
-            # sent to Gemini) raise ValueError for the caller to surface as a 400 client
-            # error, distinct from the RuntimeError of a failed provider call.
             url = adapter.embeddings_url(base, model)
             payload = adapter.embeddings_payload(model, texts)
             try:
@@ -493,10 +504,6 @@ async def embed_texts(
                     vectors, model, tokens or _estimate_tokens_any(texts), wire
                 )
             except Exception as exc:  # pragma: no cover - network/credentials dependent
-                # Do NOT silently substitute offline pseudo-vectors: unlike a chat answer, a bad
-                # embedding is persisted into the vector store (ingestion) or handed back to an
-                # embeddings client, corrupting retrieval while looking successful. Fail loudly so
-                # ingestion records the document as FAILED and the caller sees the real error.
                 span.record_exception(exc)
                 span.set_status(Status(StatusCode.ERROR, str(exc)))
                 logger.warning("Embedding request failed (%s)", exc)
@@ -516,9 +523,6 @@ async def embed_texts(
         return result
 
 
-# --------------------------------------------------------------------------- #
-# Completions
-# --------------------------------------------------------------------------- #
 async def complete(
     messages: list[ChatMessage],
     model: str | None = None,
@@ -529,6 +533,11 @@ async def complete(
     api_base: str | None = None,
     provider: str | None = None,
 ) -> CompletionResult:
+    """Run one non-streaming chat completion, falling back to the offline stub on error.
+
+    Token counts fall back to an estimate (as :func:`embed_texts` does) when the provider
+    omits usage or reports 0, but a real reported non-zero count is never overwritten.
+    """
     model = model or settings.DEFAULT_COMPLETION_MODEL
     model, wire = _resolve_target(model, api_key, api_base, provider, "completion")
     key, base = _endpoint(api_key, api_base, wire)
@@ -571,8 +580,6 @@ async def complete(
                 )
                 resp.raise_for_status()
                 text, tokens_in, tokens_out, finish_reason = adapter.parse_chat(resp.json())
-                # Fall back to an estimate (as embed_texts does) when the provider omits
-                # usage or reports 0, but never overwrite a real reported non-zero count.
                 result = CompletionResult(
                     text=text,
                     model=model,
@@ -630,7 +637,21 @@ async def stream_complete(
     ``meta_out`` is supplied it is populated with the actual ``provider``/``model`` used
     (``offline`` for the deterministic stub, including the mid-stream error fallback) so
     the caller can meter cost correctly - the offline provider is free - plus
-    ``latency_ms`` (total wall time) and ``ttft_ms`` (time to first yielded chunk).
+    ``latency_ms`` (total wall time) and ``ttft_ms`` (time to first yielded chunk). The
+    metadata defaults to offline and is overwritten to the real provider only once a
+    response actually streams.
+
+    The error fallback depends on how far the stream got. With no real content emitted yet
+    it switches to the deterministic offline stub so the caller still receives a usable
+    answer; once real deltas have gone out, appending the full offline stub would splice a
+    canned answer onto the partial real one, so it stops cleanly instead and keeps the real
+    provider attribution so metering stays correct.
+
+    An async generator's span can't use the ``start_as_current_span`` context manager (its
+    detach would fire in whatever task resumes the generator). Instead the span is started,
+    attached manually so the provider HTTP call and any child spans nest under it, and both
+    ended and detached explicitly in the ``finally`` - where the metrics line is emitted
+    while the span is still current, so it carries this span's trace/span ids.
     """
     model = model or settings.DEFAULT_COMPLETION_MODEL
     model, wire = _resolve_target(model, api_key, api_base, provider, "completion")
@@ -650,13 +671,8 @@ async def stream_complete(
             meta_out["provider"] = provider
             meta_out["model"] = used_model
 
-    # Default to offline; overwritten to the real provider only once a response streams.
     _set_meta("offline", "offline")
 
-    # An async generator's span can't use the start_as_current_span context manager (its
-    # detach would fire in whatever task resumes the generator). Instead the span is started,
-    # attached manually so the provider HTTP call and any child spans nest under it, and both
-    # ended and detached explicitly in the finally.
     span = tracer.start_span(f"chat {model}")
     span.set_attribute("gen_ai.operation.name", "chat")
     span.set_attribute("gen_ai.request.model", model)
@@ -707,8 +723,6 @@ async def stream_complete(
                 error_class=type(exc).__name__,
             )
             if out_chars == 0:
-                # No real content streamed yet: fall back to the deterministic offline
-                # stub so the caller still receives a usable answer.
                 fallback = True
                 _mark_offline_fallback(span)
                 _set_meta("offline", "offline")
@@ -718,9 +732,6 @@ async def stream_complete(
                     out_chars += len(word) + 1
                     yield word + " "
             else:
-                # Real deltas were already emitted; appending the full offline stub would
-                # splice a canned answer onto the partial real one. Stop cleanly instead,
-                # keeping the real provider attribution so metering stays correct.
                 span.record_exception(exc)
                 span.set_status(Status(StatusCode.ERROR, str(exc)))
     finally:
@@ -732,7 +743,6 @@ async def stream_complete(
             meta_out["ttft_ms"] = ttft_ms
         span.set_attribute("app.latency_ms", latency_ms)
         span.set_attribute("app.ttft_ms", ttft_ms)
-        # Log while the span is still current so the line carries this span's trace/span ids.
         _log_llm_call(
             "chat_stream",
             provider_used,

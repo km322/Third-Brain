@@ -60,6 +60,23 @@ async def _make_answer(db, *, org, collection, creator, visibility=Visibility.PR
 
 
 async def test_sql_filter_matches_can_read_answer_across_principals(db_session) -> None:
+    """The fixture set walks every branch of the rule, in list order.
+
+    Answers 0-3 are collection-scoped, so reachability comes from the collection (private,
+    org-wide, team-owned, explicitly granted) and not from the answer itself. Answer 4 lives
+    inside an invisible collection but is authored by the non-privileged viewer: the "your own
+    answer" branch must win over the collection being unreachable. Answers 5-7 are org-level
+    and governed by the answer's own visibility (org, public, private). Answer 8 is org-level
+    PRIVATE authored by the viewer - again the authorship branch.
+
+    The per-id assertions at the end guard against the two implementations agreeing because
+    both are trivially wrong. For the viewer: 0 is someone else's answer in a private
+    collection, 1 is an org-visible collection, 2 is the team collection they are on, 3 is
+    granted to the editor rather than to them, 4 is their own answer in an unreachable
+    collection, 7 is org-level PRIVATE by someone else, and 8 is org-level PRIVATE but their
+    own. For the editor: 3 is the explicit collection grant, and 2 is the team collection they
+    are not on.
+    """
     org, owner, _ = await factories.create_org_with_owner(db_session)
     editor, _ = await factories.add_member(db_session, org=org, role=OrgRole.EDITOR)
     viewer, _ = await factories.add_member(db_session, org=org, role=OrgRole.VIEWER)
@@ -88,15 +105,11 @@ async def test_sql_filter_matches_can_read_answer_across_principals(db_session) 
     )
 
     answers = [
-        # Collection-scoped: reachability comes from the collection, not the answer.
         await _make_answer(db_session, org=org, collection=private, creator=owner),
         await _make_answer(db_session, org=org, collection=org_wide, creator=owner),
         await _make_answer(db_session, org=org, collection=team_owned, creator=owner),
         await _make_answer(db_session, org=org, collection=granted, creator=owner),
-        # An answer inside an invisible collection, authored by the non-privileged user:
-        # the "your own answer" branch must win over the collection being unreachable.
         await _make_answer(db_session, org=org, collection=private, creator=viewer),
-        # Org-level: governed by the answer's own visibility.
         await _make_answer(
             db_session, org=org, collection=None, creator=owner, visibility=Visibility.ORG
         ),
@@ -106,7 +119,6 @@ async def test_sql_filter_matches_can_read_answer_across_principals(db_session) 
         await _make_answer(
             db_session, org=org, collection=None, creator=owner, visibility=Visibility.PRIVATE
         ),
-        # Org-level PRIVATE authored by the viewer - again the authorship branch.
         await _make_answer(
             db_session, org=org, collection=None, creator=viewer, visibility=Visibility.PRIVATE
         ),
@@ -128,20 +140,19 @@ async def test_sql_filter_matches_can_read_answer_across_principals(db_session) 
             f"only-in-SQL={sql - python} only-in-python={python - sql}"
         )
 
-    # Guard against the two agreeing because both are trivially wrong.
     owner_ctx = principals["owner (admin)"]
     viewer_ctx = principals["viewer (in team)"]
     assert await _sql_visible(db_session, owner_ctx) == {a.id for a in answers}
 
     viewer_visible = await _sql_visible(db_session, viewer_ctx)
-    assert answers[0].id not in viewer_visible  # private collection, someone else's answer
-    assert answers[1].id in viewer_visible  # org-visible collection
-    assert answers[2].id in viewer_visible  # team collection, viewer is on the team
-    assert answers[3].id not in viewer_visible  # granted to the editor, not the viewer
-    assert answers[4].id in viewer_visible  # own answer in an unreachable collection
-    assert answers[7].id not in viewer_visible  # org-level PRIVATE by someone else
-    assert answers[8].id in viewer_visible  # org-level PRIVATE, but their own
+    assert answers[0].id not in viewer_visible
+    assert answers[1].id in viewer_visible
+    assert answers[2].id in viewer_visible
+    assert answers[3].id not in viewer_visible
+    assert answers[4].id in viewer_visible
+    assert answers[7].id not in viewer_visible
+    assert answers[8].id in viewer_visible
 
     editor_visible = await _sql_visible(db_session, principals["editor"])
-    assert answers[3].id in editor_visible  # the explicit collection grant
-    assert answers[2].id not in editor_visible  # team collection, editor is not on the team
+    assert answers[3].id in editor_visible
+    assert answers[2].id not in editor_visible

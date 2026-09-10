@@ -24,5 +24,5 @@ class ScimTokenRead(ORMModel):
 
 
 class ScimTokenCreated(ScimTokenRead):
-    # The raw token is returned ONCE at creation and never stored in the clear.
     token: str
+    """The raw token is returned ONCE at creation and never stored in the clear."""

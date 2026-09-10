@@ -42,13 +42,27 @@ const AuthContext = React.createContext<AuthContextValue | undefined>(undefined)
  * exposes the active identity + org, and centralises logout / org-switching.
  * On a 401 (expired or missing session) it clears local state and redirects to
  * `/login`.
+ *
+ * `hasToken` gates the identity query: only query when we actually hold a token,
+ * otherwise bounce to /login.
+ *
+ * A 403 from `/users/me` means the active membership was suspended or removed
+ * mid-session. One silent recovery is attempted per mount: re-mint tokens (the server
+ * falls back to the user's default org) and reload identity.
+ *
+ * Cross-tab session sync signs this tab out when another tab signs out, and reloads
+ * identity when another tab switches the active org so this tab re-renders under the new
+ * org instead of blending tenants. Either way the previous user's cached, org-scoped
+ * queries are dropped before navigating, so a different user signing in from this tab
+ * never sees stale cross-tenant data.
+ *
+ * The persisted active-org id is kept aligned with the server's view.
  */
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
   const queryClient = useQueryClient();
 
-  // Only query when we actually hold a token; otherwise bounce to /login.
   const [hasToken, setHasToken] = React.useState<boolean>(() =>
     typeof window === "undefined" ? true : auth.isAuthenticated,
   );
@@ -63,12 +77,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const query = useCurrentUser({ enabled: hasToken });
   const { data, isLoading, isError, refetch } = query;
 
-  // A 403 from /users/me means the active membership was suspended or removed
-  // mid-session. Attempt ONE silent recovery per mount: re-mint tokens (the
-  // server falls back to the user's default org) and reload identity.
   const attempted403Recovery = React.useRef(false);
 
-  // Redirect to /login when the session is rejected by the server.
   React.useEffect(() => {
     if (!query.isError || !(query.error instanceof ApiError)) return;
     const status = query.error.status;
@@ -95,14 +105,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     })();
   }, [query.isError, query.error, refetch, pathname, router, queryClient]);
 
-  // Cross-tab session sync: sign out here when another tab signs out, and
-  // reload identity when another tab switches the active org so this tab
-  // re-renders under the new org instead of blending tenants.
   React.useEffect(() => {
     function onStorage(e: StorageEvent) {
       if (e.key === TOKEN_KEY && e.newValue === null) {
-        // Drop the previous user's cached, org-scoped queries before navigating so a
-        // different user signing in from this tab never sees stale cross-tenant data.
         queryClient.clear();
         router.replace("/login");
       } else if (e.key === ORG_KEY && e.newValue && e.newValue !== e.oldValue) {
@@ -114,28 +119,33 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => window.removeEventListener("storage", onStorage);
   }, [router, queryClient]);
 
-  // Keep the persisted active-org id aligned with the server's view.
   React.useEffect(() => {
     const activeId = query.data?.active_org?.id;
     if (activeId && auth.activeOrg !== activeId) auth.setActiveOrg(activeId);
   }, [query.data?.active_org?.id]);
 
+  /**
+   * Sign out. The refresh token is surrendered so the server revokes it, not just us;
+   * that call is best effort - the client is cleared regardless.
+   */
   const logout = React.useCallback(async () => {
     try {
-      // Surrender the refresh token so the server revokes it, not just us.
       const refreshToken = auth.refreshToken;
       await api.post(
         "/auth/logout",
         refreshToken ? { refresh_token: refreshToken } : undefined,
       );
-    } catch {
-      /* best effort - clear the client regardless */
-    }
+    } catch {}
     auth.clear();
     queryClient.clear();
     router.replace("/login");
   }, [queryClient, router]);
 
+  /**
+   * Switch the active org, minting org-scoped tokens for it. All dashboard data is
+   * org-scoped, so every cached query is dropped and the UI re-fetches under the new
+   * organization.
+   */
   const switchOrg = React.useCallback(
     async (orgId: string) => {
       const tokens = await api.post<AuthTokens>("/orgs/switch", {
@@ -143,8 +153,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       });
       auth.setSession(tokens.access_token, tokens.refresh_token);
       auth.setActiveOrg(orgId);
-      // All dashboard data is org-scoped - drop every cached query so the UI
-      // re-fetches under the new organization.
       await queryClient.invalidateQueries();
       await queryClient.refetchQueries({ queryKey: CURRENT_USER_KEY });
     },

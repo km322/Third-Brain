@@ -28,6 +28,11 @@ const ENDPOINTS: { method: string; path: string; note?: string }[] = [
   { method: "MCP", path: "add_knowledge", note: "write-back" },
 ];
 
+/**
+ * Integrations section: the manifest of what Third Brain talks to, led by the
+ * featured install one-liner (the fastest way in) and closed by the API surface
+ * itself - endpoints as machine truth.
+ */
 export function Integrations() {
   return (
     <section id="integrations" className="scroll-mt-20 py-28 sm:py-32 lg:py-40">
@@ -43,7 +48,6 @@ export function Integrations() {
           </p>
         </div>
 
-        {/* Featured install one-liner - the fastest way in. */}
         <div className="mx-auto mt-12 max-w-3xl">
           <div className="flex items-baseline gap-3 rounded-lg border border-border/60 bg-muted/20 px-4 py-3 font-mono text-[13px]">
             <span className="shrink-0 text-muted-foreground/70">$</span>
@@ -65,7 +69,6 @@ export function Integrations() {
           ))}
         </div>
 
-        {/* The API surface itself - endpoints as machine truth. */}
         <div className="mx-auto mt-12 max-w-3xl divide-y divide-border/60 rounded-lg border border-border/60">
           {ENDPOINTS.map((endpoint) => (
             <p

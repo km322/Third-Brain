@@ -92,9 +92,11 @@ export function isActiveRoute(pathname: string, href: string): boolean {
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
-/** Resolve the nav item that best matches the current pathname. */
+/**
+ * Resolve the nav item that best matches the current pathname, preferring the
+ * most specific (longest) matching href.
+ */
 export function findNavItem(pathname: string): NavItem | undefined {
-  // Prefer the most specific (longest) matching href.
   return [...ALL_ITEMS]
     .sort((a, b) => b.href.length - a.href.length)
     .find((item) => isActiveRoute(pathname, item.href));

@@ -18,6 +18,10 @@ pytestmark = pytest.mark.integration
 
 
 async def test_key_over_its_budget_gets_429(client, db_session, api, monkeypatch) -> None:
+    """The limiter clock is frozen so all four requests land in the SAME fixed 60s bucket:
+    otherwise a minute-boundary crossing mid-test resets the counter and the fourth request
+    passes - a ~1-2% flake on the authoritative CI job. The first three fit within the budget;
+    the fourth exceeds it and is rejected."""
     org, owner, _ = await factories.create_org_with_owner(db_session)
     _key, secret = await factories.create_api_key(
         db_session,
@@ -29,9 +33,6 @@ async def test_key_over_its_budget_gets_429(client, db_session, api, monkeypatch
     headers = factories.api_key_headers(secret)
     payload = {"query": "anything"}
 
-    # Freeze the limiter clock so all four requests land in the SAME fixed 60s bucket.
-    # Otherwise a minute-boundary crossing mid-test resets the counter and the 4th request
-    # would pass - a ~1-2% flake on the authoritative CI job.
     import app.core.deps as deps
 
     frozen = real_datetime(2024, 1, 1, 12, 0, 30, tzinfo=UTC)
@@ -43,18 +44,16 @@ async def test_key_over_its_budget_gets_429(client, db_session, api, monkeypatch
 
     monkeypatch.setattr(deps, "datetime", _FrozenDatetime)
 
-    # The first three requests fit within the budget.
     for i in range(3):
         ok = await client.post(f"{api}/search", headers=headers, json=payload)
         assert ok.status_code == 200, f"request {i + 1}: {ok.text}"
 
-    # The fourth exceeds it and is rejected by the limiter.
     limited = await client.post(f"{api}/search", headers=headers, json=payload)
     assert limited.status_code == 429, limited.text
 
 
 async def test_session_users_are_not_rate_limited(client, db_session, token_headers, api) -> None:
-    # Human (JWT) sessions have no api_key, so the limiter is a no-op for them.
+    """Human (JWT) sessions have no api_key, so the limiter is a no-op for them."""
     org, owner, _ = await factories.create_org_with_owner(db_session)
     headers = token_headers(owner.id, org.id)
     for _ in range(6):
@@ -68,7 +67,11 @@ async def test_files_token_scan_is_rejected_before_the_db_probe(
     """Once a client exhausts the ``/files`` miss budget, further requests are refused
     up front - even one presenting a token that WOULD resolve - proving the limiter is
     consulted BEFORE the DB probe. A post-probe-only limiter would let a throttled
-    scanner keep driving one lookup per guess (and would serve the valid token here)."""
+    scanner keep driving one lookup per guess (and would serve the valid token here).
+
+    Misses inside the budget probe and 404; the first one past it is throttled; and the
+    throttled client is then refused before the lookup, so even the real token 429s.
+    """
     import app.core.deps as deps
 
     frozen = real_datetime(2024, 1, 1, 12, 0, 30, tzinfo=UTC)
@@ -91,13 +94,11 @@ async def test_files_token_scan_is_rejected_before_the_db_probe(
     document.storage_key = f"{org.id}/{document.id}/image.png"
     await db_session.commit()
 
-    # Misses inside the budget probe and 404; the first one past it is throttled.
     for i in range(2):
         missed = await client.get(f"{api}/files/{'x' * 43}")
         assert missed.status_code == 404, f"miss {i + 1}: {missed.text}"
     limited = await client.get(f"{api}/files/{'x' * 43}")
     assert limited.status_code == 429, limited.text
 
-    # The throttled client is refused before the lookup: even the real token 429s.
     refused = await client.get(f"{api}/files/{token}")
     assert refused.status_code == 429, refused.text

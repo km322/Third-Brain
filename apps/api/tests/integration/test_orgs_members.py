@@ -20,11 +20,9 @@ async def test_suspended_member_loses_access_immediately(
     owner_headers = token_headers(owner.id, org.id)
     member_headers = token_headers(member.id, org.id)
 
-    # An active member can use their session.
     ok = await client.get(f"{api}/users/me", headers=member_headers)
     assert ok.status_code == 200, ok.text
 
-    # The owner suspends the member.
     patched = await client.patch(
         f"{api}/orgs/members/{membership.id}",
         headers=owner_headers,
@@ -32,7 +30,6 @@ async def test_suspended_member_loses_access_immediately(
     )
     assert patched.status_code == 200, patched.text
 
-    # The member's already-issued access token is now rejected everywhere.
     denied = await client.get(f"{api}/users/me", headers=member_headers)
     assert denied.status_code == 403, denied.text
 
@@ -137,6 +134,8 @@ async def test_invite_response_does_not_leak_invitee_profile(
 
     The route accepts an arbitrary email and is reachable by any org admin, so returning the
     target's name/avatar/last_login/created_at would turn it into a cross-tenant PII oracle.
+    The membership fields are still present in the response; only the embedded user profile
+    is withheld.
     """
     org, owner, _ = await factories.create_org_with_owner(db_session)
     victim = await factories.create_user(
@@ -149,7 +148,6 @@ async def test_invite_response_does_not_leak_invitee_profile(
     )
     assert invited.status_code == 201, invited.text
     body = invited.json()
-    # The membership fields are present, but the embedded user profile is not.
     assert body["status"] == "invited"
     assert body.get("user") is None
     assert "Victim Name" not in invited.text
@@ -221,7 +219,6 @@ async def test_cannot_suspend_last_active_owner_when_other_owner_is_suspended(
     from app.models.enums import MembershipStatus
 
     org, owner, owner_membership = await factories.create_org_with_owner(db_session)
-    # A second owner exists but is already suspended, so they cannot run the org.
     _second, _second_membership = await factories.add_member(
         db_session, org=org, role=OrgRole.OWNER, status=MembershipStatus.SUSPENDED
     )
@@ -235,7 +232,8 @@ async def test_cannot_suspend_last_active_owner_when_other_owner_is_suspended(
 
 async def test_admin_reset_password_happy_path(client, db_session, token_headers, api) -> None:
     """An admin resets a member's password: the temporary password (shown exactly once)
-    logs in, the old password dies, and every session the member had is revoked."""
+    logs in, the old password dies, and every session the member had is revoked by the
+    token_version bump."""
     org, owner, _ = await factories.create_org_with_owner(db_session)
     member, membership = await factories.add_member(db_session, org=org, role=OrgRole.EDITOR)
     member_headers = token_headers(member.id, org.id)
@@ -260,7 +258,6 @@ async def test_admin_reset_password_happy_path(client, db_session, token_headers
     )
     assert old_login.status_code == 401, old_login.text
 
-    # The member's pre-reset session is revoked by the token_version bump.
     after = await client.get(f"{api}/users/me", headers=member_headers)
     assert after.status_code == 401, after.text
 

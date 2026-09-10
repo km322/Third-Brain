@@ -1,29 +1,33 @@
-// Visual constants for the knowledge graph canvas. The graph is intentionally
-// rendered on a fixed near-black field (Obsidian-style) regardless of the app
-// theme, since a glowing web reads best on a dark ground.
+/**
+ * Visual constants for the knowledge graph canvas. The graph is intentionally
+ * rendered on a fixed near-black field (Obsidian-style) regardless of the app
+ * theme, since a glowing web reads best on a dark ground.
+ */
 
 /** Deep indigo-black the canvas paints itself with. */
 export const CANVAS_BG = "#070912";
 
 /**
  * Categorical cluster palette. Tailwind-400 hues: distinct, saturated and high
- * contrast on the near-black canvas. Cycled by cluster index.
+ * contrast on the near-black canvas. Cycled by cluster index, in order: violet,
+ * sky, emerald, amber, rose, cyan, indigo, pink, lime, orange, teal, fuchsia,
+ * yellow, blue.
  */
 export const CLUSTER_PALETTE = [
-  "#a78bfa", // violet
-  "#38bdf8", // sky
-  "#34d399", // emerald
-  "#fbbf24", // amber
-  "#fb7185", // rose
-  "#22d3ee", // cyan
-  "#818cf8", // indigo
-  "#f472b6", // pink
-  "#a3e635", // lime
-  "#fb923c", // orange
-  "#2dd4bf", // teal
-  "#e879f9", // fuchsia
-  "#facc15", // yellow
-  "#60a5fa", // blue
+  "#a78bfa",
+  "#38bdf8",
+  "#34d399",
+  "#fbbf24",
+  "#fb7185",
+  "#22d3ee",
+  "#818cf8",
+  "#f472b6",
+  "#a3e635",
+  "#fb923c",
+  "#2dd4bf",
+  "#e879f9",
+  "#facc15",
+  "#60a5fa",
 ];
 
 /** Muted slate used for dimmed (out-of-focus) nodes and links. */

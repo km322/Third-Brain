@@ -23,8 +23,8 @@ def test_raster_signatures_detected() -> None:
 
 
 def test_non_image_riff_containers_are_rejected() -> None:
-    # A WAV or AVI relabelled image/webp must not pass: it would be base64-shipped to a
-    # vision provider and served inline from the capability URL as an "image".
+    """A WAV or AVI relabelled image/webp must not pass: it would be base64-shipped to a
+    vision provider and served inline from the capability URL as an "image"."""
     assert sniffed_image_mime(_riff(b"WAVE")) is None
     assert sniffed_image_mime(_riff(b"AVI ")) is None
 

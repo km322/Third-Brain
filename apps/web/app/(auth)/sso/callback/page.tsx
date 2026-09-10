@@ -15,6 +15,12 @@ import {
 import { api, ApiError, auth } from "@/lib/api";
 import type { AuthTokens, CurrentUser } from "@/lib/types";
 
+/**
+ * Landing page the identity provider returns to: exchanges the `code`/`state` pair for a
+ * session, resolves the active org so the dashboard boots against the right tenant, and
+ * continues into the app. Resolving the org is non-fatal - a failure there is ignored and
+ * reconciled on the dashboard, which re-fetches identity regardless.
+ */
 function SsoCallbackInner() {
   const router = useRouter();
   const params = useSearchParams();
@@ -37,9 +43,7 @@ function SsoCallbackInner() {
         try {
           const me = await api.get<CurrentUser>("/users/me");
           if (me.active_org?.id) auth.setActiveOrg(me.active_org.id);
-        } catch {
-          /* reconciled on the dashboard */
-        }
+        } catch {}
         router.replace("/dashboard");
       } catch (err) {
         setError(err instanceof ApiError ? err.message : "Single sign-on failed.");

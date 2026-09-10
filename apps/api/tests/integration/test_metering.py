@@ -25,15 +25,16 @@ pytestmark = pytest.mark.integration
 
 
 async def test_failed_metering_does_not_break_the_request(db_session) -> None:
+    """The caller's real work here is renaming the org (an UPDATE), left unflushed on purpose;
+    metering then runs with an api key that does not exist, so the flush hits an FK violation.
+    The savepoint must absorb it without poisoning the caller's transaction, which still
+    commits."""
     org, _owner, _ = await factories.create_org_with_owner(db_session)
 
     async with SessionLocal() as s:
-        # Caller's real work: rename the org (an UPDATE), left unflushed on purpose.
         org_row = await s.get(Organization, org.id)
         org_row.name = "Renamed By Caller"
 
-        # Metering with an api key that does not exist -> FK violation on flush. The
-        # savepoint must absorb it without poisoning the caller's transaction.
         ghost_key = ApiKey(
             id=uuid.uuid4(),
             org_id=org.id,
@@ -45,7 +46,6 @@ async def test_failed_metering_does_not_break_the_request(db_session) -> None:
         ctx = AuthContext(org_id=org.id, org_role=OrgRole.ADMIN, api_key=ghost_key)
         await record_usage(s, ctx, UsageKind.SEARCH, units=1)
 
-        # The caller's transaction still commits.
         await s.commit()
 
     async with SessionLocal() as verify:

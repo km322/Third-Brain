@@ -26,6 +26,9 @@ export function unique(prefix = "tb"): string {
 /**
  * Register a brand-new user + organization through the signup form and land on
  * the dashboard. The caller becomes the OWNER of the new org.
+ *
+ * The form mints a session and redirects into the app; the shell only renders children
+ * once identity resolves, which is what the account menu waits on.
  */
 export async function signUp(
   page: Page,
@@ -48,9 +51,7 @@ export async function signUp(
 
   await page.getByRole("button", { name: /create workspace/i }).click();
 
-  // The form mints a session and redirects into the app.
   await page.waitForURL("**/dashboard", { timeout: 30_000 });
-  // The shell only renders children once identity resolves.
   await expect(page.getByRole("button", { name: /account menu/i })).toBeVisible();
 
   return account;
@@ -58,7 +59,9 @@ export async function signUp(
 
 /**
  * Create a knowledge base via the "New knowledge base" dialog and wait for the
- * redirect onto its detail page. Returns the knowledge base's detail URL.
+ * redirect onto its detail page. On success we route to
+ * /dashboard/collections/<uuid>, which is the knowledge base's detail URL and what
+ * this returns.
  */
 export async function createCollection(page: Page, name: string): Promise<string> {
   await page.goto("/dashboard/collections");
@@ -73,7 +76,6 @@ export async function createCollection(page: Page, name: string): Promise<string
   await dialog.getByLabel("Name").fill(name);
   await dialog.getByRole("button", { name: /create knowledge base/i }).click();
 
-  // On success we route to /dashboard/collections/<uuid>.
   await page.waitForURL(/\/dashboard\/collections\/[0-9a-fA-F-]{16,}/, {
     timeout: 30_000,
   });
@@ -85,13 +87,15 @@ export async function createCollection(page: Page, name: string): Promise<string
 /**
  * Add an inline-text document to the currently-open collection detail page.
  * Waits for the add dialog to close (its success toast fires on completion).
+ *
+ * The trigger button and the dialog's submit button share the label "Add document", so
+ * the submit click is scoped to the dialog. The Text tab is the default, so its fields
+ * are filled directly.
  */
 export async function addTextDocument(
   page: Page,
   doc: { title: string; content: string },
 ): Promise<void> {
-  // Trigger button and the dialog's submit button share the label "Add
-  // document", so scope the submit click to the dialog.
   await page
     .getByRole("button", { name: /add document/i })
     .first()
@@ -100,7 +104,6 @@ export async function addTextDocument(
   const dialog = page.getByRole("dialog");
   await expect(dialog).toBeVisible();
 
-  // The Text tab is the default; fill its fields.
   await dialog.getByLabel("Title").fill(doc.title);
   await dialog.getByLabel("Content").fill(doc.content);
 

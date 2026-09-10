@@ -19,8 +19,8 @@ def _description(tool_name: str) -> str:
 
 class TestAddKnowledgeDescription:
     def test_keeps_proactive_capture_default(self) -> None:
-        # The consent gate is an exception to proactive capture, not a replacement:
-        # the "without being asked" default must survive alongside the two rules.
+        """The consent gate is an exception to proactive capture, not a replacement: the
+        "without being asked" default must survive alongside the two rules."""
         assert "without being asked" in _description("add_knowledge")
 
     def test_carries_consent_gate(self) -> None:
@@ -48,9 +48,9 @@ class TestUpdateKnowledgeDescription:
 
 class TestInitializeInstructions:
     def test_carries_both_rules(self) -> None:
+        """The server-level instructions must repeat the consent gate and the narration rule,
+        without dropping the proactive-capture default."""
         instructions = _initialize_result({})["instructions"]
-        # The server-level instructions must repeat the consent gate and the
-        # narration rule, without dropping the proactive-capture default.
         assert "you do NOT need to be asked" in instructions
         assert "ask the user for permission before saving it" in instructions
         assert "tell the user what you saved (title and collection)" in instructions

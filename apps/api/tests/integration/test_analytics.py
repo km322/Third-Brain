@@ -11,6 +11,9 @@ pytestmark = pytest.mark.integration
 
 
 async def test_overview_usage_and_audit(client, db_session, token_headers, api) -> None:
+    """A real search generates a SEARCH usage record and a ``search.performed`` audit entry,
+    so every analytics surface must reflect it. The member count of two is the owner plus the
+    invited editor."""
     org, owner, _ = await factories.create_org_with_owner(db_session)
     collection = await factories.create_collection(
         db_session, org=org, owner=owner, visibility=Visibility.ORG
@@ -25,7 +28,6 @@ async def test_overview_usage_and_audit(client, db_session, token_headers, api) 
     await factories.add_member(db_session, org=org, role=OrgRole.EDITOR)
     headers = token_headers(owner.id, org.id)
 
-    # A real search generates a SEARCH usage record and a search.performed audit entry.
     search = await client.post(f"{api}/search", headers=headers, json={"query": "usage records"})
     assert search.status_code == 200, search.text
 
@@ -34,7 +36,7 @@ async def test_overview_usage_and_audit(client, db_session, token_headers, api) 
     ov = overview.json()
     assert ov["documents"] >= 1
     assert ov["collections"] >= 1
-    assert ov["members"] >= 2  # owner + invited editor
+    assert ov["members"] >= 2
     assert ov["searches_7d"] >= 1
 
     usage = await client.get(f"{api}/analytics/usage", headers=headers, params={"days": 30})

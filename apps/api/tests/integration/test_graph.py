@@ -15,23 +15,29 @@ from app.models.enums import OrgRole, PermissionLevel, Visibility
 
 pytestmark = pytest.mark.integration
 
-# Two documents that share almost all of their vocabulary embed to nearly-identical
-# hashed vectors under the offline provider, so their centroids are highly similar and an
-# edge forms; the unrelated document uses a disjoint vocabulary and stays below threshold.
 _CLOUD_A = (
     "Cloud infrastructure autoscaling clusters manage container orchestration and "
     "kubernetes deployment pipelines across regions."
 )
+"""Paired with ``_CLOUD_B``: two documents that share almost all of their vocabulary embed to
+nearly-identical hashed vectors under the offline provider, so their centroids are highly
+similar and an edge forms."""
+
 _CLOUD_B = (
     "Cloud infrastructure autoscaling clusters manage container orchestration and "
     "kubernetes deployment pipelines across zones."
 )
+"""The near-duplicate of ``_CLOUD_A`` on the other side of that edge."""
+
 _UNRELATED = "Baroque violin sonatas explore counterpoint melody harmony and tempo rubato."
+"""A disjoint vocabulary, so this document stays below the edge threshold."""
 
 
 async def test_graph_returns_nodes_and_connects_similar_documents(
     client, db_session, token_headers, api
 ) -> None:
+    """The near-duplicate cloud documents must end up directly connected, and every node's
+    reported degree is the count of its surviving incident edges."""
     org, owner, _ = await factories.create_org_with_owner(db_session)
     collection = await factories.create_collection(
         db_session, org=org, owner=owner, visibility=Visibility.ORG
@@ -70,10 +76,8 @@ async def test_graph_returns_nodes_and_connects_similar_documents(
     for edge in body["edges"]:
         assert 0.0 <= edge["weight"] <= 1.0
         assert edge["source"] < edge["target"]
-    # The near-duplicate cloud documents must be directly connected.
     pair = tuple(sorted([str(doc_a.id), str(doc_b.id)]))
     assert any((e["source"], e["target"]) == pair for e in body["edges"])
-    # Degree is the count of surviving incident edges.
     for node in body["nodes"]:
         incident = sum(1 for e in body["edges"] if node["id"] in (e["source"], e["target"]))
         assert node["degree"] == incident
@@ -83,7 +87,13 @@ async def test_graph_excludes_documents_the_caller_cannot_see(
     client, db_session, token_headers, api
 ) -> None:
     """A non-admin without a grant on a private collection gets NO node and NO edge for its
-    documents, and its neighbors endpoint 404s for them -- while the owner sees them."""
+    documents, and its neighbors endpoint 404s for them -- while the owner sees them.
+
+    The owner (an admin) is the positive control: all three documents are nodes and the two
+    secret ones are connected. The ungranted viewer sees ONLY the org-visible document - no
+    private node and no edge touching a private document - and neighbors of a private document
+    is 404 for the viewer but 200 for the owner.
+    """
     org, owner, _ = await factories.create_org_with_owner(db_session)
     public = await factories.create_collection(
         db_session, org=org, owner=owner, visibility=Visibility.ORG
@@ -109,7 +119,6 @@ async def test_graph_excludes_documents_the_caller_cannot_see(
     owner_headers = token_headers(owner.id, org.id)
     viewer_headers = token_headers(viewer.id, org.id)
 
-    # The owner (admin) sees all three documents and the two secret ones are connected.
     owner_body = (await client.get(f"{api}/graph", headers=owner_headers)).json()
     owner_ids = {n["id"] for n in owner_body["nodes"]}
     assert {str(public_doc.id), str(secret_a.id), str(secret_b.id)} <= owner_ids
@@ -117,8 +126,6 @@ async def test_graph_excludes_documents_the_caller_cannot_see(
     secret_pair = tuple(sorted([str(secret_a.id), str(secret_b.id)]))
     assert any((e["source"], e["target"]) == secret_pair for e in owner_body["edges"])
 
-    # The ungranted viewer sees ONLY the org-visible document: no private node, no edge
-    # touching a private document.
     resp = await client.get(f"{api}/graph", headers=viewer_headers)
     assert resp.status_code == 200, resp.text
     viewer_body = resp.json()
@@ -130,7 +137,6 @@ async def test_graph_excludes_documents_the_caller_cannot_see(
         assert edge["source"] not in private_ids
         assert edge["target"] not in private_ids
 
-    # Neighbors of a private document: 404 for the viewer, 200 for the owner.
     viewer_neighbors = await client.get(
         f"{api}/graph/documents/{secret_a.id}/neighbors", headers=viewer_headers
     )

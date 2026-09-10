@@ -90,10 +90,10 @@ class SearchResponse(BaseModel):
 
     query: str
     hits: list[Citation]
-    # Verified curated answers whose question matches the query, surfaced above raw hits.
     answers: list[AnswerMatch] = Field(default_factory=list)
-    # Id of the recorded query insight; submit to POST /feedback to rate this result.
+    """Verified curated answers whose question matches the query, surfaced above raw hits."""
     insight_id: uuid.UUID | None = None
+    """Id of the recorded query insight; submit to POST /feedback to rate this result."""
 
 
 class WebSource(BaseModel):

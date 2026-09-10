@@ -42,6 +42,8 @@ def fake_pool(monkeypatch) -> FakePool:
 
 class TestEnqueueCorrelation:
     async def test_job_carries_doc_id_request_id_and_trace_kwargs(self, fake_pool) -> None:
+        """Tracing is disabled in the unit tier, so the trace-context kwargs are present per the
+        job signature but carry no value."""
         doc_id = uuid.uuid4()
         token = request_id_ctx.set("req-corr-123")
         try:
@@ -54,8 +56,6 @@ class TestEnqueueCorrelation:
         args, kwargs = fake_pool.calls[0]
         assert args == (queue_mod.INGEST_TASK_NAME, str(doc_id))
         assert kwargs["request_id"] == "req-corr-123"
-        # Tracing is disabled in the unit tier, so the trace-context kwargs are present
-        # per the job signature but carry no value.
         assert "traceparent" in kwargs
         assert kwargs["traceparent"] is None
         assert "tracestate" in kwargs

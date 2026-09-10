@@ -13,6 +13,9 @@ Effective permission on a resource is the MAXIMUM of:
     * visibility baseline (ORG/PUBLIC/TEAM => collection.default_permission),
     * direct user grants, and best team grants,
     * for documents: everything inherited from the parent collection.
+
+:func:`document_audience` answers the inverse question - "who can see this?" - in the same
+set form, for the quarantine review screen.
 """
 
 from __future__ import annotations
@@ -54,6 +57,9 @@ async def user_team_ids(db: AsyncSession, ctx: AuthContext) -> set[uuid.UUID]:
     that both enforcement sites -- :func:`effective_permission` and
     :func:`build_retrieval_scope` -- share, so TEAM-visibility owners and team access grants
     pick up ancestors identically and route authorization can never disagree with retrieval.
+
+    The upward walk accumulates into a single result set that doubles as the visited guard,
+    so a malformed cycle in the team tree terminates.
     """
     if ctx.user_id is None:
         return set()
@@ -71,8 +77,6 @@ async def user_team_ids(db: AsyncSession, ctx: AuthContext) -> set[uuid.UUID]:
     )
     parent_of = dict(parent_rows.all())
 
-    # Walk each direct team up its parent chain, accumulating into a single result set that
-    # doubles as the visited guard so a malformed cycle in the tree terminates.
     result: set[uuid.UUID] = set()
     for team_id in direct:
         current: uuid.UUID | None = team_id
@@ -88,11 +92,16 @@ def _visibility_grants_access(
     owner_team_id: uuid.UUID | None,
     team_ids: set[uuid.UUID],
 ) -> bool:
+    """Whether ``visibility`` alone puts the resource in reach of the caller.
+
+    PRIVATE is the fall-through: it never grants access on its own, only ownership, an
+    explicit grant or the org-admin baseline can reach a private resource.
+    """
     if visibility in (Visibility.ORG, Visibility.PUBLIC):
         return True
     if visibility == Visibility.TEAM:
         return owner_team_id is not None and owner_team_id in team_ids
-    return False  # PRIVATE
+    return False
 
 
 async def _grants_for(
@@ -142,8 +151,15 @@ async def effective_permission(
     resource_type: ResourceType,
     resource_id: uuid.UUID,
 ) -> PermissionLevel:
-    """Compute the caller's effective permission on a collection or document."""
-    # Org owners/admins have full control over everything in their org.
+    """Compute the caller's effective permission on a collection or document.
+
+    Org owners/admins short-circuit to MANAGER: they have full control over everything in
+    their org. For a document, each access source is computed independently and the MAXIMUM
+    taken. The document's own visibility (when set) OVERRIDES the collection's for the
+    *visibility baseline* only - explicit grants (on the collection, inherited, or on the
+    document itself), ownership and admin always still apply - and access via the visibility
+    baseline confers the collection's ``default_permission``.
+    """
     if ctx.is_admin:
         return PermissionLevel.MANAGER
 
@@ -162,14 +178,10 @@ async def effective_permission(
     if collection is None:
         return PermissionLevel.NONE
 
-    # Compute each access source independently, then take the maximum. A document's
-    # own visibility (when set) OVERRIDES the collection's for the *visibility baseline*
-    # only; explicit grants, ownership and admin always still apply.
     levels: list[PermissionLevel] = [PermissionLevel.NONE]
     if ctx.user_id is not None and collection.owner_id == ctx.user_id:
         levels.append(PermissionLevel.MANAGER)
 
-    # Explicit grants on the collection (inherited) or the document itself.
     levels.append(
         await _grants_for(
             db,
@@ -182,8 +194,6 @@ async def effective_permission(
         )
     )
 
-    # Visibility baseline uses the document's own visibility if set, else the
-    # collection's. Access there grants the collection's default permission level.
     effective_visibility = document.visibility or collection.visibility
     if _visibility_grants_access(effective_visibility, ctx, collection.owner_team_id, team_ids):
         levels.append(collection.default_permission)
@@ -223,9 +233,6 @@ async def require_permission(
     return have
 
 
-# --------------------------------------------------------------------------- #
-# Retrieval scope - the SQL-pushdown side of enforcement.
-# --------------------------------------------------------------------------- #
 @dataclass
 class RetrievalScope:
     """A resolved, org-scoped view of what chunks the caller may retrieve."""
@@ -241,7 +248,11 @@ class RetrievalScope:
         return not self.all_access and not self.collection_ids and not self.extra_document_ids
 
     def apply(self, stmt: Select) -> Select:
-        """Add the visibility predicate to a select over DocumentChunk."""
+        """Add the visibility predicate to a select over DocumentChunk.
+
+        A caller with no access at all yields an impossible predicate rather than an
+        unconstrained statement.
+        """
         stmt = stmt.where(DocumentChunk.org_id == self.org_id)
         if self.all_access:
             if self.denied_document_ids:
@@ -253,7 +264,6 @@ class RetrievalScope:
         if self.extra_document_ids:
             allow.append(DocumentChunk.document_id.in_(self.extra_document_ids))
         if not allow:
-            # No access at all -> impossible predicate.
             return stmt.where(DocumentChunk.id.is_(None))
         stmt = stmt.where(or_(*allow))
         if self.denied_document_ids:
@@ -267,7 +277,39 @@ async def build_retrieval_scope(
     collection_ids: list[uuid.UUID] | None = None,
 ) -> RetrievalScope:
     """Resolve the caller's visible chunk universe, optionally narrowed to
-    ``collection_ids`` explicitly requested by the search call."""
+    ``collection_ids`` explicitly requested by the search call.
+
+    Retrieval must resolve visibility EXACTLY as :func:`effective_permission` does, or the
+    two enforcement sites drift and a chunk the route 403s can leak into a result (or a
+    chunk the caller is entitled to silently vanishes). We mirror that logic here in set
+    form: ownership and grants confer access to a whole collection regardless of a
+    document's own visibility, while collection *visibility* only confers access when the
+    collection's ``default_permission`` is >= VIEWER and is overridable by a document's own
+    (more or less restrictive) visibility. Only five collection attributes are read, so the
+    query selects just those columns instead of hydrating full ORM ``Collection`` instances
+    for every collection in the org.
+
+    Resolution proceeds in three steps:
+
+    1. Collection-level access, split by strength. ``strong_collections`` - owner or
+       explicit collection grant: every document is visible, even one with a
+       more-restrictive doc-level visibility. ``visibility_collections`` - reachable via the
+       collection's own visibility (and ``default_permission`` >= VIEWER); a document's own
+       visibility can still restrict it.
+    2. Explicit grants (>= VIEWER). A collection grant strengthens a whole collection; a
+       document grant confers access to a single document.
+    3. Reconcile documents whose OWN visibility differs from their collection's, so that
+       retrieval matches :func:`effective_permission` for both restrictive overrides (a
+       stricter doc-level visibility revokes a document inside an otherwise visible
+       collection) and permissive/upward overrides (a more-permissive doc visibility, e.g.
+       an ORG document inside a PRIVATE collection, raises just that document). Documents
+       reached by ownership, a collection grant, or a direct document grant are always
+       visible and skip this step.
+
+    When the search narrows to ``collection_ids``, directly-granted and upward-override
+    documents that live in other collections must not surface, so they are filtered to the
+    requested collections too.
+    """
     requested = set(collection_ids) if collection_ids else None
 
     if ctx.is_admin:
@@ -279,15 +321,6 @@ async def build_retrieval_scope(
 
     team_ids = await user_team_ids(db, ctx)
 
-    # Retrieval must resolve visibility EXACTLY as ``effective_permission`` does, or the
-    # two enforcement sites drift and a chunk the route 403s can leak into a result (or a
-    # chunk the caller is entitled to silently vanishes). We mirror that logic here in set
-    # form: ownership and grants confer access to a whole collection regardless of a
-    # document's own visibility, while collection *visibility* only confers access when the
-    # collection's ``default_permission`` is >= VIEWER and is overridable by a document's
-    # own (more or less restrictive) visibility.
-    # Only five attributes are read below, so select just those columns instead of
-    # hydrating full ORM ``Collection`` instances for every collection in the org.
     collections = (
         await db.execute(
             select(
@@ -301,11 +334,6 @@ async def build_retrieval_scope(
     ).all()
     by_id = {c.id: c for c in collections}
 
-    # 1) Collection-level access, split by strength:
-    #    * ``strong_collections`` - owner or explicit collection grant: every document is
-    #      visible, even one with a more-restrictive doc-level visibility.
-    #    * ``visibility_collections`` - reachable via the collection's own visibility (and
-    #      default_permission >= VIEWER); a document's own visibility can still restrict it.
     strong_collections: set[uuid.UUID] = set()
     visibility_collections: set[uuid.UUID] = set()
     for c in collections:
@@ -316,8 +344,6 @@ async def build_retrieval_scope(
         ) and permission_at_least(c.default_permission, PermissionLevel.VIEWER):
             visibility_collections.add(c.id)
 
-    # 2) Explicit grants (>= VIEWER). A collection grant strengthens a whole collection; a
-    #    document grant confers access to a single document.
     principal_filter = []
     if ctx.user_id is not None:
         principal_filter.append(
@@ -356,10 +382,6 @@ async def build_retrieval_scope(
 
     visible_collections = strong_collections | visibility_collections
 
-    # 3) Reconcile documents whose OWN visibility differs from their collection's, so that
-    #    retrieval matches ``effective_permission`` for both restrictive overrides (deny)
-    #    and permissive/upward overrides (allow). Documents reached by ownership, a
-    #    collection grant, or a direct document grant are always visible and skip this.
     denied: set[uuid.UUID] = set()
     override_rows = (
         await db.execute(
@@ -377,18 +399,13 @@ async def build_retrieval_scope(
             vis, ctx, collection.owner_team_id, team_ids
         ) and permission_at_least(collection.default_permission, PermissionLevel.VIEWER)
         if coll_id in visibility_collections:
-            # Collection is visible; a stricter doc-level visibility revokes this document.
             if not doc_grants_access:
                 denied.add(doc_id)
         elif doc_grants_access:
-            # Collection is otherwise invisible; a more-permissive doc visibility (e.g. an
-            # ORG document inside a PRIVATE collection) raises just this document.
             extra_documents.add(doc_id)
 
     if requested is not None:
         visible_collections &= requested
-        # A search narrowed to specific collections must not surface directly-granted or
-        # upward-override documents that live in other collections.
         if extra_documents:
             kept = (
                 (
@@ -414,9 +431,6 @@ async def build_retrieval_scope(
     )
 
 
-# --------------------------------------------------------------------------- #
-# Collection audience - "who can see this?" for the quarantine review screen.
-# --------------------------------------------------------------------------- #
 @dataclass(frozen=True)
 class AudienceEntry:
     """One user's resolved access to a collection, with the source that grants it."""
@@ -462,8 +476,16 @@ async def document_audience(
     override such as PRIVATE on an ORG collection drops the visibility-derived entries),
     and explicit grants include both collection grants (inherited) and document-level
     grants. Org owners/admins and the collection owner are managers; TEAM visibility and
-    team grants cover the target team and its descendant teams. Each user keeps the
-    MAXIMUM permission across sources, labelled with the source (``via``) that granted it.
+    team grants cover the target team and its descendant teams. Every team that can confer
+    access (the TEAM-visibility owner team and each team grant's target) is expanded to its
+    descendant set, then all of their members are resolved in one query.
+
+    Each user keeps the MAXIMUM permission across sources, labelled with the source
+    (``via``) that granted it. Source order matters: ``offer`` keeps the EARLIER
+    source's label on ties, so user grants are offered before team grants and collection
+    grants before document grants. A document-level visibility override is annotated in
+    ``via`` so a reviewer can tell the reach comes from the document itself, not the
+    collection it happens to sit in.
 
     Returns ``(entries, total_users, note, permission_counts)``: at most ``limit`` entries
     sorted by permission (strongest first) then name; the uncapped count of users with at
@@ -494,7 +516,6 @@ async def document_audience(
     for row in team_rows:
         children_of.setdefault(row.parent_team_id, []).append(row.id)
 
-    # Both collection grants (inherited by every document) and grants on this document.
     grant_rows = (
         (
             await db.execute(
@@ -519,9 +540,6 @@ async def document_audience(
     collection_grants = [g for g in grant_rows if g.resource_type == ResourceType.COLLECTION]
     document_grants = [g for g in grant_rows if g.resource_type == ResourceType.DOCUMENT]
 
-    # Expand every team that can confer access (the TEAM-visibility owner team and each
-    # team grant's target) to its descendant set, then resolve all their members in one
-    # query.
     team_scopes: dict[uuid.UUID, set[uuid.UUID]] = {}
     if effective_visibility == Visibility.TEAM and collection.owner_team_id is not None:
         team_scopes[collection.owner_team_id] = _team_descendant_ids(
@@ -576,15 +594,11 @@ async def document_audience(
             offer(user_id, PermissionLevel.MANAGER, "org-admin")
     if collection.owner_id is not None:
         offer(collection.owner_id, PermissionLevel.MANAGER, "collection-owner")
-    # Order matters: ``offer`` keeps the EARLIER source's label on ties, so user grants
-    # precede team grants and collection grants precede document grants, exactly as before.
     offer_grants(collection_grants, PrincipalType.USER, "grant")
     offer_grants(document_grants, PrincipalType.USER, "document-grant")
     offer_grants(collection_grants, PrincipalType.TEAM, "team:")
     offer_grants(document_grants, PrincipalType.TEAM, "document-team:")
 
-    # A document-level visibility override is annotated so a reviewer can tell the reach
-    # comes from the document itself, not the collection it happens to sit in.
     doc_suffix = " (document)" if document.visibility is not None else ""
     if effective_visibility in (Visibility.ORG, Visibility.PUBLIC):
         base = "visibility:org" if effective_visibility == Visibility.ORG else "visibility:public"

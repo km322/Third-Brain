@@ -23,10 +23,10 @@ class InviteRead(ORMModel):
     status: InviteStatus
     expires_at: datetime
     created_at: datetime
-    # Returned ONCE, by POST /invites only: the token is stored hashed, so this is the only
-    # time the acceptance link exists. Populated so an admin can hand it over directly - a
-    # default self-host runs EMAIL_PROVIDER=stub, which never delivers anything.
     accept_url: str | None = None
+    """Returned ONCE, by POST /invites only: the token is stored hashed, so this is the only
+    time the acceptance link exists. Populated so an admin can hand it over directly - a
+    default self-host runs EMAIL_PROVIDER=stub, which never delivers anything."""
 
 
 class InviteAccept(BaseModel):

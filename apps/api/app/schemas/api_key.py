@@ -13,9 +13,9 @@ from pydantic import BaseModel, Field
 
 from app.schemas.common import ORMModel
 
-# Coarse permissions an API key may carry. Mirrors the mapping used by
-# ``app.core.deps._role_from_scopes``. ``*`` grants everything.
 ALLOWED_SCOPES: frozenset[str] = frozenset({"read", "write", "search", "ingest", "manage", "*"})
+"""Coarse permissions an API key may carry. Mirrors the mapping used by
+``app.core.deps._role_from_scopes``. ``*`` grants everything."""
 
 
 class ApiKeyRead(ORMModel):

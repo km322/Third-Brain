@@ -38,9 +38,6 @@ from app.services.permissions import effective_permission, require_permission
 router = APIRouter(prefix="/permissions", tags=["permissions"])
 
 
-# --------------------------------------------------------------------------- #
-# Helpers
-# --------------------------------------------------------------------------- #
 def _client_meta(request: Request) -> tuple[str | None, str | None]:
     ip = request.client.host if request.client else None
     return ip, request.headers.get("user-agent")
@@ -93,9 +90,6 @@ def _to_read(grant: AccessGrant, name: str | None) -> AccessGrantRead:
     )
 
 
-# --------------------------------------------------------------------------- #
-# Routes
-# --------------------------------------------------------------------------- #
 @router.get("", response_model=list[AccessGrantRead])
 async def list_grants(
     resource_type: ResourceType = Query(...),
@@ -145,7 +139,10 @@ async def upsert_grant(
     ctx: AuthContext = Depends(get_auth_context),
     db: AsyncSession = Depends(get_db),
 ) -> AccessGrantRead:
-    """Create or update a grant (upsert on the unique principal/resource tuple)."""
+    """Create or update a grant (upsert on the unique principal/resource tuple).
+
+    The principal must belong to the caller's organization.
+    """
     if payload.permission == PermissionLevel.NONE:
         raise HTTPException(
             status_code=400,
@@ -157,7 +154,6 @@ async def upsert_grant(
         db, ctx, payload.resource_type, payload.resource_id, PermissionLevel.MANAGER
     )
 
-    # The principal must belong to the caller's organization.
     name = await _validate_principal(db, ctx, payload.principal_type, payload.principal_id)
 
     existing = (

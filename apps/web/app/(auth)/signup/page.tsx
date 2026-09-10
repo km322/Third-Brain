@@ -56,11 +56,15 @@ const signupSchema = z.object({
 
 type SignupValues = z.infer<typeof signupSchema>;
 
+/**
+ * Create-workspace form: one step that registers the person and their new organization.
+ * A visitor who is already signed in skips the form and goes straight to the app before
+ * paint.
+ */
 export default function SignupPage() {
   const router = useRouter();
   const [showPassword, setShowPassword] = React.useState(false);
 
-  // Already signed in: skip the form and go straight to the app (before paint).
   const redirecting = useRedirectIfAuthenticated(() => "/dashboard");
 
   const {
@@ -72,18 +76,20 @@ export default function SignupPage() {
     defaultValues: { full_name: "", email: "", password: "", org_name: "" },
   });
 
+  /**
+   * Register the account and its organization, then persist the freshly created org as
+   * active before entering the app. That second call is non-fatal: a failure is ignored,
+   * because the active org will be reconciled on the dashboard.
+   */
   async function onSubmit(values: SignupValues) {
     try {
       const tokens = await api.post<AuthTokens>("/auth/register", values);
       auth.setSession(tokens.access_token, tokens.refresh_token);
 
-      // Persist the freshly created org as active before entering the app.
       try {
         const me = await api.get<CurrentUser>("/users/me");
         if (me.active_org?.id) auth.setActiveOrg(me.active_org.id);
-      } catch {
-        /* ignore - active org will be reconciled on the dashboard */
-      }
+      } catch {}
 
       toast.success("Workspace created", {
         description: `Welcome to Third Brain, ${values.full_name.split(" ")[0]}.`,

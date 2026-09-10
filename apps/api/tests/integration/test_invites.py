@@ -24,6 +24,8 @@ def _token_from_outbox(email: str) -> str:
 
 
 async def test_invite_and_accept(client, db_session, token_headers, api) -> None:
+    """Accepting provisions a working session and an ACTIVE membership with the invited role,
+    and the invitation is single-use."""
     clear_outbox()
     org, owner, _ = await factories.create_org_with_owner(db_session)
     headers = token_headers(owner.id, org.id)
@@ -44,7 +46,6 @@ async def test_invite_and_accept(client, db_session, token_headers, api) -> None
     access = accepted.json()["access_token"]
     assert access
 
-    # The provisioned session works, and the user is an ACTIVE member with the invited role.
     me = await client.get(f"{api}/users/me", headers={"Authorization": f"Bearer {access}"})
     assert me.status_code == 200, me.text
     user = await get_user_by_email(db_session, email)
@@ -54,7 +55,6 @@ async def test_invite_and_accept(client, db_session, token_headers, api) -> None
     assert membership.role == OrgRole.EDITOR
     assert membership.status.value == "active"
 
-    # The invitation is single-use.
     again = await client.post(
         f"{api}/invites/accept",
         json={"token": token, "full_name": "x", "password": "Sup3rSecret!"},
@@ -66,7 +66,9 @@ async def test_create_returns_the_acceptance_link(client, db_session, token_head
     """The default EMAIL_PROVIDER=stub never delivers, so the creator must get the link.
 
     Without this the whole feature is a dead end on a self-host that has not set up SMTP:
-    the token is stored hashed and exists nowhere an operator can reach it.
+    the token is stored hashed and exists nowhere an operator can reach it. Listing invites
+    must never re-expose a link (the token only exists at creation time), and the link the
+    creator got back really is usable on its own - no mail delivery involved.
     """
     clear_outbox()
     org, owner, _ = await factories.create_org_with_owner(db_session)
@@ -80,13 +82,11 @@ async def test_create_returns_the_acceptance_link(client, db_session, token_head
     accept_url = created.json()["accept_url"]
     assert accept_url and f"token={_token_from_outbox(email)}" in accept_url
 
-    # Listing invites must never re-expose a link (the token only exists at creation time).
     listed = await client.get(f"{api}/invites", headers=headers)
     assert listed.status_code == 200, listed.text
     assert [i["email"] for i in listed.json()] == [email]
     assert listed.json()[0]["accept_url"] is None
 
-    # The returned link really is usable on its own - no mail delivery involved.
     token = accept_url.split("token=", 1)[1]
     accepted = await client.post(
         f"{api}/invites/accept",
@@ -109,8 +109,9 @@ async def test_invite_existing_user_conflicts(client, db_session, token_headers,
 async def test_accept_refuses_when_email_registered_after_invite(
     client, db_session, token_headers, api
 ) -> None:
-    """If the invitee registers their own account AFTER the invite is created, accepting the
-    invite must not sign in as that pre-existing account (token-holder account takeover)."""
+    """If the invitee independently registers their own account + org AFTER the invite is
+    created, accepting the invite must be refused outright - never sign in as that pre-existing
+    account (token-holder account takeover)."""
     clear_outbox()
     org, owner, _ = await factories.create_org_with_owner(db_session)
     headers = token_headers(owner.id, org.id)
@@ -121,7 +122,6 @@ async def test_accept_refuses_when_email_registered_after_invite(
     assert created.status_code == 201, created.text
     token = _token_from_outbox(email)
 
-    # The invitee independently registers their own account + org in the meantime.
     reg = await client.post(
         f"{api}/auth/register",
         json={
@@ -133,7 +133,6 @@ async def test_accept_refuses_when_email_registered_after_invite(
     )
     assert reg.status_code == 201, reg.text
 
-    # Accepting the invite now must be refused, never mint a session for the existing account.
     accepted = await client.post(
         f"{api}/invites/accept",
         json={"token": token, "full_name": "Someone Else", "password": "different-pass"},

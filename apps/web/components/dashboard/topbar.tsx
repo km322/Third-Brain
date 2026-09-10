@@ -33,7 +33,11 @@ import { findNavItem } from "@/components/dashboard/sidebar";
 import { useAuth } from "@/lib/auth-context";
 import { cn, initials } from "@/lib/utils";
 
-/** Organization switcher - lists the user's orgs and mints new tokens on switch. */
+/**
+ * Organization switcher - lists the user's orgs and mints new tokens on switch.
+ * A switch can legitimately fail (e.g. a suspended membership 403s), so the error
+ * is surfaced instead of failing silently.
+ */
 function OrgSwitcher() {
   const { org, orgs, switchOrg } = useAuth();
   const router = useRouter();
@@ -45,7 +49,6 @@ function OrgSwitcher() {
     try {
       await switchOrg(orgId);
     } catch (e) {
-      // e.g. a suspended membership 403s - surface it instead of failing silently.
       toast.error(e instanceof ApiError ? e.message : "Couldn't switch organization");
     } finally {
       setPending(null);

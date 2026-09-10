@@ -32,18 +32,20 @@ async def _tenant_with_content(db_session, term: str):
 
 
 async def test_org_a_cannot_read_or_search_org_b(client, db_session, token_headers, api) -> None:
+    """A's org-wide search never surfaces B's document, even when querying B's own term; direct
+    id lookups of B's resources from A are 404 rather than 403, so existence stays hidden; A
+    cannot add a document into B's collection; and B's own scoped listing never leaks A's
+    collection either."""
     org_a, user_a, coll_a, doc_a = await _tenant_with_content(db_session, "alpha")
     org_b, user_b, coll_b, doc_b = await _tenant_with_content(db_session, "bravo")
 
     a_headers = token_headers(user_a.id, org_a.id)
 
-    # A's org-wide search never surfaces B's document, even querying B's term.
     search = await client.post(f"{api}/search", headers=a_headers, json={"query": "bravo"})
     assert search.status_code == 200, search.text
     assert all(h["document_id"] != str(doc_b.id) for h in search.json()["hits"])
     assert all(h["collection_id"] != str(coll_b.id) for h in search.json()["hits"])
 
-    # Direct id lookups of B's resources from A are 404 (not 403 - existence is hidden).
     assert (
         await client.get(f"{api}/collections/{coll_b.id}", headers=a_headers)
     ).status_code == 404
@@ -52,7 +54,6 @@ async def test_org_a_cannot_read_or_search_org_b(client, db_session, token_heade
         await client.get(f"{api}/documents/{doc_b.id}/chunks", headers=a_headers)
     ).status_code == 404
 
-    # A cannot add a document into B's collection.
     intrude = await client.post(
         f"{api}/documents/text",
         headers=a_headers,
@@ -60,7 +61,6 @@ async def test_org_a_cannot_read_or_search_org_b(client, db_session, token_heade
     )
     assert intrude.status_code == 404, intrude.text
 
-    # B's own scoped collection listing never leaks A's collection.
     b_headers = token_headers(user_b.id, org_b.id)
     b_list = await client.get(f"{api}/collections", headers=b_headers)
     assert b_list.status_code == 200
@@ -68,20 +68,19 @@ async def test_org_a_cannot_read_or_search_org_b(client, db_session, token_heade
 
 
 async def test_api_key_is_confined_to_its_org(client, db_session, api) -> None:
+    """An org-A key acting as A's owner is still confined to org A: searching for B's term
+    yields nothing from B, and the key cannot fetch B's collection or document by id."""
     org_a, user_a, coll_a, doc_a = await _tenant_with_content(db_session, "alpha")
     org_b, user_b, coll_b, doc_b = await _tenant_with_content(db_session, "bravo")
 
-    # An org-A API key acting as A's owner.
     _key, secret = await factories.create_api_key(
         db_session, org=org_a, scopes=["search", "read"], acts_as_user=user_a
     )
     headers = factories.api_key_headers(secret)
 
-    # Searching for B's term through A's key yields nothing from B.
     search = await client.post(f"{api}/search", headers=headers, json={"query": "bravo"})
     assert search.status_code == 200, search.text
     assert all(h["document_id"] != str(doc_b.id) for h in search.json()["hits"])
 
-    # And the key cannot fetch B's collection/document by id.
     assert (await client.get(f"{api}/collections/{coll_b.id}", headers=headers)).status_code == 404
     assert (await client.get(f"{api}/documents/{doc_b.id}", headers=headers)).status_code == 404
