@@ -18,14 +18,16 @@ pytestmark = pytest.mark.integration
 
 async def test_v1_errors_use_openai_shape(client, db_session, api) -> None:
     """Errors on /v1 use OpenAI's {"error": {...}} envelope (not Third Brain's flat one)
-    and validation failures map to 400, so OpenAI SDKs/wrappers parse them (finding 30)."""
-    # Unauthenticated -> 401 authentication_error in OpenAI shape.
+    and validation failures map to 400, so OpenAI SDKs/wrappers parse them (finding 30).
+
+    Unauthenticated is a 401 authentication_error in the OpenAI shape, and a malformed body
+    is 400 (never 422) in the same shape.
+    """
     unauth = await client.post("/v1/chat/completions", json={"messages": []})
     assert unauth.status_code == 401, unauth.text
     err = unauth.json()["error"]
     assert err["type"] == "authentication_error" and err["message"]
 
-    # A malformed body is 400 (never 422) in the OpenAI shape.
     _org, _owner, headers = await _org_with_key(db_session, ["search"])
     bad = await client.post("/v1/chat/completions", headers=headers, json={"stream": "nope"})
     assert bad.status_code == 400, bad.text
@@ -52,6 +54,12 @@ async def _org_with_key(db_session, scopes):
 
 
 async def test_models_embeddings_and_chat(client, db_session, api) -> None:
+    """The three /v1 surfaces work end-to-end for a scoped key.
+
+    "third-brain" - the product-facing model the docs tell developers to use - must be
+    discoverable in the model list, and the chat response carries the Third Brain extension:
+    the retrieval citations behind the grounded answer.
+    """
     _org, _owner, headers = await _org_with_key(db_session, ["search", "read"])
 
     models = await client.get("/v1/models", headers=headers)
@@ -59,7 +67,6 @@ async def test_models_embeddings_and_chat(client, db_session, api) -> None:
     ids = {m["id"] for m in models.json()["data"]}
     assert settings.EMBEDDING_MODEL in ids
     assert settings.DEFAULT_COMPLETION_MODEL in ids
-    # The product-facing model the docs tell developers to use must be discoverable.
     assert "third-brain" in ids
 
     emb = await client.post("/v1/embeddings", headers=headers, json={"input": "hello world"})
@@ -76,14 +83,14 @@ async def test_models_embeddings_and_chat(client, db_session, api) -> None:
     body = chat.json()
     assert body["object"] == "chat.completion"
     assert body["choices"][0]["message"]["content"]
-    # Third Brain extension: retrieval citations behind the grounded answer.
     assert isinstance(body["citations"], list)
 
 
 async def test_search_scope_is_enforced(client, db_session, api) -> None:
-    _org, _owner, headers = await _org_with_key(db_session, ["read"])  # no "search"
-    # Every /v1 surface requires the "search" scope - including the two that actually
-    # return org knowledge, not just the harmless model list.
+    """Every /v1 surface requires the "search" scope - including the two that actually return
+    org knowledge, not just the harmless model list. The key here holds only "read".
+    """
+    _org, _owner, headers = await _org_with_key(db_session, ["read"])
     models = await client.get("/v1/models", headers=headers)
     assert models.status_code == 403, models.text
     emb = await client.post("/v1/embeddings", headers=headers, json={"input": "hi"})
@@ -97,6 +104,9 @@ async def test_search_scope_is_enforced(client, db_session, api) -> None:
 
 
 async def test_embeddings_base64_encoding_format(client, db_session, api) -> None:
+    """The encoded string decodes to EMBEDDING_DIM little-endian float32s, exactly like
+    OpenAI's base64 format.
+    """
     _org, _owner, headers = await _org_with_key(db_session, ["search"])
     resp = await client.post(
         "/v1/embeddings",
@@ -106,15 +116,16 @@ async def test_embeddings_base64_encoding_format(client, db_session, api) -> Non
     assert resp.status_code == 200, resp.text
     encoded = resp.json()["data"][0]["embedding"]
     assert isinstance(encoded, str)
-    # Decodes to EMBEDDING_DIM little-endian float32s, exactly like OpenAI's base64 format.
     raw = base64.b64decode(encoded)
     floats = struct.unpack(f"<{settings.EMBEDDING_DIM}f", raw)
     assert len(floats) == settings.EMBEDDING_DIM
 
 
 async def test_embeddings_accepts_tokenized_input(client, db_session, api) -> None:
+    """LangChain's default OpenAIEmbeddings sends a list of token-id arrays; this must not
+    400.
+    """
     _org, _owner, headers = await _org_with_key(db_session, ["search"])
-    # LangChain's default OpenAIEmbeddings sends a list of token-id arrays; this must not 400.
     resp = await client.post(
         "/v1/embeddings",
         headers=headers,
@@ -137,6 +148,7 @@ async def test_embeddings_rejects_too_many_inputs(client, db_session, api) -> No
 
 
 async def test_chat_completion_writes_search_audit(client, db_session, api) -> None:
+    """The grounded chat surface leaves a search.performed audit trail like /search and MCP."""
     org, _owner, headers = await _org_with_key(db_session, ["search"])
     before = (
         await db_session.execute(
@@ -160,5 +172,4 @@ async def test_chat_completion_writes_search_audit(client, db_session, api) -> N
             .where(AuditLog.org_id == org.id, AuditLog.action == "search.performed")
         )
     ).scalar_one()
-    # The grounded chat surface now leaves a search.performed audit trail like /search and MCP.
     assert after == before + 1

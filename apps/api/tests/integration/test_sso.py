@@ -51,11 +51,14 @@ async def _oidc_connection(client, api, headers) -> str:
 async def test_oidc_login_provisions_and_is_idempotent(
     client, db_session, token_headers, api, monkeypatch
 ) -> None:
+    """The login page discovers the connection by email domain, and the first callback JIT
+    provisions the user; a second login with the same IdP subject reuses that user (no
+    duplicate identity/user).
+    """
     org, owner, _ = await factories.create_org_with_owner(db_session)
     headers = token_headers(owner.id, org.id)
     conn_id = await _oidc_connection(client, api, headers)
 
-    # Login page discovers the connection by email domain.
     avail = await client.get(f"{api}/auth/sso/available", params={"email": "jo@corp.com"})
     assert any(c["id"] == conn_id for c in avail.json())
 
@@ -80,7 +83,6 @@ async def test_oidc_login_provisions_and_is_idempotent(
     membership = await get_membership(db_session, org.id, user.id)
     assert membership is not None
 
-    # A second login with the same IdP subject reuses the user (no duplicate identity/user).
     state2 = sso_service.encode_state(uuid.UUID(conn_id))
     cb2 = await client.post(f"{api}/auth/sso/callback", json={"code": "abc2", "state": state2})
     assert cb2.status_code == 200, cb2.text
@@ -119,13 +121,17 @@ def _self_signed() -> tuple[str, str]:
 def _signed_saml_response(
     key_pem: str, cert_pem: str, email: str, *, not_on_or_after: datetime | None = None
 ) -> str:
+    """A base64 SAMLResponse signed with ``key_pem``/``cert_pem``, asserting ``email``.
+
+    Real IdPs bound every assertion in time, and the ACS now enforces this window, so the
+    assertion carries Conditions; ``not_on_or_after`` lets a caller push it into the past.
+    """
     nsmap = {"samlp": _SAMLP_NS, "saml": _SAML_NS}
     response = etree.Element(f"{{{_SAMLP_NS}}}Response", nsmap=nsmap, ID="_resp1", Version="2.0")
     assertion = etree.SubElement(response, f"{{{_SAML_NS}}}Assertion", ID="_assert1", Version="2.0")
     subject = etree.SubElement(assertion, f"{{{_SAML_NS}}}Subject")
     name_id = etree.SubElement(subject, f"{{{_SAML_NS}}}NameID")
     name_id.text = email
-    # Real IdPs bound every assertion in time; the ACS now enforces this window.
     now = datetime.now(UTC)
     conditions = etree.SubElement(assertion, f"{{{_SAML_NS}}}Conditions")
     conditions.set("NotBefore", (now - timedelta(minutes=5)).strftime("%Y-%m-%dT%H:%M:%SZ"))
@@ -171,10 +177,12 @@ async def test_saml_acs_verifies_signature_and_provisions(
 
 
 async def test_saml_acs_rejects_tampered_response(client, db_session, token_headers, api) -> None:
+    """A DIFFERENT cert is configured on the connection, so the (validly-signed) response
+    fails verification and no user is provisioned.
+    """
     org, owner, _ = await factories.create_org_with_owner(db_session)
     headers = token_headers(owner.id, org.id)
     key_pem, cert_pem = _self_signed()
-    # A DIFFERENT cert is configured, so the (validly-signed) response fails verification.
     _, other_cert = _self_signed()
     created = await client.post(
         f"{api}/sso-connections",
@@ -198,7 +206,8 @@ async def test_saml_acs_rejects_tampered_response(client, db_session, token_head
 
 async def test_saml_acs_rejects_expired_assertion(client, db_session, token_headers, api) -> None:
     """A validly-signed but EXPIRED assertion is rejected, so a captured SAMLResponse cannot
-    be replayed past its short validity window."""
+    be replayed past its short validity window. The assertion below is signed correctly, but
+    its NotOnOrAfter is well in the past."""
     org, owner, _ = await factories.create_org_with_owner(db_session)
     headers = token_headers(owner.id, org.id)
     key_pem, cert_pem = _self_signed()
@@ -212,7 +221,6 @@ async def test_saml_acs_rejects_expired_assertion(client, db_session, token_head
         },
     )
     conn_id = created.json()["id"]
-    # Signed correctly, but NotOnOrAfter is well in the past.
     expired = datetime.now(UTC) - timedelta(minutes=10)
     saml_response = _signed_saml_response(
         key_pem, cert_pem, "late@corp.com", not_on_or_after=expired
@@ -232,7 +240,7 @@ async def test_saml_acs_cannot_hijack_existing_user(client, db_session, token_he
     The attacker owns a separate org, configures a SAML connection with a cert they control,
     and signs an assertion claiming a victim's email. The ACS must refuse rather than adopt
     the victim's pre-existing account - otherwise anyone who can self-register an org could
-    take over any account.
+    take over any account, and the victim must not be dragged into the attacker's org.
     """
     victim_org, victim, _ = await factories.create_org_with_owner(db_session)
     evil_org, evil_owner, _ = await factories.create_org_with_owner(db_session)
@@ -256,7 +264,6 @@ async def test_saml_acs_cannot_hijack_existing_user(client, db_session, token_he
         data={"SAMLResponse": saml_response},
     )
     assert acs.status_code == 403, acs.text
-    # The victim was NOT dragged into the attacker's org.
     assert await get_membership(db_session, evil_org.id, victim.id) is None
 
 
@@ -269,7 +276,8 @@ async def test_saml_acs_cannot_hijack_invited_existing_user(
     membership without the victim's consent), then signs an assertion for that email with a
     cert they control. Because the victim's account is independently owned (it has its own
     password / another org), the ACS must still refuse - membership alone is not proof of
-    ownership - rather than adopt+activate the account and mint a session for the victim.
+    ownership - rather than adopt+activate the account and mint a session for the victim. The
+    seeded membership must be left un-activated and no federated identity linked.
     """
     from app.models.enums import MembershipStatus
 
@@ -277,7 +285,6 @@ async def test_saml_acs_cannot_hijack_invited_existing_user(
     evil_org, evil_owner, _ = await factories.create_org_with_owner(db_session)
     evil_headers = token_headers(evil_owner.id, evil_org.id)
 
-    # Attacker seeds an INVITED membership for the victim in their own org (no victim consent).
     invited = await client.post(
         f"{api}/orgs/members/invite",
         headers=evil_headers,
@@ -303,7 +310,6 @@ async def test_saml_acs_cannot_hijack_invited_existing_user(
         data={"SAMLResponse": saml_response},
     )
     assert acs.status_code == 403, acs.text
-    # The seeded membership was NOT activated, and no federated identity was linked.
     membership = await get_membership(db_session, evil_org.id, victim.id)
     assert membership is not None and membership.status == MembershipStatus.INVITED
     linked = (
@@ -345,4 +351,4 @@ async def test_saml_acs_refuses_suspended_member(client, db_session, token_heade
     )
     assert acs.status_code == 403, acs.text
     await db_session.refresh(membership)
-    assert membership.status == MembershipStatus.SUSPENDED  # not reactivated
+    assert membership.status == MembershipStatus.SUSPENDED

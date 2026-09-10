@@ -5,6 +5,10 @@ collection can neither retrieve its content (zero search hits) nor mutate it (40
 granting/revoking an explicit permission flips both the *effective permission* and what
 *retrieval* returns - proving the route-authorization path and the SQL retrieval scope
 stay in lockstep.
+
+The second half of the file covers nested teams, where grants flow strictly DOWNWARD
+(upward-only expansion of a user's effective team set). Both enforcement sites - route
+authorization and the SQL retrieval scope - must agree for every one of those cases too.
 """
 
 from __future__ import annotations
@@ -88,18 +92,23 @@ async def _setup_private_collection(db_session):
 async def test_member_without_grant_is_denied_everywhere(
     client, db_session, token_headers, api
 ) -> None:
+    """An org member with no grant on a private collection is denied on every surface.
+
+    The owner (admin) is the positive control and CAN see it. For the ungranted viewer the
+    effective permission is NONE, retrieval returns ZERO hits from the private collection, the
+    collection is invisible in the list, reading it directly is 403, and a protected mutation
+    (adding a document) is 403.
+    """
     org, owner, collection, document, viewer = await _setup_private_collection(db_session)
     viewer_headers = token_headers(viewer.id, org.id)
     query = {"query": "project aurora launch code"}
 
-    # Positive control: the owner (admin) CAN see it.
     owner_hits = await client.post(
         f"{api}/search", headers=token_headers(owner.id, org.id), json=query
     )
     assert owner_hits.status_code == 200
     assert any(h["document_id"] == str(document.id) for h in owner_hits.json()["hits"])
 
-    # Effective permission for the ungranted viewer is NONE.
     eff = await client.get(
         f"{api}/permissions/effective",
         headers=viewer_headers,
@@ -108,21 +117,17 @@ async def test_member_without_grant_is_denied_everywhere(
     assert eff.status_code == 200, eff.text
     assert eff.json()["permission"] == "none"
 
-    # Retrieval returns ZERO hits from the private collection.
     viewer_search = await client.post(f"{api}/search", headers=viewer_headers, json=query)
     assert viewer_search.status_code == 200, viewer_search.text
     assert viewer_search.json()["hits"] == []
 
-    # The collection is invisible in the list...
     listed = await client.get(f"{api}/collections", headers=viewer_headers)
     assert listed.status_code == 200
     assert all(c["id"] != str(collection.id) for c in listed.json())
 
-    # ...reading it directly is 403...
     read = await client.get(f"{api}/collections/{collection.id}", headers=viewer_headers)
     assert read.status_code == 403, read.text
 
-    # ...and a protected mutation (adding a document) is 403.
     mutate = await client.post(
         f"{api}/documents/text",
         headers=viewer_headers,
@@ -134,12 +139,17 @@ async def test_member_without_grant_is_denied_everywhere(
 async def test_grant_then_revoke_flips_retrieval_and_effective(
     client, db_session, token_headers, api
 ) -> None:
+    """A grant flips both enforcement sites on; a revoke collapses them back to nothing.
+
+    The owner acts as manager to GRANT viewer permission on the private collection: the
+    effective permission is then VIEWER, retrieval surfaces the document, and the collection
+    appears in the viewer's list. After the REVOKE, access collapses back to nothing.
+    """
     org, owner, collection, document, viewer = await _setup_private_collection(db_session)
     owner_headers = token_headers(owner.id, org.id)
     viewer_headers = token_headers(viewer.id, org.id)
     query = {"query": "project aurora launch code"}
 
-    # GRANT viewer permission on the private collection (owner acts as manager).
     grant = await client.post(
         f"{api}/permissions",
         headers=owner_headers,
@@ -154,7 +164,6 @@ async def test_grant_then_revoke_flips_retrieval_and_effective(
     assert grant.status_code == 201, grant.text
     grant_id = grant.json()["id"]
 
-    # Effective permission is now VIEWER and retrieval surfaces the document.
     eff = await client.get(
         f"{api}/permissions/effective",
         headers=viewer_headers,
@@ -166,11 +175,9 @@ async def test_grant_then_revoke_flips_retrieval_and_effective(
     assert after_grant.status_code == 200
     assert any(h["document_id"] == str(document.id) for h in after_grant.json()["hits"])
 
-    # The collection now appears in the viewer's list.
     listed = await client.get(f"{api}/collections", headers=viewer_headers)
     assert any(c["id"] == str(collection.id) for c in listed.json())
 
-    # REVOKE and confirm access collapses back to nothing.
     revoke = await client.delete(f"{api}/permissions/{grant_id}", headers=owner_headers)
     assert revoke.status_code == 204, revoke.text
 
@@ -189,11 +196,11 @@ async def test_grant_then_revoke_flips_retrieval_and_effective(
 async def test_editor_grant_allows_the_mutation_that_was_forbidden(
     client, db_session, token_headers, api, ingest_now
 ) -> None:
+    """An editor grant on the collection lets the member add a document."""
     org, owner, collection, _document, viewer = await _setup_private_collection(db_session)
     owner_headers = token_headers(owner.id, org.id)
     viewer_headers = token_headers(viewer.id, org.id)
 
-    # Editor grant on the collection lets the member add a document.
     grant = await client.post(
         f"{api}/permissions",
         headers=owner_headers,
@@ -253,7 +260,6 @@ async def test_team_restricted_document_agrees_across_route_and_retrieval(
     outsider, _ = await factories.add_member(db_session, org=org, role=OrgRole.VIEWER)
     query = {"query": "project aurora launch code"}
 
-    # Non-team member: 403 reading the document AND zero retrieval hits (no leak).
     out_headers = token_headers(outsider.id, org.id)
     read = await client.get(f"{api}/documents/{document.id}", headers=out_headers)
     assert read.status_code == 403, read.text
@@ -261,7 +267,6 @@ async def test_team_restricted_document_agrees_across_route_and_retrieval(
     assert out_search.status_code == 200, out_search.text
     assert all(h["document_id"] != str(document.id) for h in out_search.json()["hits"])
 
-    # Member of the owning team: 200 reading it AND it is retrievable.
     in_headers = token_headers(insider.id, org.id)
     read_in = await client.get(f"{api}/documents/{document.id}", headers=in_headers)
     assert read_in.status_code == 200, read_in.text
@@ -270,11 +275,6 @@ async def test_team_restricted_document_agrees_across_route_and_retrieval(
     assert any(h["document_id"] == str(document.id) for h in in_search.json()["hits"])
 
 
-# --------------------------------------------------------------------------- #
-# Nested teams: grants flow strictly DOWNWARD (upward-only expansion of a user's
-# effective team set). Both enforcement sites -- route authorization and the SQL
-# retrieval scope -- must agree for every case below.
-# --------------------------------------------------------------------------- #
 async def _eff(client, api, headers, collection_id) -> str:
     resp = await client.get(
         f"{api}/permissions/effective",
@@ -296,14 +296,14 @@ async def test_subteam_member_inherits_parent_grant_and_team_visibility(
 ) -> None:
     """A member of only a SUB-team inherits BOTH a grant made to the parent team and a
     parent-owned TEAM-visibility collection, and the route (effective permission + listing)
-    agrees with retrieval (/search) on every one.
+    agrees with retrieval (/search) on every one. U belongs to the SUB-team only, so it is
+    ancestor expansion that must lift the parent's access to U.
     """
     org, owner, _ = await factories.create_org_with_owner(db_session)
     parent = await factories.create_team(db_session, org=org)
     sub = await factories.create_team(db_session, org=org)
     await _set_parent(db_session, child=sub, parent=parent)
 
-    # U belongs to the SUB-team only; ancestor expansion must lift the parent's access to U.
     u, _ = await factories.add_member(db_session, org=org, role=OrgRole.VIEWER)
     await factories.add_user_to_team(db_session, team=sub, user=u)
 
@@ -322,7 +322,6 @@ async def test_subteam_member_inherits_parent_grant_and_team_visibility(
 
     headers = token_headers(u.id, org.id)
 
-    # Route site: VIEWER on BOTH collections, and both appear in the caller's listing.
     assert await _eff(client, api, headers, granted.id) == "viewer"
     assert await _eff(client, api, headers, team_vis.id) == "viewer"
     listed = await client.get(f"{api}/collections", headers=headers)
@@ -330,7 +329,6 @@ async def test_subteam_member_inherits_parent_grant_and_team_visibility(
     assert str(granted.id) in listed_ids
     assert str(team_vis.id) in listed_ids
 
-    # Retrieval site: search surfaces documents from BOTH collections. The two sites agree.
     hit_docs = await _search_doc_ids(client, api, headers)
     assert str(granted_doc.id) in hit_docs
     assert str(team_vis_doc.id) in hit_docs
@@ -349,9 +347,9 @@ async def test_parent_member_is_denied_child_only_resources_downward_isolation(
     sub = await factories.create_team(db_session, org=org)
     await _set_parent(db_session, child=sub, parent=parent)
 
-    v, _ = await factories.add_member(db_session, org=org, role=OrgRole.VIEWER)  # PARENT only
+    v, _ = await factories.add_member(db_session, org=org, role=OrgRole.VIEWER)
     await factories.add_user_to_team(db_session, team=parent, user=v)
-    u, _ = await factories.add_member(db_session, org=org, role=OrgRole.VIEWER)  # SUB (control)
+    u, _ = await factories.add_member(db_session, org=org, role=OrgRole.VIEWER)
     await factories.add_user_to_team(db_session, team=sub, user=u)
 
     child_grant, child_grant_doc = await _viewer_collection_with_doc(
@@ -369,7 +367,6 @@ async def test_parent_member_is_denied_child_only_resources_downward_isolation(
 
     v_headers = token_headers(v.id, org.id)
 
-    # Parent-team member: NONE on the route, 403 direct read, absent from listing.
     for coll in (child_grant, child_vis):
         assert await _eff(client, api, v_headers, coll.id) == "none"
         read = await client.get(f"{api}/collections/{coll.id}", headers=v_headers)
@@ -379,12 +376,10 @@ async def test_parent_member_is_denied_child_only_resources_downward_isolation(
     assert str(child_grant.id) not in v_ids
     assert str(child_vis.id) not in v_ids
 
-    # ...and no leak into retrieval.
     v_docs = await _search_doc_ids(client, api, v_headers)
     assert str(child_grant_doc.id) not in v_docs
     assert str(child_vis_doc.id) not in v_docs
 
-    # Positive control: the SUB-team member DOES see both, on both sites.
     u_headers = token_headers(u.id, org.id)
     assert await _eff(client, api, u_headers, child_grant.id) == "viewer"
     assert await _eff(client, api, u_headers, child_vis.id) == "viewer"
@@ -453,12 +448,12 @@ async def test_team_membership_in_another_org_does_not_leak_into_acting_org(
     pick up that team's id - nor any of its resources - while acting in org A, and their
     org-A team access is unaffected. This pins the ``user_team_ids`` invariant that every
     query is scoped to ``ctx.org_id`` (a membership in another org must never widen the
-    effective team set of the acting org).
+    effective team set of the acting org). It is pinned at the engine level - ``user_team_ids``
+    called directly - and end-to-end through the route and retrieval.
     """
     org_a, owner_a, _ = await factories.create_org_with_owner(db_session)
     org_b, owner_b, _ = await factories.create_org_with_owner(db_session)
 
-    # One user, an active member of BOTH orgs and on a team in each.
     user = await factories.create_user(db_session)
     await factories.create_membership(db_session, org=org_a, user=user, role=OrgRole.VIEWER)
     await factories.create_membership(db_session, org=org_b, user=user, role=OrgRole.VIEWER)
@@ -467,13 +462,11 @@ async def test_team_membership_in_another_org_does_not_leak_into_acting_org(
     await factories.add_user_to_team(db_session, team=team_a, user=user)
     await factories.add_user_to_team(db_session, team=team_b, user=user)
 
-    # Engine-level guarantee: the effective team set is scoped strictly to the acting org.
     ctx_a = AuthContext(org_id=org_a.id, org_role=OrgRole.VIEWER, user=user)
     assert await user_team_ids(db_session, ctx_a) == {team_a.id}
     ctx_b = AuthContext(org_id=org_b.id, org_role=OrgRole.VIEWER, user=user)
     assert await user_team_ids(db_session, ctx_b) == {team_b.id}
 
-    # A TEAM-visibility collection in each org, owned by that org's team.
     coll_a, doc_a = await _viewer_collection_with_doc(
         db_session,
         org=org_a,
@@ -491,10 +484,8 @@ async def test_team_membership_in_another_org_does_not_leak_into_acting_org(
         team_visibility=True,
     )
 
-    # Acting in org A: org-A team access is intact (VIEWER + retrievable)...
     headers_a = token_headers(user.id, org_a.id)
     assert await _eff(client, api, headers_a, coll_a.id) == "viewer"
     a_docs = await _search_doc_ids(client, api, headers_a)
     assert str(doc_a.id) in a_docs
-    # ...and nothing from the org-B team leaks across.
     assert str(doc_b.id) not in a_docs

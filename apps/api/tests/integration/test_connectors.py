@@ -1,4 +1,7 @@
-"""Integration: connector CRUD with credentials encrypted at rest and never returned."""
+"""Integration: connector CRUD with credentials encrypted at rest and never returned.
+
+The second half covers the native providers - Anthropic (completion only) and Google Gemini.
+"""
 
 from __future__ import annotations
 
@@ -18,6 +21,11 @@ pytestmark = pytest.mark.integration
 async def test_credentials_are_encrypted_and_never_serialized(
     client, db_session, token_headers, api
 ) -> None:
+    """The secret is never echoed back in any form.
+
+    Not by the create response, and not by listing or detail either. At rest the stored blob
+    is ciphertext that decrypts back to the original.
+    """
     org, owner, _ = await factories.create_org_with_owner(db_session)
     headers = token_headers(owner.id, org.id)
 
@@ -36,20 +44,17 @@ async def test_credentials_are_encrypted_and_never_serialized(
     assert created.status_code == 201, created.text
     body = created.json()
     connector_id = body["id"]
-    # The secret is never echoed back in any form.
     assert body["has_credentials"] is True
     assert "credentials" not in body
     assert "encrypted_credentials" not in body
     assert "sk-super-secret-value" not in created.text
 
-    # Listing and detail likewise omit the secret.
     listing = await client.get(f"{api}/connectors", headers=headers)
     assert "sk-super-secret-value" not in listing.text
     detail = await client.get(f"{api}/connectors/{connector_id}", headers=headers)
     assert detail.status_code == 200
     assert "sk-super-secret-value" not in detail.text
 
-    # At rest, the stored blob is ciphertext that decrypts back to the original.
     row = (
         await db_session.execute(select(Connector).where(Connector.id == connector_id))
     ).scalar_one()
@@ -61,9 +66,11 @@ async def test_credentials_are_encrypted_and_never_serialized(
 
 
 async def test_connector_test_endpoint_round_trips(client, db_session, token_headers, api) -> None:
+    """The connector has no credentials, so the offline provider is a legitimate success
+    path for the test endpoint.
+    """
     org, owner, _ = await factories.create_org_with_owner(db_session)
     headers = token_headers(owner.id, org.id)
-    # No credentials -> the offline provider is a legitimate success path.
     connector = await factories.create_connector(
         db_session, org=org, credentials=None, is_default=True
     )
@@ -137,9 +144,6 @@ async def test_mutations_require_admin(client, db_session, token_headers, api) -
     assert resp.status_code == 403, resp.text
 
 
-# --------------------------------------------------------------------------- #
-# Native providers: Anthropic (completion only) and Google Gemini
-# --------------------------------------------------------------------------- #
 async def test_anthropic_completion_connector_crud(client, db_session, token_headers, api) -> None:
     org, owner, _ = await factories.create_org_with_owner(db_session)
     headers = token_headers(owner.id, org.id)
@@ -202,7 +206,11 @@ async def test_anthropic_embedding_connector_is_rejected(
     client, db_session, token_headers, api
 ) -> None:
     """Anthropic has no embeddings API: creation, update-into and testing an
-    anthropic+embedding connector all fail with a clear message."""
+    anthropic+embedding connector all fail with a clear message.
+
+    An existing anthropic completion connector cannot be flipped to embedding, and an
+    embedding connector cannot be flipped to anthropic.
+    """
     org, owner, _ = await factories.create_org_with_owner(db_session)
     headers = token_headers(owner.id, org.id)
 
@@ -219,7 +227,6 @@ async def test_anthropic_embedding_connector_is_rejected(
     assert created.status_code == 422, created.text
     assert "no embeddings API" in created.json()["detail"]
 
-    # An existing anthropic completion connector cannot be flipped to embedding...
     ok = await client.post(
         f"{api}/connectors",
         headers=headers,
@@ -238,7 +245,6 @@ async def test_anthropic_embedding_connector_is_rejected(
     )
     assert flipped.status_code == 422, flipped.text
 
-    # ...and an embedding connector cannot be flipped to anthropic.
     emb = await factories.create_connector(
         db_session, org=org, purpose=ConnectorPurpose.EMBEDDING, is_default=False
     )
@@ -273,9 +279,11 @@ async def test_anthropic_embedding_test_endpoint_rejected(
 async def test_anthropic_completion_connector_test_round_trips(
     client, db_session, token_headers, api
 ) -> None:
+    """The connector has no credentials, so the offline provider is a legitimate success
+    path for the test endpoint.
+    """
     org, owner, _ = await factories.create_org_with_owner(db_session)
     headers = token_headers(owner.id, org.id)
-    # No credentials -> the offline provider is a legitimate success path.
     connector = await factories.create_connector(
         db_session,
         org=org,

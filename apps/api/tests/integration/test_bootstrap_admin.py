@@ -19,6 +19,10 @@ OWNER_EMAIL = "owner@example.com"
 
 
 async def test_bootstrap_creates_owner_who_can_log_in(client, api) -> None:
+    """No password was supplied, so a strong one is generated and shown exactly once.
+
+    The generated credentials actually authenticate against the real login route.
+    """
     lines: list[str] = []
     config = resolve_config([], {"ADMIN_EMAIL": OWNER_EMAIL, "ADMIN_ORG_NAME": "Acme Self-Host"})
 
@@ -27,11 +31,9 @@ async def test_bootstrap_creates_owner_who_can_log_in(client, api) -> None:
     assert result.created is True
     assert result.email == OWNER_EMAIL
     assert result.org_name == "Acme Self-Host"
-    # No password was supplied, so a strong one is generated and shown exactly once.
     assert result.password
     assert sum(1 for line in lines if result.password in line) == 1
 
-    # The generated credentials actually authenticate against the real login route.
     login = await client.post(
         f"{api}/auth/login", json={"email": OWNER_EMAIL, "password": result.password}
     )
@@ -50,13 +52,13 @@ async def test_bootstrap_creates_owner_who_can_log_in(client, api) -> None:
 
 
 async def test_bootstrap_honors_supplied_password_without_echoing_it(client, api) -> None:
+    """An operator-supplied password is never echoed back in the result/output."""
     supplied = "Sup3rSecret-selfhost!"
     config = resolve_config([], {"ADMIN_EMAIL": OWNER_EMAIL, "ADMIN_PASSWORD": supplied})
 
     result = await bootstrap_admin.execute(config, out=lambda _: None)
 
     assert result.created is True
-    # An operator-supplied password is never echoed back in the result/output.
     assert result.password is None
 
     login = await client.post(
@@ -66,21 +68,23 @@ async def test_bootstrap_honors_supplied_password_without_echoing_it(client, api
 
 
 async def test_bootstrap_is_idempotent(client, api) -> None:
+    """A second run must create nothing and print no secret.
+
+    That is the exit-0, no-op path main() returns when execute() raises nothing and reports
+    created=False. The original account is intact afterwards - the first password still logs
+    in and there is exactly one organization (no duplicate was created).
+    """
     config = resolve_config([], {"ADMIN_EMAIL": OWNER_EMAIL})
     first = await bootstrap_admin.execute(config, out=lambda _: None)
     assert first.created is True
     assert first.password
 
-    # A second run must create nothing and print no secret (the exit-0, no-op path main()
-    # returns when execute() raises nothing and reports created=False).
     second_lines: list[str] = []
     second = await bootstrap_admin.execute(config, out=second_lines.append)
     assert second.created is False
     assert second.password is None
     assert any("already bootstrapped" in line for line in second_lines)
 
-    # The original account is intact - the first password still logs in and there is exactly
-    # one organization (no duplicate was created).
     login = await client.post(
         f"{api}/auth/login", json={"email": OWNER_EMAIL, "password": first.password}
     )
@@ -93,29 +97,31 @@ async def test_bootstrap_is_idempotent(client, api) -> None:
 
 
 async def test_bootstrap_with_api_key_mints_a_working_key(client, api) -> None:
+    """The minted key must carry admin-plus authority, not merely authenticate.
+
+    /orgs/members is gated by require_role(ADMIN) and accepts API keys, so a scope-less or
+    viewer key would get 403. The bootstrap owner appears in the returned membership list.
+    """
     config = resolve_config(["--with-api-key"], {"ADMIN_EMAIL": OWNER_EMAIL})
     result = await bootstrap_admin.execute(config, out=lambda _: None)
 
     assert result.created is True
     assert result.api_key and result.api_key.startswith("tb_")
 
-    # The minted key must carry admin-plus authority, not merely authenticate: /orgs/members
-    # is gated by require_role(ADMIN) and accepts API keys, so a scope-less or viewer key
-    # would get 403. The bootstrap owner appears in the returned membership list.
     headers = {"X-API-Key": result.api_key}
     members = await client.get(f"{api}/orgs/members", headers=headers)
     assert members.status_code == 200, members.text
     assert any(m["user"]["email"] == OWNER_EMAIL for m in members.json())
 
 
-# --------------------------------------------------------------------------- #
-# Config resolution - pure, needs no infrastructure.
-# --------------------------------------------------------------------------- #
 def test_resolve_config_requires_email(monkeypatch) -> None:
+    """main() maps the missing-email config error to exit 2.
+
+    The ambient env is cleared first so a stray ADMIN_EMAIL cannot let it fall through to
+    execute() (real DB side effects).
+    """
     with pytest.raises(BootstrapError, match="ADMIN_EMAIL is required"):
         resolve_config([], {})
-    # main() maps the missing-email config error to exit 2. Clear the ambient env first so a
-    # stray ADMIN_EMAIL cannot let it fall through to execute() (real DB side effects).
     monkeypatch.delenv("ADMIN_EMAIL", raising=False)
     assert bootstrap_admin.main([]) == 2
 
@@ -131,8 +137,11 @@ def test_resolve_config_rejects_a_short_password() -> None:
 
 
 def test_resolve_config_rejects_an_overlong_password() -> None:
-    # >128 chars would be rejected by the login route (422), so bootstrap must refuse it up
-    # front rather than create an admin that can never sign in.
+    """A password over 128 chars is refused before anything is created.
+
+    Such a password would be rejected by the login route (422), so bootstrap must refuse it up
+    front rather than create an admin that can never sign in.
+    """
     with pytest.raises(BootstrapError, match="between 8 and 128"):
         resolve_config([], {"ADMIN_EMAIL": OWNER_EMAIL, "ADMIN_PASSWORD": "x" * 129})
 
@@ -149,7 +158,10 @@ def test_flags_override_env_and_defaults() -> None:
 
 
 def test_defaults_and_env_flag() -> None:
+    """With no org name given the config falls back to DEFAULT_ORG_NAME ("My Company"), and
+    BOOTSTRAP_API_KEY in the environment turns key minting on.
+    """
     config = resolve_config([], {"ADMIN_EMAIL": OWNER_EMAIL, "BOOTSTRAP_API_KEY": "1"})
-    assert config.org_name == "My Company"  # DEFAULT_ORG_NAME
+    assert config.org_name == "My Company"
     assert config.with_api_key is True
     assert config.email == OWNER_EMAIL

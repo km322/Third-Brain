@@ -15,6 +15,7 @@ function scriptedPoll(responses) {
   return () => Promise.resolve(queue.shift());
 }
 
+/** Resolves with the full approved payload so the CLI can show the org it bound to. */
 test("polls until approved, sleeping the server-given interval", async () => {
   const sleeps = [];
   let pendings = 0;
@@ -31,7 +32,6 @@ test("polls until approved, sleeping the server-given interval", async () => {
       pendings += 1;
     },
   });
-  // Resolves with the full approved payload so the CLI can show the org it bound to.
   assert.equal(approved.api_key, "tb_new_key");
   assert.equal(approved.org_name, "Acme");
   assert.deepEqual(sleeps, [5000, 5000]);
@@ -62,6 +62,7 @@ test("an expired status from the server surfaces as expired", async () => {
   );
 });
 
+/** Two polls happen, at t=0 and t=5000; the deadline at t=10000 halts the loop. */
 test("polling stops with expired once expires_in has elapsed", async () => {
   let clock = 0;
   let polls = 0;
@@ -80,7 +81,7 @@ test("polling stops with expired once expires_in has elapsed", async () => {
     }),
     (err) => err instanceof DeviceAuthError && err.reason === "expired",
   );
-  assert.equal(polls, 2); // t=0 and t=5000; the deadline at t=10000 halts the loop
+  assert.equal(polls, 2);
 });
 
 test("an unexpected status is a protocol error", async () => {
@@ -95,6 +96,7 @@ test("an unexpected status is a protocol error", async () => {
   );
 });
 
+/** With no Retry-After the interval doubles; with one it is interval + retry_after. */
 test("slow_down stretches the wait and keeps polling", async () => {
   const sleeps = [];
   const key = await pollForApproval({
@@ -108,7 +110,6 @@ test("slow_down stretches the wait and keeps polling", async () => {
     sleep: async (ms) => sleeps.push(ms),
   });
   assert.equal(key.api_key, "tb_new_key");
-  // No Retry-After: interval doubles; with Retry-After: interval + retry_after.
   assert.deepEqual(sleeps, [10000, 35000]);
 });
 

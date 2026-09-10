@@ -31,6 +31,15 @@ async def _poll(client, api, device_code: str):
 
 
 async def test_full_happy_path(client, db_session, token_headers, api) -> None:
+    """Start, approve in the browser, redeem once, then use the key.
+
+    While nobody has approved, the CLI sees authorization_pending, and the approval page can
+    show what is being approved. The admin approves with the defaults (name derived from
+    client_name, acting as the approver). The next poll hands over the plaintext exactly once
+    and flips to consumed; the redemption tells the CLI which org/member it bound to (so a
+    wrong-org approval is visible). The plaintext is gone from the row the moment it is handed
+    over, and the minted key authenticates against the MCP surface.
+    """
     org, owner, _ = await factories.create_org_with_owner(db_session)
     admin_headers = token_headers(owner.id, org.id)
 
@@ -40,19 +49,16 @@ async def test_full_happy_path(client, db_session, token_headers, api) -> None:
     assert started["verification_uri_complete"].endswith(f"/activate?code={started['user_code']}")
     assert started["expires_in"] > 0 and started["interval"] >= 1
 
-    # While nobody has approved, the CLI sees authorization_pending.
     pending = await _poll(client, api, started["device_code"])
     assert pending.status_code == 200, pending.text
     assert pending.json() == {"status": "authorization_pending"}
 
-    # The approval page can show what is being approved.
     shown = await client.get(
         f"{api}/device-auth/pending/{started['user_code']}", headers=admin_headers
     )
     assert shown.status_code == 200, shown.text
     assert shown.json()["client_name"] == "third-brain-mcp on testhost"
 
-    # Admin approves with the defaults (name derived from client_name, acts as approver).
     approved = await client.post(
         f"{api}/device-auth/approve",
         headers=admin_headers,
@@ -64,7 +70,6 @@ async def test_full_happy_path(client, db_session, token_headers, api) -> None:
     assert sorted(key_meta["scopes"]) == ["ingest", "read", "search"]
     assert "secret" not in key_meta and "hashed_key" not in key_meta
 
-    # The next poll hands over the plaintext exactly once and flips to consumed.
     redeemed = await _poll(client, api, started["device_code"])
     assert redeemed.status_code == 200, redeemed.text
     body = redeemed.json()
@@ -73,15 +78,12 @@ async def test_full_happy_path(client, db_session, token_headers, api) -> None:
     assert secret.startswith("tb_")
     assert body["key_prefix"] == secret[:12]
     assert sorted(body["scopes"]) == ["ingest", "read", "search"]
-    # The redemption tells the CLI which org/member it bound to (so a wrong-org
-    # approval is visible), and it acts as the approving owner by default.
     assert body["org_name"] == org.name
     assert body["acts_as_email"] == owner.email
 
     again = await _poll(client, api, started["device_code"])
     assert again.status_code == 400, again.text
 
-    # The plaintext is gone from the row the moment it is handed over.
     row = (
         await db_session.execute(
             select(DeviceAuthorization).where(DeviceAuthorization.user_code == started["user_code"])
@@ -91,7 +93,6 @@ async def test_full_happy_path(client, db_session, token_headers, api) -> None:
     assert row.encrypted_secret is None
     assert row.org_id == org.id
 
-    # The minted key authenticates against the MCP surface.
     key_headers = {"Authorization": f"Bearer {secret}"}
     listed = await client.post(
         "/mcp",
@@ -115,6 +116,7 @@ async def test_full_happy_path(client, db_session, token_headers, api) -> None:
 
 
 async def test_deny_path(client, db_session, token_headers, api) -> None:
+    """A denied code polls as denied, and a settled code can no longer be approved."""
     org, owner, _ = await factories.create_org_with_owner(db_session)
     started = await _start(client, api)
 
@@ -129,7 +131,6 @@ async def test_deny_path(client, db_session, token_headers, api) -> None:
     assert polled.status_code == 200, polled.text
     assert polled.json() == {"status": "denied"}
 
-    # A settled code can no longer be approved.
     approve = await client.post(
         f"{api}/device-auth/approve",
         headers=token_headers(owner.id, org.id),
@@ -139,6 +140,9 @@ async def test_deny_path(client, db_session, token_headers, api) -> None:
 
 
 async def test_expiry_is_lazy(client, db_session, token_headers, api) -> None:
+    """Once the row is past its expiry the approval page 404s, approval is refused, and the
+    CLI sees expired.
+    """
     org, owner, _ = await factories.create_org_with_owner(db_session)
     admin_headers = token_headers(owner.id, org.id)
     started = await _start(client, api)
@@ -151,7 +155,6 @@ async def test_expiry_is_lazy(client, db_session, token_headers, api) -> None:
     row.expires_at = datetime.now(UTC) - timedelta(minutes=1)
     await db_session.commit()
 
-    # The approval page 404s, approval is refused, and the CLI sees expired.
     shown = await client.get(
         f"{api}/device-auth/pending/{started['user_code']}", headers=admin_headers
     )
@@ -175,6 +178,8 @@ async def test_approved_then_expired_revokes_orphan_key(
     Lazy expiry on the next poll (the reaper cron is the same logic in bulk) must flip the
     row to EXPIRED, drop the encrypted plaintext, and revoke the minted-but-undelivered
     ApiKey - otherwise an approved-but-never-polled flow strands an org credential.
+
+    The (now APPROVED) row is backdated past its expiry and then polled: the CLI sees expired.
     """
     from app.models.api_key import ApiKey
 
@@ -190,7 +195,6 @@ async def test_approved_then_expired_revokes_orphan_key(
     assert approved.status_code == 200, approved.text
     key_id = approved.json()["id"]
 
-    # Backdate the (now APPROVED) row past its expiry, then poll: the CLI sees expired.
     row = (
         await db_session.execute(
             select(DeviceAuthorization).where(DeviceAuthorization.user_code == started["user_code"])
@@ -218,6 +222,7 @@ async def test_approved_then_expired_revokes_orphan_key(
 
 
 async def test_approve_requires_admin_session(client, db_session, token_headers, api) -> None:
+    """Only a human admin session can approve or deny - even a manage-scoped API key cannot."""
     org, owner, _ = await factories.create_org_with_owner(db_session)
     editor, _ = await factories.add_member(db_session, org=org, role=OrgRole.EDITOR)
     started = await _start(client, api)
@@ -238,7 +243,6 @@ async def test_approve_requires_admin_session(client, db_session, token_headers,
     )
     assert shown.status_code == 403, shown.text
 
-    # Even a manage-scoped API key cannot approve - only a human admin session can.
     _key, secret = await factories.create_api_key(
         db_session, org=org, scopes=["manage"], acts_as_user=owner
     )
@@ -251,6 +255,9 @@ async def test_approve_requires_admin_session(client, db_session, token_headers,
 
 
 async def test_acts_as_cannot_outrank_approver(client, db_session, token_headers, api) -> None:
+    """An approver cannot bind the key to a higher-ranked member than themselves, and the
+    request survives the rejection so it can still be approved correctly.
+    """
     org, owner, _ = await factories.create_org_with_owner(db_session)
     admin, _ = await factories.add_member(db_session, org=org, role=OrgRole.ADMIN)
     started = await _start(client, api)
@@ -262,7 +269,6 @@ async def test_acts_as_cannot_outrank_approver(client, db_session, token_headers
     )
     assert resp.status_code == 403, resp.text
 
-    # The request survives the rejection and can still be approved correctly.
     ok = await client.post(
         f"{api}/device-auth/approve",
         headers=token_headers(admin.id, org.id),
@@ -272,6 +278,9 @@ async def test_acts_as_cannot_outrank_approver(client, db_session, token_headers
 
 
 async def test_scopes_limited_to_grantable_subset(client, db_session, token_headers, api) -> None:
+    """Scopes outside the grantable subset are refused, while an explicit allowed subset
+    narrows the key.
+    """
     org, owner, _ = await factories.create_org_with_owner(db_session)
     admin_headers = token_headers(owner.id, org.id)
 
@@ -284,7 +293,6 @@ async def test_scopes_limited_to_grantable_subset(client, db_session, token_head
         )
         assert resp.status_code == 400, (scopes, resp.text)
 
-    # An explicit allowed subset narrows the key.
     started = await _start(client, api)
     resp = await client.post(
         f"{api}/device-auth/approve",
@@ -297,12 +305,15 @@ async def test_scopes_limited_to_grantable_subset(client, db_session, token_head
 
 
 async def test_token_poll_is_rate_limited(client, db_session, api, monkeypatch) -> None:
-    """Hammering the poll endpoint for one device code is throttled per (code, IP)."""
+    """Hammering the poll endpoint for one device code is throttled per (code, IP).
+
+    The limiter clock is frozen so every attempt lands in the same 60s window (no boundary
+    flake).
+    """
     import app.core.deps as deps
 
     started = await _start(client, api)
 
-    # Freeze the limiter clock so every attempt lands in the same 60s window (no boundary flake).
     frozen = real_datetime(2026, 1, 1, 12, 0, 30, tzinfo=UTC)
 
     class _FrozenDatetime:

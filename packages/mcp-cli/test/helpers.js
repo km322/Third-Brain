@@ -74,6 +74,11 @@ function handleRpc(message) {
  *   tokenResponses: array of bodies POST /api/v1/device-auth/token shifts through
  *     (the last one repeats once exhausted).
  * Returns {url, requests, deviceGrant, close()}.
+ *
+ * A notification (a message with no "id") is acknowledged with HTTP 202 and no body. Like
+ * the real server, tools/call authenticates first (a bad key -> -32001) while tools/list
+ * is unauthenticated - which is why a real key must be verified via a tools/call, not
+ * tools/list.
  */
 export async function startFakeServer({ tokenResponses = [] } = {}) {
   const requests = [];
@@ -123,12 +128,9 @@ export async function startFakeServer({ tokenResponses = [] } = {}) {
         }
         if (!("id" in message)) {
           res.writeHead(202);
-          res.end(); // notification: acknowledged, no body
+          res.end();
           return;
         }
-        // Matches the real server: tools/call authenticates first (bad key -> -32001),
-        // tools/list is unauthenticated. This is why a real key must be verified via a
-        // tools/call, not tools/list.
         if (message.method === "tools/call" && !authorized(req)) {
           json(res, 200, {
             jsonrpc: "2.0",

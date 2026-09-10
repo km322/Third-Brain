@@ -47,6 +47,13 @@ async def _create_source(client, api, headers, *, collection_id, root: str, name
 async def test_sync_ingests_and_scopes_by_source_acl(
     client, db_session, token_headers, api, tmp_path
 ) -> None:
+    """A sync mirrors the source ACL into retrieval, per user.
+
+    Every synced document mirrors the visibility of its source rather than the collection's,
+    and the synced ACLs are materialised as source-scoped AccessGrants. Bob, auto-mapped by
+    email, sees only his own document and never alice's; carol is in no ACL so she sees
+    neither; the owner is an org admin (all-access) and sees alice's document.
+    """
     org, owner, _ = await factories.create_org_with_owner(db_session)
     bob, _ = await factories.add_member(
         db_session, org=org, role=OrgRole.VIEWER, email="bob@example.com"
@@ -90,10 +97,9 @@ async def test_sync_ingests_and_scopes_by_source_acl(
     for d in docs:
         assert d.status == DocumentStatus.INDEXED, d.status
         assert d.chunk_count > 0
-        assert d.visibility == Visibility.PRIVATE  # mirrors source, not the collection
+        assert d.visibility == Visibility.PRIVATE
     alice_id, bob_id = str(by_ext["alice_doc.md"].id), str(by_ext["bob_doc.md"].id)
 
-    # Synced ACLs are materialised as source-scoped AccessGrants.
     grants = (
         (
             await db_session.execute(
@@ -111,7 +117,6 @@ async def test_sync_ingests_and_scopes_by_source_acl(
     assert (alice_id, owner.id) in granted
     assert (bob_id, bob.id) in granted
 
-    # Bob (email auto-mapped) sees only his document, never alice's.
     bob_alice = await _doc_ids(
         await client.post(
             f"{api}/search", headers=bob_h, json={"query": "Aurora roadmap secret sauce"}
@@ -125,7 +130,6 @@ async def test_sync_ingests_and_scopes_by_source_acl(
     )
     assert bob_id in bob_own
 
-    # Carol is in no ACL: she sees neither document.
     carol_hits = await _doc_ids(
         await client.post(
             f"{api}/search", headers=carol_h, json={"query": "warehouse logistics Aurora roadmap"}
@@ -133,7 +137,6 @@ async def test_sync_ingests_and_scopes_by_source_acl(
     )
     assert alice_id not in carol_hits and bob_id not in carol_hits
 
-    # Owner is an org admin (all-access): sees alice's document.
     owner_hits = await _doc_ids(
         await client.post(f"{api}/search", headers=owner_h, json={"query": "Aurora roadmap"})
     )
@@ -143,6 +146,12 @@ async def test_sync_ingests_and_scopes_by_source_acl(
 async def test_identity_mapping_backfills_grants(
     client, db_session, token_headers, api, tmp_path
 ) -> None:
+    """An unmapped source principal is recorded, and mapping it backfills the grants.
+
+    The 'engineering' group is unmapped at first, so carol has no access; the principal is
+    still recorded so an admin can map it. Mapping the group to carol's team backfills the
+    grants, and she then retrieves the document via her team membership.
+    """
     org, owner, _ = await factories.create_org_with_owner(db_session)
     carol, _ = await factories.add_member(db_session, org=org, role=OrgRole.VIEWER)
     team = await factories.create_team(db_session, org=org, name="Engineering")
@@ -165,7 +174,6 @@ async def test_identity_mapping_backfills_grants(
         "created"
     ] == 1
 
-    # The 'engineering' group is unmapped -> carol has no access yet.
     before = await _doc_ids(
         await client.post(
             f"{api}/search", headers=carol_h, json={"query": "payments platform design"}
@@ -173,12 +181,10 @@ async def test_identity_mapping_backfills_grants(
     )
     assert before == set()
 
-    # The principal was recorded so the admin can map it.
     principals = await client.get(f"{api}/data-sources/{source_id}/principals", headers=owner_h)
     assert principals.status_code == 200, principals.text
     assert any(p["external_id"] == "engineering" and not p["mapped"] for p in principals.json())
 
-    # Map group -> team; grants backfill for carol's team.
     mapped = await client.post(
         f"{api}/data-sources/identities",
         headers=owner_h,
@@ -192,7 +198,6 @@ async def test_identity_mapping_backfills_grants(
     assert mapped.status_code == 201, mapped.text
     assert mapped.json()["grants_backfilled"] == 1
 
-    # Now carol retrieves the document via her team membership.
     after = await _doc_ids(
         await client.post(
             f"{api}/search", headers=carol_h, json={"query": "payments platform design"}
@@ -204,6 +209,9 @@ async def test_identity_mapping_backfills_grants(
 async def test_resync_is_idempotent_and_prunes_deletions(
     client, db_session, token_headers, api, tmp_path
 ) -> None:
+    """Re-syncing unchanged content creates nothing and duplicates no chunks, and deleting a
+    file upstream makes a full sync prune the vanished document.
+    """
     org, owner, _ = await factories.create_org_with_owner(db_session)
     collection = await factories.create_collection(db_session, org=org, owner=owner)
     owner_h = token_headers(owner.id, org.id)
@@ -240,14 +248,12 @@ async def test_resync_is_idempotent_and_prunes_deletions(
     docs1, chunks1 = await _counts()
     assert docs1 == 2 and chunks1 > 0
 
-    # Re-sync unchanged content: nothing created, no duplicate chunks.
     second = await client.post(f"{api}/data-sources/{source_id}/sync", headers=owner_h)
     assert second.json()["created"] == 0
     docs2, chunks2 = await _counts()
     assert docs2 == 2
     assert chunks2 == chunks1
 
-    # Delete a file upstream; a full sync prunes the vanished document.
     (src / "b.md").unlink()
     third = await client.post(f"{api}/data-sources/{source_id}/sync", headers=owner_h)
     assert third.json()["deleted"] == 1

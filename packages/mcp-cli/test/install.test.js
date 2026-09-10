@@ -14,8 +14,10 @@ import {
 
 const EXPECTED_ENTRY = { command: "npx", args: ["-y", "third-brain-mcp", "serve"] };
 
-// Pinned literally (not via the shared constant) so a wording change or deletion
-// in lib/notice.js fails this suite instead of silently passing through.
+/**
+ * Pinned literally (not via the shared constant) so a wording change or deletion in
+ * lib/notice.js fails this suite instead of silently passing through.
+ */
 const NOTICE_LINES = [
   "Heads-up: agents connected through this MCP server can write to your organization's",
   "knowledge base - as they work they may capture decisions and answers into shared",
@@ -26,6 +28,7 @@ function tmpdir() {
   return fs.mkdtempSync(path.join(os.tmpdir(), "tb-mcp-cli-"));
 }
 
+/** The merge is pure: the input object is not mutated. */
 test("mergeServerEntry preserves unrelated servers and top-level keys", () => {
   const existing = {
     theme: "dark",
@@ -40,7 +43,6 @@ test("mergeServerEntry preserves unrelated servers and top-level keys", () => {
   });
   assert.equal(merged.theme, "dark");
   assert.deepEqual(merged.mcpServers[SERVER_KEY], EXPECTED_ENTRY);
-  // The input object is not mutated.
   assert.equal(SERVER_KEY in existing.mcpServers, false);
 });
 
@@ -86,11 +88,12 @@ test("installIntoConfigFile creates missing directories and files", () => {
   assert.deepEqual(written, { mcpServers: { [SERVER_KEY]: EXPECTED_ENTRY } });
 });
 
+/** The unparseable file is left untouched on disk, not rewritten or backed up. */
 test("installIntoConfigFile refuses to clobber an unparseable config", () => {
   const configPath = path.join(tmpdir(), "mcp.json");
   fs.writeFileSync(configPath, "{broken json");
   assert.throws(() => installIntoConfigFile(configPath), /not valid JSON/);
-  assert.equal(fs.readFileSync(configPath, "utf8"), "{broken json"); // untouched
+  assert.equal(fs.readFileSync(configPath, "utf8"), "{broken json");
 });
 
 test("clientConfigPath resolves per client and platform", () => {
@@ -146,9 +149,11 @@ test("runInstall for claude-code prints the agent-write notice after the one-lin
   assert.ok(notice > oneLiner, "notice must follow the one-liner");
 });
 
+/**
+ * HOME is redirected so runInstall writes ~/.cursor/mcp.json under a temp dir, not this
+ * machine's real Cursor config.
+ */
 test("runInstall prints the agent-write notice after a successful config write", () => {
-  // Redirect HOME so runInstall writes ~/.cursor/mcp.json under a temp dir, not
-  // this machine's real Cursor config.
   const saved = { HOME: process.env.HOME, USERPROFILE: process.env.USERPROFILE };
   const home = tmpdir();
   process.env.HOME = home;

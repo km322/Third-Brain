@@ -19,10 +19,9 @@ from app.services.llm.client import (
 )
 
 
-# --------------------------------------------------------------------------- #
-# _estimate_tokens
-# --------------------------------------------------------------------------- #
 class TestEstimateTokens:
+    """:func:`_estimate_tokens`."""
+
     def test_floor_is_one(self) -> None:
         assert _estimate_tokens([""]) == 1
         assert _estimate_tokens(["ab"]) == 1
@@ -31,10 +30,9 @@ class TestEstimateTokens:
         assert _estimate_tokens(["x" * 40, "y" * 40]) == 20
 
 
-# --------------------------------------------------------------------------- #
-# _fake_embedding - deterministic pseudo-embeddings
-# --------------------------------------------------------------------------- #
 class TestFakeEmbedding:
+    """:func:`_fake_embedding` - deterministic pseudo-embeddings."""
+
     def test_dimension_matches_requested(self) -> None:
         for dim in (8, 128, settings.EMBEDDING_DIM):
             assert len(_fake_embedding("hello world", dim)) == dim
@@ -56,16 +54,16 @@ class TestFakeEmbedding:
         assert _fake_embedding("alpha", 64) != _fake_embedding("beta", 64)
 
     def test_empty_string_is_handled(self) -> None:
+        """The empty string still yields a full-length, non-degenerate, finite vector."""
         vec = _fake_embedding("", 32)
         assert len(vec) == 32
-        assert any(v != 0.0 for v in vec)  # non-degenerate
+        assert any(v != 0.0 for v in vec)
         assert all(math.isfinite(v) for v in vec)
 
 
-# --------------------------------------------------------------------------- #
-# _offline_completion
-# --------------------------------------------------------------------------- #
 class TestOfflineCompletion:
+    """:func:`_offline_completion`."""
+
     def test_grounds_on_last_user_message(self) -> None:
         messages = [
             ChatMessage(role="system", content="sys"),
@@ -89,7 +87,11 @@ class TestOfflineCompletion:
         """For a retrieval-grounded prompt (the real ``rag._assemble`` output) the stub must
         answer *from* the passages with ``[n]`` citations and the actual question - never
         surfacing the ``<passage>`` delimiters or the internal 'Answer the question…'
-        instructions to the user."""
+        instructions to the user.
+
+        So the assertions come in two halves: no internal scaffolding leaks to the user, and
+        what remains reads as a grounded, cited answer to the real question.
+        """
         import uuid
 
         from app.services import rag
@@ -110,11 +112,9 @@ class TestOfflineCompletion:
 
         text = _offline_completion(messages)
 
-        # No internal scaffolding leaks to the user.
         assert "<passage" not in text
         assert "Answer the question using only" not in text
         assert "bracket numbers" not in text
-        # It reads as a grounded, cited answer to the real question.
         assert "[offline model]" in text
         assert question in text
         assert "[1]" in text
@@ -123,7 +123,11 @@ class TestOfflineCompletion:
 
     def test_rag_extract_never_truncates_mid_word(self) -> None:
         """A long passage is clipped to a short lead, but always at a word boundary -
-        the leaked stub used to cut off mid-word (e.g. '…Senior')."""
+        the leaked stub used to cut off mid-word (e.g. '…Senior').
+
+        The clipped text must therefore be a prefix of the source that ends on a whole-word
+        boundary.
+        """
         import uuid
 
         from app.services import rag
@@ -148,15 +152,13 @@ class TestOfflineCompletion:
         assert extract.endswith("…"), "a long passage should be clipped"
         normalized = " ".join(body.split())
         clipped = extract[:-1]
-        # The clipped text is a prefix of the source that ends on a whole-word boundary.
         assert normalized.startswith(clipped)
         assert normalized[len(clipped)] == " "
 
 
-# --------------------------------------------------------------------------- #
-# embed_texts - async offline path
-# --------------------------------------------------------------------------- #
 class TestEmbedTexts:
+    """:func:`embed_texts` - async offline path."""
+
     async def test_shape_provider_and_dimension(self) -> None:
         result = await embed_texts(["one", "two", "three"])
         assert result.provider == "offline"
@@ -175,10 +177,9 @@ class TestEmbedTexts:
         assert result.vectors[0] == _fake_embedding("compare me", settings.EMBEDDING_DIM)
 
 
-# --------------------------------------------------------------------------- #
-# complete + stream_complete - async offline path
-# --------------------------------------------------------------------------- #
 class TestComplete:
+    """:func:`complete` + :func:`stream_complete` - async offline path."""
+
     async def test_returns_offline_stub_with_metadata(self) -> None:
         messages = [ChatMessage(role="user", content="hi there")]
         result = await complete(messages)
@@ -197,8 +198,9 @@ class TestComplete:
         assert a.text == b.text
 
     async def test_stream_reconstructs_the_same_text(self) -> None:
+        """Draining the stream yields the same non-empty text as the single-shot call."""
         messages = [ChatMessage(role="user", content="stream this")]
         streamed = "".join([d async for d in stream_complete(messages)])
         single = await complete(messages)
         assert streamed.strip() == single.text.strip()
-        assert streamed  # non-empty
+        assert streamed

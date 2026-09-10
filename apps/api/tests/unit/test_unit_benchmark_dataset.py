@@ -27,6 +27,7 @@ def _doc_ids_in(ds, collection_key: str) -> set[str]:
 
 
 def test_golden_dataset_parses_with_expected_shape() -> None:
+    """The dataset loads with its declared counts, and ids are unique within each kind."""
     ds = _load()
     assert ds.name == "acme-second-brain"
     assert len(ds.teams) == 1
@@ -34,7 +35,6 @@ def test_golden_dataset_parses_with_expected_shape() -> None:
     assert len(ds.principals) == 5
     assert len(ds.documents) == 36
     assert len(ds.queries) == 38
-    # ids are unique within each kind
     assert len({d.doc_id for d in ds.documents}) == len(ds.documents)
     assert len({q.query_id for q in ds.queries}) == len(ds.queries)
 
@@ -45,31 +45,33 @@ def test_golden_dataset_is_internally_valid() -> None:
 
 
 def test_visible_doc_ids_match_declared_visibility() -> None:
+    """Ground-truth visibility follows the declared collection visibility, principal by principal.
+
+    A sanity check first: every document belongs to one of the three collections. Then, the
+    org-visibility engineering collection is readable by everyone, while the team and private
+    collections are not readable by an outsider. A people-team member additionally reads
+    people-ops but never exec; a plain org viewer only sees the org-wide collection; an
+    explicit grant on the private exec collection raises just that collection; and the org
+    owner (admin) sees everything.
+    """
     ds = _load()
     eng = _doc_ids_in(ds, "engineering")
     people = _doc_ids_in(ds, "people-ops")
     exec_docs = _doc_ids_in(ds, "exec")
 
-    # Sanity: every document belongs to one of the three collections.
     assert eng and people and exec_docs
     assert eng | people | exec_docs == {d.doc_id for d in ds.documents}
 
-    # Org-visibility engineering is readable by everyone; the team and private
-    # collections are not readable by an outsider.
     assert ds.visible_doc_ids("engineer") == eng
-    # A people-team member additionally reads people-ops but never exec.
     assert ds.visible_doc_ids("people-admin") == eng | people
-    # A plain org viewer only sees the org-wide collection.
     assert ds.visible_doc_ids("viewer") == eng
-    # An explicit grant on the private exec collection raises just that collection.
     assert ds.visible_doc_ids("exec-analyst") == eng | exec_docs
-    # The org owner (admin) sees everything.
     assert ds.visible_doc_ids("owner") == eng | people | exec_docs
 
 
 def test_specific_cross_principal_visibility_facts() -> None:
+    """The same document is invisible to one principal and visible to another."""
     ds = _load()
-    # The same document is invisible to one principal and visible to another.
     assert "ppl-parental-leave" not in ds.visible_doc_ids("engineer")
     assert "ppl-parental-leave" in ds.visible_doc_ids("people-admin")
     assert "exec-comp-bands" not in ds.visible_doc_ids("engineer")
@@ -77,13 +79,16 @@ def test_specific_cross_principal_visibility_facts() -> None:
 
 
 def test_at_least_one_permission_critical_query() -> None:
+    """At least one query asks for a document its principal cannot read.
+
+    The engineer asking about parental leave must be one of them (the relevant doc lives
+    in people-ops, which the engineer cannot read).
+    """
     ds = _load()
     critical = [
         q for q in ds.queries if set(q.relevant_doc_ids) - ds.visible_doc_ids(q.principal_key)
     ]
     assert critical, "expected at least one permission-critical query"
-    # The engineer asking about parental leave must be one of them (relevant doc lives
-    # in people-ops, which the engineer cannot read).
     ids = {q.query_id for q in critical}
     assert "q18-parental-leave-engineer-blocked" in ids
 

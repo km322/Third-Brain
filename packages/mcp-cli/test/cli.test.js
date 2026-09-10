@@ -20,9 +20,13 @@ function isolatedHome() {
   return { HOME: home, USERPROFILE: home };
 }
 
+/**
+ * Run the CLI in a child process and collect its exit code and streams.
+ *
+ * The developer's own THIRD_BRAIN_* vars are scrubbed so a machine that happens to have
+ * them set cannot leak into the "no config" tests; the caller's `env` still wins.
+ */
 function runCli(args, { env = {}, input = "" } = {}) {
-  // Scrub the developer's own THIRD_BRAIN_* vars so a machine that happens to have them
-  // set cannot leak into the "no config" tests; the caller's `env` still wins.
   const base = { ...process.env };
   delete base.THIRD_BRAIN_URL;
   delete base.THIRD_BRAIN_API_KEY;
@@ -53,6 +57,7 @@ test("--version prints the package.json version", async () => {
   assert.equal(stdout.trim(), PKG_VERSION);
 });
 
+/** The CLI talks to whatever server the operator runs; no hosted host is baked in. */
 test("published metadata points at the open-source repository", () => {
   const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, "package.json"), "utf8"));
   assert.equal(pkg.license, "Apache-2.0");
@@ -63,7 +68,6 @@ test("published metadata points at the open-source repository", () => {
   assert.equal(pkg.bugs.url, "https://github.com/km322/Third-Brain/issues");
   const readme = fs.readFileSync(path.join(ROOT, "README.md"), "utf8");
   assert.match(readme, /github\.com\/km322\/Third-Brain/);
-  // The CLI talks to whatever server the operator runs; no hosted host is baked in.
   assert.doesNotMatch(readme, /third-brain\.ai/);
 });
 
@@ -81,6 +85,7 @@ test("unknown commands fail with help on stderr", async () => {
   assert.match(stderr, /Unknown command: frobnicate/);
 });
 
+/** Three messages go in, two replies come back: the notification stayed silent. */
 test("serve bridges stdio to HTTP using THIRD_BRAIN_* env overrides", async () => {
   const server = await startFakeServer();
   try {
@@ -99,7 +104,7 @@ test("serve bridges stdio to HTTP using THIRD_BRAIN_* env overrides", async () =
       .split("\n")
       .filter((line) => line !== "")
       .map((line) => JSON.parse(line));
-    assert.equal(responses.length, 2); // the notification stayed silent
+    assert.equal(responses.length, 2);
     assert.equal(responses[0].id, 1);
     assert.equal(responses[0].result.serverInfo.name, "third-brain");
     assert.equal(responses[1].id, 2);

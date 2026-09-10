@@ -27,10 +27,9 @@ from app.core.logging import (
 )
 
 
-# --------------------------------------------------------------------------- #
-# redact_sensitive_values - credential-shaped keys are censored
-# --------------------------------------------------------------------------- #
 class TestRedactSensitiveValues:
+    """:func:`redact_sensitive_values` - credential-shaped keys are censored."""
+
     @pytest.mark.parametrize(
         "key",
         [
@@ -75,12 +74,16 @@ class TestRedactSensitiveValues:
             "tokens_out",
             "max_tokens",
             "embed_tokens",
-            # A count field added in the future is exempt without touching an allowlist.
             "prompt_tokens",
             "completion_tokens",
         ],
     )
     def test_token_count_fields_are_usage_metrics_not_secrets(self, key: str) -> None:
+        """A ``*_tokens`` field is a usage metric, not a credential.
+
+        ``prompt_tokens`` and ``completion_tokens`` are in the list to show that a count
+        field added in the future is exempt without touching an allowlist.
+        """
         out = redact_sensitive_values(None, "info", {key: 128, "event": "llm_call"})
         assert out[key] == 128
 
@@ -90,9 +93,6 @@ class TestRedactSensitiveValues:
         assert out[key] == 7
 
 
-# --------------------------------------------------------------------------- #
-# JSON pipeline - real processor chain rendered to JSON on a private StringIO
-# --------------------------------------------------------------------------- #
 def _last_json_line(stream: io.StringIO) -> dict:
     lines = [line for line in stream.getvalue().splitlines() if line.strip()]
     assert lines, "expected at least one log line"
@@ -127,6 +127,8 @@ def json_sink():
 
 
 class TestJsonPipeline:
+    """The real processor chain, rendered to JSON on a private ``StringIO``."""
+
     def test_line_is_parseable_json_with_core_fields_and_contextvars(self, json_sink) -> None:
         logger, stream, name = json_sink
         structlog.contextvars.bind_contextvars(request_id="req-abc", org_id="org-1")
@@ -170,10 +172,9 @@ class TestJsonPipeline:
         assert payload["connector_id"] == "c1"
 
 
-# --------------------------------------------------------------------------- #
-# Renderer selection - LOG_FORMAT decides json vs console
-# --------------------------------------------------------------------------- #
 class TestRendererSelection:
+    """Renderer selection - ``LOG_FORMAT`` decides json vs console."""
+
     def test_json_mode_selects_json_renderer(self, monkeypatch) -> None:
         monkeypatch.setattr(settings, "LOG_FORMAT", "json")
         assert isinstance(app_logging._renderer(), structlog.processors.JSONRenderer)
@@ -183,10 +184,9 @@ class TestRendererSelection:
         assert isinstance(app_logging._renderer(), structlog.dev.ConsoleRenderer)
 
 
-# --------------------------------------------------------------------------- #
-# add_trace_context - log lines correlate with the active span
-# --------------------------------------------------------------------------- #
 class TestAddTraceContext:
+    """:func:`add_trace_context` - log lines correlate with the active span."""
+
     def test_no_active_span_leaves_event_dict_alone(self) -> None:
         out = add_trace_context(None, "info", {"event": "x"})
         assert "trace_id" not in out
@@ -205,10 +205,9 @@ class TestAddTraceContext:
         provider.shutdown()
 
 
-# --------------------------------------------------------------------------- #
-# Third-party logger re-routing - uvicorn/arq records reach the root handler
-# --------------------------------------------------------------------------- #
 class TestThirdPartyLoggerRerouting:
+    """Third-party logger re-routing - uvicorn/arq records reach the root handler."""
+
     @pytest.mark.parametrize("name", ["uvicorn.error", "uvicorn.access", "arq.worker"])
     def test_known_loggers_propagate_with_no_direct_handlers(self, name: str) -> None:
         third_party = logging.getLogger(name)

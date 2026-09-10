@@ -44,21 +44,27 @@ class TestPrincipalParsing:
 
 class TestLocalFolderConnector:
     def test_validate_config_requires_root(self, tmp_path) -> None:
+        """A root is mandatory; one inside an allow-listed base is accepted.
+
+        The suite allow-lists the tmp tree, so ``tmp_path`` is a legitimate root.
+        """
         with pytest.raises(ValueError):
             LocalFolderConnector.validate_config({}, None)
-        # A root inside an allow-listed base is accepted (the suite allow-lists the tmp tree).
         LocalFolderConnector.validate_config({"root": str(tmp_path)}, None)
 
     def test_validate_config_rejects_root_outside_allowlist(self) -> None:
-        # /etc exists but is not under the allow-list: a data source must not be creatable
-        # that would read arbitrary server files or another tenant's uploads (path traversal).
+        """/etc exists but is not under the allow-list.
+
+        A data source must not be creatable that would read arbitrary server files or
+        another tenant's uploads (path traversal).
+        """
         with pytest.raises(ValueError):
             LocalFolderConnector.validate_config({"root": "/etc"}, None)
         with pytest.raises(ValueError):
             LocalFolderConnector.validate_config({"root": "/proc/self/environ"}, None)
 
     def test_validate_config_disabled_when_no_allowlist(self, tmp_path, monkeypatch) -> None:
-        # With no LOCAL_CONNECTOR_ROOTS the connector is disabled outright (safe default).
+        """With no LOCAL_CONNECTOR_ROOTS the connector is disabled outright (safe default)."""
         from app.core.config import settings
 
         monkeypatch.setattr(settings, "LOCAL_CONNECTOR_ROOTS", "")
@@ -66,7 +72,7 @@ class TestLocalFolderConnector:
             LocalFolderConnector.validate_config({"root": str(tmp_path)}, None)
 
     async def test_scan_skips_symlink_escaping_root(self, tmp_path) -> None:
-        # A symlink inside the root that points outside it must never be followed/ingested.
+        """A symlink inside the root that points outside it must never be followed/ingested."""
         secret = tmp_path / "outside_secret.md"
         secret.write_text("cross-boundary secret")
         root = tmp_path / "root"
@@ -80,6 +86,11 @@ class TestLocalFolderConnector:
         assert "escape.md" not in ids
 
     async def test_scan_maps_files_and_acls(self, tmp_path) -> None:
+        """Files map to documents carrying the sidecar ACL.
+
+        Hidden files and the ACL sidecar itself are excluded, and a file with no explicit
+        entry inherits ``default``.
+        """
         (tmp_path / "handbook.md").write_text("company handbook")
         (tmp_path / "eng").mkdir()
         (tmp_path / "eng" / "design.md").write_text("design doc")
@@ -101,7 +112,6 @@ class TestLocalFolderConnector:
 
         assert batch.full_sync is True
         by_id = {d.external_id: d for d in batch.documents}
-        # Hidden files and the ACL sidecar are excluded.
         assert set(by_id) == {"handbook.md", "eng/design.md", "unlisted.md"}
         assert by_id["handbook.md"].content == b"company handbook"
 
@@ -110,7 +120,6 @@ class TestLocalFolderConnector:
             ("alice@example.com", ExternalPrincipalKind.USER),
             ("engineering", ExternalPrincipalKind.GROUP),
         }
-        # A file with no explicit entry inherits ``default``.
         assert [p.external_id for p in by_id["unlisted.md"].acl] == ["default@example.com"]
 
     async def test_missing_root_raises(self, tmp_path) -> None:
@@ -131,11 +140,14 @@ class TestRegistry:
 
 class TestRemoteScaffolds:
     def test_validate_config_requires_keys_and_secret(self) -> None:
+        """Both halves are mandatory: a missing drive_id and a missing secret each reject,
+        and only the pair together validates.
+        """
         with pytest.raises(ValueError):
-            GoogleDriveConnector.validate_config({}, "token")  # missing drive_id
+            GoogleDriveConnector.validate_config({}, "token")
         with pytest.raises(ValueError):
-            GoogleDriveConnector.validate_config({"drive_id": "d"}, None)  # missing secret
-        GoogleDriveConnector.validate_config({"drive_id": "d"}, "token")  # ok
+            GoogleDriveConnector.validate_config({"drive_id": "d"}, None)
+        GoogleDriveConnector.validate_config({"drive_id": "d"}, "token")
 
     async def test_fetch_not_configured(self) -> None:
         connector = SlackConnector(_FakeSource({"channels": ["general"]}))

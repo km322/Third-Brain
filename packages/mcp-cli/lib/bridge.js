@@ -25,7 +25,13 @@ function transportErrorResponse(id, message) {
   };
 }
 
-/** Extract the request id and whether a transport failure should stay silent. */
+/**
+ * Extract the request id and whether a transport failure should stay silent.
+ *
+ * A failure stays silent only for a well-formed notification-only batch (every element
+ * an object with no id). A batch that carries any request, or is malformed, still gets a
+ * single null-id error reply.
+ */
 export function classifyMessage(line) {
   let parsed;
   try {
@@ -34,9 +40,6 @@ export function classifyMessage(line) {
     return { id: null, isNotification: false };
   }
   if (Array.isArray(parsed)) {
-    // Stay silent on failure only for a well-formed notification-only batch (every element
-    // an object with no id). A batch that carries any request, or is malformed, still gets
-    // a single null-id error reply.
     const allNotifications =
       parsed.length > 0 &&
       parsed.every(
@@ -64,12 +67,20 @@ function writeLine(output, text) {
   });
 }
 
+/**
+ * Forward one stdin line to the server and write the reply back as a single stdout line.
+ *
+ * An HTTP 202 means a notification was acknowledged, so no reply is expected. The server
+ * emits compact single-line JSON, and a single-line body is passed through verbatim so
+ * large numeric ids survive (a JSON.parse/stringify round-trip would truncate them past
+ * 2^53); only a multi-line body is collapsed, to keep one reply per stdout line.
+ */
 async function forwardOne({ endpoint, headers, line, output, logger, fetchImpl }) {
   const { id, isNotification } = classifyMessage(line);
   try {
     const resp = await fetchImpl(endpoint, { method: "POST", headers, body: line });
     if (resp.status === 202) {
-      return; // notification acknowledged: no reply expected
+      return;
     }
     const text = await resp.text();
     if (!resp.ok) {
@@ -78,9 +89,6 @@ async function forwardOne({ endpoint, headers, line, output, logger, fetchImpl }
     if (!text.trim()) {
       return;
     }
-    // The server emits compact single-line JSON. Pass a single-line body through verbatim
-    // so large numeric ids survive (a JSON.parse/stringify round-trip would truncate them
-    // past 2^53); only a multi-line body is collapsed to keep one reply per stdout line.
     const oneLine = text.includes("\n")
       ? JSON.stringify(JSON.parse(text))
       : text.trimEnd();

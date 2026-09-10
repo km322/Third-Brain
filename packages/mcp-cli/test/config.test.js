@@ -49,9 +49,11 @@ test("resolveConfig lets THIRD_BRAIN_* env vars override the stored config", () 
   assert.deepEqual(unconfigured, { url: "", apiKey: "" });
 });
 
+/**
+ * A remote http:// override must surface an error, not fall through as a raw value that
+ * the API key would then be sent over. Loopback is still allowed for local dev.
+ */
 test("resolveConfig refuses an insecure http URL rather than downgrading to cleartext", () => {
-  // A remote http:// override must surface an error, not fall through as a raw value that the
-  // API key would then be sent over.
   assert.throws(
     () =>
       resolveConfig(
@@ -60,7 +62,6 @@ test("resolveConfig refuses an insecure http URL rather than downgrading to clea
       ),
     /cleartext/,
   );
-  // Loopback is still allowed for local dev.
   const loop = resolveConfig(
     { THIRD_BRAIN_URL: "http://127.0.0.1:8000", THIRD_BRAIN_API_KEY: "tb_x" },
     "/nonexistent/config.json",
