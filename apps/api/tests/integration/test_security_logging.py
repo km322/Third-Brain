@@ -16,6 +16,8 @@ pytestmark = pytest.mark.integration
 
 
 async def test_bad_api_key_logs_auth_failed_without_the_secret(client, api) -> None:
+    """The rejection is logged, but the presented secret must never appear anywhere in the
+    logs."""
     secret = "tb_this_key_does_not_exist"
     with capture_logs() as logs:
         resp = await client.post(
@@ -27,13 +29,12 @@ async def test_bad_api_key_logs_auth_failed_without_the_secret(client, api) -> N
     assert events, f"expected an auth_failed event, got {logs}"
     assert events[0]["auth_kind"] == "apikey"
     assert events[0]["status"] == 401
-    # The presented secret must never appear anywhere in the logs.
     assert not any(secret in str(v) for e in logs for v in e.values())
 
 
 async def test_missing_scope_logs_permission_denied(client, db_session, api) -> None:
+    """The key is minted WITHOUT the "search" scope that ``/search`` requires."""
     org, owner, _ = await factories.create_org_with_owner(db_session)
-    # A key WITHOUT the "search" scope that /search requires.
     _key, secret = await factories.create_api_key(
         db_session, org=org, scopes=["read"], acts_as_user=owner
     )

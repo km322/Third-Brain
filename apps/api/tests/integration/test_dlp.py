@@ -29,6 +29,7 @@ async def _create_and_ingest(client, api, headers, ingest_now, collection_id, ti
 async def test_dlp_labels_sensitivity_on_ingest(
     client, db_session, token_headers, api, ingest_now
 ) -> None:
+    """The DLP default action is "label", so even a confidential document still indexes."""
     org, owner, _ = await factories.create_org_with_owner(db_session)
     collection = await factories.create_collection(db_session, org=org, owner=owner)
     headers = token_headers(owner.id, org.id)
@@ -68,7 +69,6 @@ async def test_dlp_labels_sensitivity_on_ingest(
 
     conf = await _doc(conf_id)
     assert conf["sensitivity"] == "confidential"
-    # DLP default action is "label": the document still indexes.
     assert conf["status"] == "indexed"
     assert (await _doc(pii_id))["sensitivity"] == "pii"
     assert (await _doc(clean_id))["sensitivity"] == "none"
@@ -77,6 +77,11 @@ async def test_dlp_labels_sensitivity_on_ingest(
 async def test_oversharing_report_flags_broadly_visible_sensitive_docs(
     client, db_session, token_headers, api, ingest_now
 ) -> None:
+    """Oversharing needs BOTH halves: the three documents here are sensitive + org-visible
+    (flagged), sensitive but private (not flagged) and non-sensitive + org-visible (not
+    flagged), so only the first appears in the items list. The summary is a different
+    question and counts every sensitive document regardless of visibility - here one
+    confidential plus one pii."""
     org, owner, _ = await factories.create_org_with_owner(db_session)
     org_coll = await factories.create_collection(
         db_session, org=org, owner=owner, visibility=Visibility.ORG
@@ -86,7 +91,6 @@ async def test_oversharing_report_flags_broadly_visible_sensitive_docs(
     )
     headers = token_headers(owner.id, org.id)
 
-    # Sensitive + org-visible => oversharing.
     over_id = await _create_and_ingest(
         client,
         api,
@@ -96,7 +100,6 @@ async def test_oversharing_report_flags_broadly_visible_sensitive_docs(
         "Payroll",
         "Card 4111 1111 1111 1111 belongs to the finance team.",
     )
-    # Sensitive but private => NOT oversharing.
     await _create_and_ingest(
         client,
         api,
@@ -106,7 +109,6 @@ async def test_oversharing_report_flags_broadly_visible_sensitive_docs(
         "Private note",
         "Reach jane.doe@example.com privately.",
     )
-    # Non-sensitive + org-visible => NOT oversharing.
     await _create_and_ingest(
         client,
         api,
@@ -122,9 +124,8 @@ async def test_oversharing_report_flags_broadly_visible_sensitive_docs(
     body = report.json()
     flagged_ids = {item["document_id"] for item in body["items"]}
     assert over_id in flagged_ids
-    assert len(body["items"]) == 1  # only the org-visible sensitive doc
+    assert len(body["items"]) == 1
     assert body["items"][0]["effective_visibility"] == "org"
-    # Summary counts every sensitive doc regardless of visibility (1 confidential + 1 pii).
     assert body["summary"]["confidential"] >= 1
     assert body["summary"]["pii"] >= 1
 

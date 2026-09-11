@@ -30,54 +30,60 @@ def _hit(chunk_id: uuid.UUID | None = None, *, content: str = "c") -> SearchHit:
     )
 
 
-# --------------------------------------------------------------------------- #
-# _reciprocal_rank_fusion
-# --------------------------------------------------------------------------- #
 class TestReciprocalRankFusion:
+    """:func:`_reciprocal_rank_fusion`."""
+
     def test_scores_are_normalized_to_the_unit_interval(self) -> None:
+        """The raw RRF sum is divided by the max attainable (rank 0 in every list).
+
+        So the top hit is exactly 1.0 and the ranking below it is preserved but rescaled to
+        [0, 1] - never the ~0.016 raw value that read as "2% match" in the UI.
+        """
         a, b = _hit(), _hit()
         fused = _reciprocal_rank_fusion([[a, b]], top_k=10)
-        # The raw RRF sum is divided by the max attainable (rank 0 in every list), so the
-        # top hit is exactly 1.0 and the ranking below it is preserved but rescaled to [0, 1]
-        # - never the ~0.016 raw value that read as "2% match" in the UI.
         assert fused[0].chunk_id == a.chunk_id
         assert fused[0].score == pytest.approx(1.0)
         assert fused[1].score == pytest.approx((_RRF_K + 1) / (_RRF_K + 2))
         assert all(0.0 <= h.score <= 1.0 for h in fused)
 
     def test_dedupes_by_chunk_id_and_sums_contributions(self) -> None:
+        """A chunk in both lists appears once, and its contributions are summed.
+
+        The FIRST-seen hit object survives (setdefault semantics), carrying the SUMMED
+        contributions from both lists, normalized by the max a two-list fusion can attain
+        (rank 0 in both).
+        """
         cid = uuid.uuid4()
         in_a = _hit(cid, content="first-seen")
         in_b = _hit(cid, content="second-seen")
         other = _hit()
         fused = _reciprocal_rank_fusion([[in_a], [other, in_b]], top_k=10)
         ids = [h.chunk_id for h in fused]
-        # Appears once despite being in both lists.
         assert ids.count(cid) == 1
         winner = next(h for h in fused if h.chunk_id == cid)
-        # The FIRST-seen hit object survives (setdefault semantics)...
         assert winner.content == "first-seen"
-        # ...carrying the SUMMED contributions from both lists, normalized by the max a
-        # two-list fusion can attain (rank 0 in both).
         raw = 1.0 / (_RRF_K + 1) + 1.0 / (_RRF_K + 2)
         max_attainable = 2 / (_RRF_K + 1)
         assert winner.score == pytest.approx(raw / max_attainable)
 
     def test_orders_by_fused_score_descending(self) -> None:
+        """``top`` is rank 0 in both lists so it fuses highest; ``mid`` and ``low`` are rank 1
+        in the first and second list respectively.
+        """
         shared = uuid.uuid4()
-        top = _hit(shared)  # rank 0 in both lists -> highest fused score
-        mid = _hit()  # rank 1 in list 1
-        low = _hit()  # rank 1 in list 2
+        top = _hit(shared)
+        mid = _hit()
+        low = _hit()
         fused = _reciprocal_rank_fusion([[top, mid], [top, low]], top_k=10)
         assert fused[0].chunk_id == shared
         scores = [h.score for h in fused]
         assert scores == sorted(scores, reverse=True)
 
     def test_top_k_truncates(self) -> None:
+        """The three best survive - with a single input list, list order is descending rank."""
         hits = [_hit() for _ in range(6)]
         fused = _reciprocal_rank_fusion([hits], top_k=3)
         assert len(fused) == 3
-        # Kept the three best (list order == descending rank score here).
         assert [h.chunk_id for h in fused] == [h.chunk_id for h in hits[:3]]
 
     def test_single_list_is_a_stable_passthrough(self) -> None:
@@ -90,9 +96,6 @@ class TestReciprocalRankFusion:
         assert _reciprocal_rank_fusion([[]], top_k=5) == []
 
 
-# --------------------------------------------------------------------------- #
-# retrieve() with a stubbed store + monkeypatched scope/embed (no infra)
-# --------------------------------------------------------------------------- #
 class _StubStore:
     """A stand-in vector store that returns canned hits and records call args."""
 
@@ -131,21 +134,25 @@ def _patch(monkeypatch, *, scope: RetrievalScope, store: _StubStore, embed_calle
 
 
 class TestRetrieveOrchestration:
+    """:func:`retrieve` with a stubbed store + monkeypatched scope/embed (no infra)."""
+
     async def test_empty_scope_short_circuits_before_embedding(self, monkeypatch) -> None:
+        """A scope with no grants at all is empty, so nothing ever pays for an embedding."""
         embed_called: list[str] = []
         store = _StubStore(vector_hits=[_hit()])
         _patch(
             monkeypatch,
-            scope=RetrievalScope(org_id=_StubCtx.org_id),  # is_empty
+            scope=RetrievalScope(org_id=_StubCtx.org_id),
             store=store,
             embed_called=embed_called,
         )
         out = await retrieve(None, _StubCtx(), "hello")
         assert out == []
-        assert embed_called == []  # never paid for an embedding
+        assert embed_called == []
         assert store.similarity_calls == []
 
     async def test_non_hybrid_returns_vector_only(self, monkeypatch) -> None:
+        """Without hybrid the store is asked for exactly ``top_k`` and keyword search is skipped."""
         embed_called: list[str] = []
         vhits = [_hit() for _ in range(5)]
         store = _StubStore(vector_hits=vhits, keyword_hits=[_hit()])
@@ -157,11 +164,15 @@ class TestRetrieveOrchestration:
         )
         out = await retrieve(None, _StubCtx(), "q", top_k=3, hybrid=False)
         assert [h.chunk_id for h in out] == [h.chunk_id for h in vhits]
-        assert store.similarity_calls == [3]  # asked store for exactly top_k
-        assert store.keyword_calls == []  # keyword search skipped
+        assert store.similarity_calls == [3]
+        assert store.keyword_calls == []
         assert embed_called == ["q"]
 
     async def test_hybrid_fuses_vector_and_keyword(self, monkeypatch) -> None:
+        """The shared chunk, ranked #1 by both retrievers, fuses to the top.
+
+        Both retrievers are over-fetched: candidate_k = min(max(top_k*3, top_k), 50) = 15.
+        """
         shared = uuid.uuid4()
         vhits = [_hit(shared), _hit()]
         khits = [_hit(shared), _hit()]
@@ -173,9 +184,7 @@ class TestRetrieveOrchestration:
             embed_called=[],
         )
         out = await retrieve(None, _StubCtx(), "q", top_k=5, hybrid=True)
-        # The shared chunk, ranked #1 by both retrievers, fuses to the top.
         assert out[0].chunk_id == shared
-        # Over-fetch: candidate_k = min(max(top_k*3, top_k), 50) = 15.
         assert store.similarity_calls == [15]
         assert store.keyword_calls == [15]
 

@@ -36,6 +36,8 @@ async def test_document_verify_and_unverify(client, db_session, token_headers, a
 
 
 async def test_verified_answer_surfaces_in_search(client, db_session, token_headers, api) -> None:
+    """Verification is what promotes a curated answer into search results: while unverified it
+    is not surfaced at all."""
     org, owner, _ = await factories.create_org_with_owner(db_session)
     headers = token_headers(owner.id, org.id)
 
@@ -51,7 +53,6 @@ async def test_verified_answer_surfaces_in_search(client, db_session, token_head
     assert created.status_code == 201, created.text
     answer_id = created.json()["id"]
 
-    # Unverified answers are not surfaced.
     unverified_search = await client.post(
         f"{api}/search", headers=headers, json={"query": "PTO policy details"}
     )
@@ -83,6 +84,8 @@ async def test_answer_write_requires_editor(client, db_session, token_headers, a
 async def test_collection_scoped_answer_respects_permission(
     client, db_session, token_headers, api
 ) -> None:
+    """An answer scoped to a collection inherits that collection's ACL: Bob has no access to the
+    private collection, so he cannot read the scoped answer or see it in a listing."""
     org, owner, _ = await factories.create_org_with_owner(db_session)
     bob, _ = await factories.add_member(db_session, org=org, role=OrgRole.VIEWER)
     private = await factories.create_collection(
@@ -96,7 +99,6 @@ async def test_collection_scoped_answer_respects_permission(
     assert created.status_code == 201, created.text
     answer_id = created.json()["id"]
 
-    # Bob has no access to the private collection -> cannot read the scoped answer.
     bob_get = await client.get(f"{api}/answers/{answer_id}", headers=token_headers(bob.id, org.id))
     assert bob_get.status_code == 404, bob_get.text
     bob_list = await client.get(f"{api}/answers", headers=token_headers(bob.id, org.id))
@@ -104,6 +106,7 @@ async def test_collection_scoped_answer_respects_permission(
 
 
 async def test_flag_stale_marks_past_review(client, db_session, token_headers, api) -> None:
+    """The review date is backdated so the sweep considers the document stale."""
     org, owner, _ = await factories.create_org_with_owner(db_session)
     collection = await factories.create_collection(db_session, org=org, owner=owner)
     doc = await factories.create_document(db_session, org=org, collection=collection)
@@ -112,7 +115,6 @@ async def test_flag_stale_marks_past_review(client, db_session, token_headers, a
     await client.post(
         f"{api}/documents/{doc.id}/verify", headers=headers, json={"review_interval_days": 30}
     )
-    # Backdate the review date so the sweep considers it stale.
     fresh = await db_session.get(Document, doc.id)
     await db_session.refresh(fresh)
     fresh.expires_at = datetime.now(UTC) - timedelta(days=1)

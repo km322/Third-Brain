@@ -24,8 +24,8 @@ class KnowledgeGapReport(BaseModel):
     negative: int
     answered_rate: float | None = None
     query_text_retained: bool
-    # Populated only when the org has opted into query-text retention.
     top_gaps: list[str] = Field(default_factory=list)
+    """Populated only when the org has opted into query-text retention."""
 
 
 class RetentionSetting(BaseModel):

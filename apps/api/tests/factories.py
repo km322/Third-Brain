@@ -49,14 +49,14 @@ def _rand(prefix: str = "") -> str:
 
 
 def _slug(name: str) -> str:
+    """Slugify ``name``, with a random suffix.
+
+    The suffix keeps org-scoped unique constraints (slug) collision-free across a run.
+    """
     base = "".join(c if c.isalnum() else "-" for c in name.lower()).strip("-") or "x"
-    # Suffix keeps org-scoped unique constraints (slug) collision-free across a run.
     return f"{base}-{uuid.uuid4().hex[:6]}"
 
 
-# --------------------------------------------------------------------------- #
-# Organizations, users, memberships
-# --------------------------------------------------------------------------- #
 async def create_org(db: AsyncSession, *, name: str | None = None) -> Organization:
     name = name or f"Org {_rand()}"
     org = Organization(name=name, slug=_slug(name))
@@ -131,9 +131,6 @@ async def add_member(
     return user, membership
 
 
-# --------------------------------------------------------------------------- #
-# Teams
-# --------------------------------------------------------------------------- #
 async def create_team(db: AsyncSession, *, org: Organization, name: str | None = None) -> Team:
     name = name or f"Team {_rand()}"
     team = Team(org_id=org.id, name=name, slug=_slug(name))
@@ -151,9 +148,6 @@ async def add_user_to_team(db: AsyncSession, *, team: Team, user: User) -> TeamM
     return link
 
 
-# --------------------------------------------------------------------------- #
-# API keys
-# --------------------------------------------------------------------------- #
 async def create_api_key(
     db: AsyncSession,
     *,
@@ -195,9 +189,6 @@ def api_key_headers(raw_secret: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {raw_secret}"}
 
 
-# --------------------------------------------------------------------------- #
-# Collections
-# --------------------------------------------------------------------------- #
 async def create_collection(
     db: AsyncSession,
     *,
@@ -229,9 +220,6 @@ async def create_collection(
     return collection
 
 
-# --------------------------------------------------------------------------- #
-# Documents (+ embedded chunks - real pgvector rows)
-# --------------------------------------------------------------------------- #
 async def create_document(
     db: AsyncSession,
     *,
@@ -291,9 +279,6 @@ async def create_document(
     return document
 
 
-# --------------------------------------------------------------------------- #
-# Access grants (ACLs)
-# --------------------------------------------------------------------------- #
 async def create_access_grant(
     db: AsyncSession,
     *,
@@ -341,9 +326,6 @@ async def grant_user(
     )
 
 
-# --------------------------------------------------------------------------- #
-# Connectors
-# --------------------------------------------------------------------------- #
 async def create_connector(
     db: AsyncSession,
     *,

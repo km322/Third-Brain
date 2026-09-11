@@ -96,8 +96,9 @@ from app.workers.queue import enqueue_ingest
 
 router = APIRouter(prefix="/documents", tags=["documents"])
 
-# Reject uploads larger than this to protect memory and storage.
 MAX_UPLOAD_BYTES = 25 * 1024 * 1024
+"""Reject uploads larger than this to protect memory and storage."""
+
 _UPLOAD_READ_CHUNK = 1024 * 1024
 
 
@@ -175,13 +176,13 @@ async def _get_viewable_document(
     return document, level
 
 
-# Visibility ordering for the "a document may not out-broaden its collection" ceiling.
 _VISIBILITY_RANK = {
     Visibility.PRIVATE: 0,
     Visibility.TEAM: 1,
     Visibility.ORG: 2,
     Visibility.PUBLIC: 3,
 }
+"""Visibility ordering for the "a document may not out-broaden its collection" ceiling."""
 
 
 async def _persist_document(
@@ -197,14 +198,20 @@ async def _persist_document(
     source_uri: str | None = None,
     visibility: Visibility | None = None,
 ) -> Document:
-    """Store the bytes, create the row, bump the count, commit and enqueue ingestion."""
+    """Store the bytes, create the row, bump the count, commit and enqueue ingestion.
+
+    A document's own visibility may be MORE restrictive than its collection freely, but
+    BROADENING it beyond the collection's audience (e.g. an ORG document inside a PRIVATE
+    collection) re-shares content more widely, so it requires MANAGER on the collection. A
+    mere EDITOR (who may add content) must not be able to over-expose it past the collection.
+
+    The collection's document count is bumped with an atomic increment so concurrent uploads
+    to the same collection cannot lose updates (a Python read-modify-write would let two
+    requests both read N and write N+1).
+    """
     if not data:
         raise HTTPException(status_code=400, detail="Document content is empty")
 
-    # A document's own visibility may be MORE restrictive than its collection freely, but
-    # BROADENING it beyond the collection's audience (e.g. an ORG document inside a PRIVATE
-    # collection) re-shares content more widely, so it requires MANAGER on the collection. A
-    # mere EDITOR (who may add content) must not be able to over-expose it past the collection.
     if (
         visibility is not None
         and _VISIBILITY_RANK[visibility] > _VISIBILITY_RANK[collection.visibility]
@@ -234,14 +241,12 @@ async def _persist_document(
         checksum=checksum,
     )
     db.add(document)
-    await db.flush()  # assign document.id for the storage key
+    await db.flush()
 
     key = build_storage_key(ctx.org_id, document.id, filename)
     await get_storage().save(key, data, mime_type)
     document.storage_key = key
 
-    # Atomic increment so concurrent uploads to the same collection cannot lose updates
-    # (a Python read-modify-write would let two requests both read N and write N+1).
     collection.document_count = Collection.document_count + 1
 
     await record_audit(
@@ -274,7 +279,16 @@ async def list_documents(
     db: AsyncSession = Depends(get_db),
     ctx: AuthContext = Depends(require_read_scope()),
 ) -> Page[DocumentItem]:
-    """List documents visible to the caller, newest first, with optional filters."""
+    """List documents visible to the caller, newest first, with optional filters.
+
+    ``via`` is an additive provenance filter (e.g. only agent-written docs). It is ANDed onto
+    the org + ACL scope, so it can only narrow the visible set, never widen it. ``meta`` is a
+    generic JSON column, so it is read with the type-agnostic ``as_string()`` accessor (which
+    renders ``metadata ->> 'via'``) rather than the JSONB-only ``astext``.
+
+    ``q`` escapes LIKE metacharacters so a title search for "100%" or "a_b" matches those
+    literals rather than treating % / _ as wildcards.
+    """
     params = PaginationParams(page=page, page_size=page_size)
     scope = await build_retrieval_scope(
         db, ctx, collection_ids=[collection_id] if collection_id else None
@@ -298,14 +312,8 @@ async def list_documents(
     if status_filter is not None:
         filters.append(Document.status == status_filter)
     if via is not None:
-        # Additive provenance filter (e.g. only agent-written docs). ANDed onto the org +
-        # ACL scope above, so it can only narrow the visible set, never widen it. ``meta``
-        # is a generic JSON column, so use the type-agnostic ``as_string()`` accessor
-        # (renders ``metadata ->> 'via'``) rather than the JSONB-only ``astext``.
         filters.append(Document.meta["via"].as_string() == via)
     if q:
-        # Escape LIKE metacharacters so a title search for "100%" or "a_b" matches those
-        # literals rather than treating % / _ as wildcards.
         escaped = q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
         filters.append(Document.title.ilike(f"%{escaped}%", escape="\\"))
 
@@ -359,9 +367,13 @@ async def create_document_from_url(
     db: AsyncSession = Depends(get_db),
     ctx: AuthContext = Depends(require_write_scope()),
 ) -> DocumentItem:
-    """Create a document by fetching a remote URL at creation time."""
-    # Bound API-key callers: this endpoint makes the server fetch a remote URL and enqueues
-    # (billable) embedding work, so it must be rate-limited like the other cost surfaces.
+    """Create a document by fetching a remote URL at creation time.
+
+    API-key callers are bounded: this endpoint makes the server fetch a remote URL and
+    enqueues (billable) embedding work, so it must be rate-limited like the other cost
+    surfaces. Only a credential-free URL is persisted (the fetch already happened with the
+    original).
+    """
     await enforce_rate_limit(ctx)
     collection = await _require_collection_editor(db, ctx, payload.collection_id)
     url = str(payload.url)
@@ -370,7 +382,6 @@ async def create_document_from_url(
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
-    # Persist a credential-free URL only (fetch already happened with the original).
     display_url = _strip_url_credentials(url)
     title = payload.title or fetched.title or display_url
     filename = display_url.rstrip("/").rsplit("/", 1)[-1] or "download"
@@ -434,11 +445,13 @@ async def get_document_chunks(
     db: AsyncSession = Depends(get_db),
     ctx: AuthContext = Depends(require_read_scope()),
 ) -> list[DocumentChunkRead]:
-    """List a document's indexed chunks in order. Requires VIEWER."""
+    """List a document's indexed chunks in order. Requires VIEWER.
+
+    Defense-in-depth: chunks left over from a previously indexed version of a
+    now-quarantined document are not readable until the document is approved.
+    """
     document, _ = await _get_viewable_document(db, ctx, document_id, PermissionLevel.VIEWER)
     if document.status == DocumentStatus.QUARANTINED:
-        # Defense-in-depth: chunks left over from a previously indexed version of a
-        # now-quarantined document are not readable until the document is approved.
         return []
     rows = (
         (
@@ -460,12 +473,15 @@ async def reprocess_document(
     db: AsyncSession = Depends(get_db),
     ctx: AuthContext = Depends(require_write_scope()),
 ) -> DocumentItem:
-    """Re-run ingestion for a document (re-extract, re-chunk, re-embed). Requires EDITOR."""
+    """Re-run ingestion for a document (re-extract, re-chunk, re-embed). Requires EDITOR.
+
+    A quarantined document is refused: reprocess would flip it to PENDING and briefly
+    re-expose any leftover chunks, and a quarantined document must only leave that state
+    through the review flow.
+    """
     await enforce_rate_limit(ctx)
     document, _ = await _get_viewable_document(db, ctx, document_id, PermissionLevel.EDITOR)
     if document.status == DocumentStatus.QUARANTINED:
-        # Reprocess would flip the document to PENDING and briefly re-expose any leftover
-        # chunks; a quarantined document must only leave that state through the review flow.
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=(
@@ -498,6 +514,9 @@ async def get_document_content(
     Quarantined documents withhold content until reviewed, matching the chunks
     endpoint. Binary sources (PDF/DOCX/HTML) return their extracted text; saving an
     edit converts the document to plain text (the editor discloses this).
+
+    An image has no editable source text; its indexed content IS the generated description,
+    so that is returned (read-only) rather than failing to extract bytes.
     """
     document, level = await _get_viewable_document(db, ctx, document_id, PermissionLevel.VIEWER)
     if document.status == DocumentStatus.QUARANTINED:
@@ -511,8 +530,6 @@ async def get_document_content(
             detail="Document has no stored source content.",
         )
     if is_image_document(document):
-        # An image has no editable source text; its indexed content IS the generated
-        # description, so return that (read-only) rather than failing to extract bytes.
         rows = (
             (
                 await db.execute(
@@ -576,6 +593,13 @@ async def update_document_content(
     BEFORE any mutation (a flagged save is rejected and the document left untouched),
     the re-index runs inline so the response reflects the new chunks, and any prior
     verification is invalidated by the rewrite.
+
+    Image documents are refused: ``index_content`` overwrites the document's blob with the
+    new text under the SAME storage key, which for an image would destroy the original bytes
+    irrecoverably.
+
+    After the re-index the sensitivity label is recomputed to match the NEW content (and
+    cleared when it is clean).
     """
     await enforce_rate_limit(ctx)
     document, _ = await _get_viewable_document(db, ctx, document_id, PermissionLevel.EDITOR)
@@ -585,8 +609,6 @@ async def update_document_content(
             detail=("Document is quarantined; review it (approve or discard) before editing"),
         )
     if is_image_document(document):
-        # index_content overwrites the document's blob with the new text under the SAME
-        # storage key, which for an image would destroy the original bytes irrecoverably.
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=(
@@ -595,7 +617,6 @@ async def update_document_content(
             ),
         )
 
-    # Scan BEFORE any mutation so a rejected save leaves the stored document untouched.
     if settings.SECRET_SCAN_ENABLED:
         report = await asyncio.to_thread(scan_text, payload.content)
         if report.flagged:
@@ -630,7 +651,6 @@ async def update_document_content(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
         ) from exc
 
-    # Re-label sensitivity to match the NEW content (clear it when clean).
     if dlp_report is not None and dlp_report.flagged:
         if settings.DLP_DEFAULT_ACTION != "warn":
             document.sensitivity = dlp_report.sensitivity
@@ -640,7 +660,6 @@ async def update_document_content(
         if document.meta and DLP_META_KEY in document.meta:
             document.meta = {k: v for k, v in document.meta.items() if k != DLP_META_KEY}
 
-    # A content rewrite invalidates any prior human verification.
     document.verification_status = VerificationStatus.UNVERIFIED
     document.verified_by_id = None
     document.verified_at = None
@@ -726,6 +745,12 @@ async def review_quarantined_document(
     identities in the audience are shown only to collection managers and org admins; other
     editors see the aggregate counts with an explanatory note. 409 when the document is not
     quarantined.
+
+    That redaction matches the rest of the API: the audience carries names + emails, which
+    GET /orgs/members gates behind org-admin and the grants list behind collection-manager.
+    Only a caller who manages the collection (or an org admin) sees per-user identities;
+    everyone else gets the aggregate counts and a note. The counts themselves are never
+    redacted.
     """
     document, _ = await _get_viewable_document(db, ctx, document_id, PermissionLevel.EDITOR)
     if document.status != DocumentStatus.QUARANTINED:
@@ -742,10 +767,6 @@ async def review_quarantined_document(
         db, collection, document, limit=50
     )
 
-    # The audience carries names + emails, which GET /orgs/members gates behind org-admin
-    # and the grants list behind collection-manager. Match that: only a caller who manages
-    # the collection (or an org admin) sees per-user identities; everyone else gets the
-    # aggregate counts and a note. The counts themselves are never redacted.
     truncated = total_users > len(entries)
     caller_perm = await effective_permission(db, ctx, ResourceType.COLLECTION, collection.id)
     can_see_identities = ctx.is_admin or permission_at_least(caller_perm, PermissionLevel.MANAGER)
@@ -809,6 +830,12 @@ async def approve_quarantined_document(
     The approval is stamped against the document's current checksum, so re-ingesting the
     same content indexes normally while any later content change invalidates it and
     quarantines again. 409 when the document is not quarantined.
+
+    The approval serializes against any in-flight ingest of this document on the same
+    advisory lock the ingest pipeline uses, so a redelivered/stale ingest job cannot
+    re-quarantine the row and clobber this approval stamp (nor vice-versa). Once the lock is
+    held, the row is refreshed and its status re-checked: a concurrent ingest may have moved
+    it on already.
     """
     document, _ = await _get_viewable_document(db, ctx, document_id, PermissionLevel.EDITOR)
     if document.status != DocumentStatus.QUARANTINED:
@@ -817,10 +844,6 @@ async def approve_quarantined_document(
             detail="Document is not quarantined",
         )
 
-    # Serialize against any in-flight ingest of this document on the same advisory lock the
-    # ingest pipeline uses, so a redelivered/stale ingest job cannot re-quarantine the row
-    # and clobber this approval stamp (nor vice-versa). Once the lock is held, refresh the
-    # row and re-check its status: a concurrent ingest may have moved it on already.
     await db.execute(
         text("SELECT pg_advisory_xact_lock(hashtext(:k))").bindparams(k=str(document.id))
     )
@@ -859,7 +882,16 @@ async def delete_document(
     db: AsyncSession = Depends(get_db),
     ctx: AuthContext = Depends(require_write_scope()),
 ) -> Message:
-    """Delete a document and its chunks. Requires EDITOR on the document."""
+    """Delete a document and its chunks. Requires EDITOR on the document.
+
+    The collection's document count is decremented atomically and clamped at zero, for the
+    same reason as the create path.
+
+    Grants targeting this document have no FK to it, so they are removed explicitly or they
+    would strand and silently re-apply if a document's id were ever reused. The FK cascade
+    removes this document's entity LINKS; entities left with no links at all would otherwise
+    linger in the index forever (invisible in the API, but stale), so they are reaped too.
+    """
     document, _ = await _get_viewable_document(db, ctx, document_id, PermissionLevel.EDITOR)
 
     if document.storage_key:
@@ -870,11 +902,8 @@ async def delete_document(
 
     collection = await db.get(Collection, document.collection_id)
     if collection is not None:
-        # Atomic decrement, clamped at zero, for the same reason as the create path.
         collection.document_count = func.greatest(Collection.document_count - 1, 0)
 
-    # Grants targeting this document have no FK to it, so remove them explicitly or they
-    # would strand and silently re-apply if a document's id were ever reused.
     await db.execute(
         delete(AccessGrant).where(
             AccessGrant.org_id == ctx.org_id,
@@ -893,8 +922,6 @@ async def delete_document(
     )
     await db.delete(document)
     await db.flush()
-    # The FK cascade removed this document's entity LINKS; entities left with no links at
-    # all would otherwise linger in the index forever (invisible in the API, but stale).
     await reap_orphan_entities(db, Entity.org_id == ctx.org_id)
     await db.commit()
     return Message(detail="Document deleted")

@@ -55,11 +55,13 @@ import { useAuth } from "@/lib/auth-context";
 import type { Membership, Team, TeamDetail, TeamRole } from "@/lib/types";
 import { initials } from "@/lib/utils";
 
-// Mirror of the backend cap in app/api/routes/teams.py (root inclusive).
+/** Mirror of the backend cap in app/api/routes/teams.py (root inclusive). */
 const MAX_TEAM_DEPTH = 6;
 
-// Sentinel value for the "no parent (root)" option, since a shadcn/Radix
-// <SelectItem> cannot carry an empty-string value.
+/**
+ * Sentinel value for the "no parent (root)" option, since a shadcn/Radix
+ * <SelectItem> cannot carry an empty-string value.
+ */
 const ROOT_PARENT = "__root__";
 
 function errMsg(e: unknown, fallback = "Something went wrong") {
@@ -87,10 +89,21 @@ function descendantsOf(id: string, teams: Team[]): Set<string> {
   return out;
 }
 
+/**
+ * Teams page - the org's team tree, its rosters and who may change them.
+ *
+ * Creating a (root or sub-) team requires at least the editor org role. Management
+ * authority mirrors the backend `can_admin_team`: org admins may manage every team;
+ * otherwise a user manages a team only when they lead it or lead one of its ancestors.
+ * Non-admins therefore need each team's roster to discover which teams they lead, so the
+ * per-team detail queries run for them - reusing the same `["team", id]` cache as the
+ * manage dialog, so nothing is fetched twice.
+ *
+ * A team with no parent, or whose parent is not visible, sits at the root of the tree.
+ */
 export default function TeamsPage() {
   const { role, user } = useAuth();
   const admin = isOrgAdmin(role);
-  // Creating a (root or sub-) team requires at least the editor org role.
   const canCreate = orgRoleAtLeast(role, "editor");
   const queryClient = useQueryClient();
 
@@ -107,11 +120,6 @@ export default function TeamsPage() {
 
   const teams = React.useMemo(() => teamsQuery.data ?? [], [teamsQuery.data]);
 
-  // Management authority mirrors the backend `can_admin_team`: org admins may
-  // manage every team; otherwise a user manages a team only when they lead it
-  // or lead one of its ancestors. Non-admins therefore need each team's roster
-  // to discover which teams they lead. These reuse the same `["team", id]` cache
-  // as the manage dialog, so nothing is fetched twice.
   const detailQueries = useQueries({
     queries: (admin ? [] : teams).map((t) => ({
       queryKey: ["team", t.id],
@@ -160,7 +168,6 @@ export default function TeamsPage() {
         byParent.set(t.parent_team_id, arr);
       }
     }
-    // A team with no parent, or whose parent is not visible, sits at the root.
     const top = teams.filter((t) => !t.parent_team_id || !ids.has(t.parent_team_id));
     return { childrenById: byParent, roots: top };
   }, [teams]);
@@ -360,6 +367,15 @@ export default function TeamsPage() {
   );
 }
 
+/**
+ * Create/rename a team, and re-parent it when editing an existing one.
+ *
+ * The parent picker is only surfaced when editing, and its eligible destinations are any
+ * team that is not the team itself and not one of its descendants (which would form a
+ * cycle). `parent_team_id` is only sent when it actually changed: the backend treats a
+ * present value as a re-parent and requires admin rights on the destination, so always
+ * sending the current parent would 403 a sub-team lead just renaming their own team.
+ */
 function TeamFormDialog({
   open,
   onOpenChange,
@@ -378,7 +394,6 @@ function TeamFormDialog({
   const editing = Boolean(team);
   const [name, setName] = React.useState("");
   const [description, setDescription] = React.useState("");
-  // Empty string == root. Only surfaced (as a picker) when editing an existing team.
   const [parentId, setParentId] = React.useState("");
 
   React.useEffect(() => {
@@ -389,8 +404,6 @@ function TeamFormDialog({
     }
   }, [open, team]);
 
-  // Eligible new parents when re-parenting: any team that is not the team itself
-  // and not one of its descendants (which would form a cycle).
   const parentOptions = React.useMemo(() => {
     if (!team) return [];
     const blocked = descendantsOf(team.id, teams);
@@ -404,9 +417,6 @@ function TeamFormDialog({
         description: description.trim() || null,
       };
       if (editing) {
-        // Only send `parent_team_id` when it actually changed: the backend treats a present
-        // value as a re-parent and requires admin rights on the destination, so always sending
-        // the current parent would 403 a sub-team lead just renaming their own team.
         const currentParent = team!.parent_team_id ?? "";
         const body: Record<string, unknown> = { ...base };
         if (parentId !== currentParent) body.parent_team_id = parentId || null;
@@ -519,6 +529,13 @@ function TeamFormDialog({
   );
 }
 
+/**
+ * Team roster dialog - add, remove and re-role members.
+ *
+ * Org members are only listable by admins, so the directory query is gated on that: a
+ * team lead can still manage the roster they can already see but cannot browse the full
+ * directory to add from.
+ */
 function ManageMembersDialog({
   team,
   canManage,
@@ -544,8 +561,6 @@ function ManageMembersDialog({
     enabled: open,
   });
 
-  // Org members are only listable by admins; a team lead can still manage the
-  // roster they can already see but cannot browse the full directory to add.
   const orgMembersQuery = useQuery<Membership[]>({
     queryKey: ["org-members"],
     queryFn: () => api.get<Membership[]>("/orgs/members"),

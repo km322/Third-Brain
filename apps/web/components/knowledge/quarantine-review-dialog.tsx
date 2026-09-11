@@ -143,6 +143,9 @@ interface QuarantineReviewDialogProps {
  * which collection it is headed into and who would be able to see it, then
  * lets an editor either approve indexing or discard the document. Nothing has
  * been indexed while a document sits in quarantine.
+ *
+ * Keyboard focus follows the discard flow as it swaps in and out: it lands on the
+ * confirm button when that appears, and returns to the trigger on "Keep".
  */
 export function QuarantineReviewDialog({
   documentId,
@@ -160,8 +163,6 @@ export function QuarantineReviewDialog({
     if (!open) setConfirmingDiscard(false);
   }, [open]);
 
-  // Keep keyboard focus with the discard flow as it swaps in and out: land on
-  // the confirm button when it appears, and return to the trigger on "Keep".
   React.useEffect(() => {
     if (confirmingDiscard && !wasConfirming.current) {
       confirmButtonRef.current?.focus();
@@ -192,9 +193,11 @@ export function QuarantineReviewDialog({
     onResolved?.();
   }
 
-  // A concurrent approve/discard by someone else resolves the document out from
-  // under us (409/404). Refresh, close, and say so instead of leaving a stale
-  // dialog with a dead action.
+  /**
+   * A concurrent approve/discard by someone else resolves the document out from
+   * under us (409/404). Refresh, close, and say so instead of leaving a stale
+   * dialog with a dead action.
+   */
   function handleMutationError(err: unknown, fallback: string) {
     if (err instanceof ApiError && (err.status === 409 || err.status === 404)) {
       invalidateResolved();

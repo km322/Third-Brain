@@ -43,6 +43,22 @@ function GraphSkeleton() {
   );
 }
 
+/**
+ * The Knowledge Graph page: controls, the canvas itself, its legend and the node
+ * detail sheet.
+ *
+ * Expanding a node fetches its neighbors, merges them into the expansion set and
+ * then clears the trigger; a change of query scope (collection or similarity)
+ * invalidates any manual expansions and focus. The server graph and those
+ * expansions are combined into one drawn set - deduped, with canonicalized edges
+ * and degree recomputed from the drawn edges - so node size and the "Connections"
+ * count reflect exactly what is on screen. That set is reconciled into stable
+ * per-id viz objects so the force layout keeps node positions across similarity
+ * tweaks and expansions instead of restarting.
+ *
+ * A vignette is painted over the canvas for depth; it never intercepts pointer
+ * events.
+ */
 export function KnowledgeGraph() {
   const [collectionId, setCollectionId] = React.useState<string>(ALL_COLLECTIONS);
   const [minSimilarity, setMinSimilarity] = React.useState<number>(DEFAULT_SIMILARITY);
@@ -66,7 +82,6 @@ export function KnowledgeGraph() {
 
   const neighborsQuery = useDocumentNeighbors(expandId, 16);
 
-  // Merge fetched neighbors into the expansion set, then clear the trigger.
   React.useEffect(() => {
     if (!expandId || !neighborsQuery.data) return;
     const { nodes, edges } = neighborsQuery.data;
@@ -77,7 +92,6 @@ export function KnowledgeGraph() {
     setExpandId(null);
   }, [expandId, neighborsQuery.data]);
 
-  // A change of query scope invalidates any manual expansions and focus.
   React.useEffect(() => {
     setExpansions(EMPTY_EXPANSIONS);
     setSelectedId(null);
@@ -85,9 +99,6 @@ export function KnowledgeGraph() {
     setExpandId(null);
   }, [collectionId, minSimilarity]);
 
-  // Combine the server graph with expansions: dedupe, canonicalize edges, and
-  // recompute degree from the drawn edge set so node size and the "Connections"
-  // count reflect exactly what is on screen.
   const { mergedNodes, mergedEdges, adjacency } = React.useMemo(() => {
     const nodeMap = new Map<string, GraphNode>();
     for (const n of graphQuery.data?.nodes ?? []) nodeMap.set(n.id, n);
@@ -136,8 +147,6 @@ export function KnowledgeGraph() {
     mergedEdges,
   );
 
-  // Reconcile into stable per-id viz objects so the force layout keeps node
-  // positions across similarity tweaks and expansions instead of restarting.
   const registryRef = React.useRef<{
     nodes: Map<string, VizNode>;
     links: Map<string, VizLink>;
@@ -286,7 +295,6 @@ export function KnowledgeGraph() {
             onBackgroundClick={handleBackgroundClick}
           />
 
-          {/* Vignette for depth; never intercepts pointer events. */}
           <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_center,transparent_55%,rgba(3,4,10,0.65))]" />
 
           <div className="pointer-events-none absolute left-3 top-3">

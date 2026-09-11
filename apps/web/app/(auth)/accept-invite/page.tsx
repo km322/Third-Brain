@@ -29,6 +29,11 @@ function AcceptInviteInner() {
   const [password, setPassword] = React.useState("");
   const [submitting, setSubmitting] = React.useState(false);
 
+  /**
+   * Redeem the invitation token into a real account, then resolve the active org so the
+   * dashboard boots against the right tenant. That second call is non-fatal: a failure is
+   * ignored and reconciled on the dashboard.
+   */
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!token || !fullName.trim() || password.length < 8) return;
@@ -43,9 +48,7 @@ function AcceptInviteInner() {
       try {
         const me = await api.get<CurrentUser>("/users/me");
         if (me.active_org?.id) auth.setActiveOrg(me.active_org.id);
-      } catch {
-        /* reconciled on the dashboard */
-      }
+      } catch {}
       toast.success("Welcome to Third Brain");
       router.replace("/dashboard");
     } catch (err) {

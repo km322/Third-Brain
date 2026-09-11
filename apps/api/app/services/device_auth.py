@@ -12,12 +12,14 @@ from datetime import datetime
 from app.core.security import hash_api_key
 from app.models.enums import DeviceAuthStatus
 
-# Human-typable code alphabet: no vowels (avoids spelling words) and none of the
-# glyph pairs people confuse when reading a terminal (0/O, 1/I/L).
 USER_CODE_ALPHABET = "23456789BCDFGHJKMNPQRSTVWXZ"
+"""Human-typable code alphabet: no vowels (avoids spelling words) and none of the
+glyph pairs people confuse when reading a terminal (0/O, 1/I/L)."""
+
 USER_CODE_GROUP_LENGTH = 4
 
-DEVICE_CODE_PREFIX = "tbd"  # device codes look like: tbd_<random>; never a tb_ API key
+DEVICE_CODE_PREFIX = "tbd"
+"""Device codes look like: tbd_<random>; never a tb_ API key."""
 
 
 def generate_user_code() -> str:

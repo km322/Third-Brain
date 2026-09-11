@@ -14,9 +14,12 @@ import type { DocumentItem, DocumentStatus } from "@/lib/types";
  *
  * Only transitions observed within this mount trigger the toast - documents
  * that are already quarantined when a page loads stay silent (their badge and
- * row action cover that case). Each document fires at most once: once it has
- * been seen quarantined, a later stale snapshot that appears to rewind its
- * status is ignored, so the toast never repeats.
+ * row action cover that case). Each document fires at most once: quarantine is
+ * terminal for this hook, so once a document has been recorded as quarantined it
+ * is skipped entirely. A stale cached snapshot (placeholderData or a pagination
+ * switch) can momentarily show it back in an in-flight status, which would
+ * otherwise rewind the tracked status and re-fire the toast; only forward
+ * transitions update the ref map.
  */
 export function useQuarantineAlert(
   documents: DocumentItem[] | undefined,
@@ -30,11 +33,6 @@ export function useQuarantineAlert(
   React.useEffect(() => {
     if (!documents) return;
     for (const doc of documents) {
-      // Quarantine is terminal for this hook. Once a document has been recorded
-      // as quarantined, skip it entirely: a stale cached snapshot (placeholderData
-      // or a pagination switch) can momentarily show it back in an in-flight
-      // status, which would otherwise rewind the tracked status and re-fire the
-      // toast. Only forward transitions update the ref map.
       if (seenQuarantined.current.has(doc.id)) continue;
 
       const prev = previous.current.get(doc.id);

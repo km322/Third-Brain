@@ -19,9 +19,9 @@ from app.models.enums import (
 )
 from app.schemas.common import ORMModel
 
-# Cap inline text so a single request cannot buffer an unbounded body in memory. Mirrors
-# the 25 MB upload cap (characters, not bytes, but the same order of magnitude).
 MAX_TEXT_CONTENT_CHARS = 25 * 1024 * 1024
+"""Cap inline text so a single request cannot buffer an unbounded body in memory. Mirrors
+the 25 MB upload cap (characters, not bytes, but the same order of magnitude)."""
 
 
 class DocumentTextCreate(BaseModel):
@@ -43,7 +43,11 @@ class DocumentUrlCreate(BaseModel):
 
 
 class DocumentItem(ORMModel):
-    """A document row as surfaced in lists and detail views."""
+    """A document row as surfaced in lists and detail views.
+
+    ``verification_status``, ``verified_at``, ``expires_at`` and ``sensitivity`` are the
+    trust + governance signals (features: verification, DLP).
+    """
 
     id: uuid.UUID
     collection_id: uuid.UUID
@@ -58,21 +62,20 @@ class DocumentItem(ORMModel):
     error: str | None = None
     indexed_at: datetime | None = None
     created_at: datetime
-    # Trust + governance signals (features: verification, DLP).
     verification_status: VerificationStatus = VerificationStatus.UNVERIFIED
     verified_at: datetime | None = None
     expires_at: datetime | None = None
     sensitivity: SensitivityLevel = SensitivityLevel.NONE
-    # Provenance marker read from the document's ``meta`` blob. ``"mcp"`` means an agent
-    # wrote it through the MCP ``add_knowledge`` tool; ``None`` for dashboard/REST-created
-    # documents. Only the marker is surfaced, never the rest of ``meta``.
     via: str | None = None
-    # Capture category read from ``meta`` (e.g. ``"decision"``), set by the MCP
-    # ``add_knowledge`` tool's ``doc_type``; ``None`` for uncategorized documents.
+    """Provenance marker read from the document's ``meta`` blob. ``"mcp"`` means an agent
+    wrote it through the MCP ``add_knowledge`` tool; ``None`` for dashboard/REST-created
+    documents. Only the marker is surfaced, never the rest of ``meta``."""
     doc_type: str | None = None
-    # Absolute capability URL for an image document's original bytes (derived from the
-    # ``file_token`` stamped into meta at ingestion); None for non-image documents.
+    """Capture category read from ``meta`` (e.g. ``"decision"``), set by the MCP
+    ``add_knowledge`` tool's ``doc_type``; ``None`` for uncategorized documents."""
     image_url: str | None = None
+    """Absolute capability URL for an image document's original bytes (derived from the
+    ``file_token`` stamped into meta at ingestion); None for non-image documents."""
 
     @model_validator(mode="wrap")
     @classmethod
@@ -112,9 +115,9 @@ class DocumentContent(BaseModel):
     content: str
     mime_type: str | None = None
     source_type: SourceType
-    # Whether THIS caller may save edits (effective permission >= editor and a text source).
-    # The dashboard gates its editor on this, not on org role.
     editable: bool
+    """Whether THIS caller may save edits (effective permission >= editor and a text source).
+    The dashboard gates its editor on this, not on org role."""
     permission: PermissionLevel
     chunk_count: int
 
@@ -133,8 +136,8 @@ class DocumentChunkRead(ORMModel):
     chunk_index: int
     content: str
     token_count: int
-    # Read from the ORM ``meta`` attribute; serialized to clients as ``metadata``.
     meta: dict = Field(default_factory=dict, serialization_alias="metadata")
+    """Read from the ORM ``meta`` attribute; serialized to clients as ``metadata``."""
 
 
 class SecretScanSample(BaseModel):
@@ -164,8 +167,8 @@ class QuarantineDocument(BaseModel):
     mime_type: str | None = None
     size_bytes: int
     created_at: datetime
-    # The document's own visibility override (NULL means it inherits the collection's).
     visibility: Visibility | None = None
+    """The document's own visibility override (NULL means it inherits the collection's)."""
 
 
 class QuarantineCollection(BaseModel):

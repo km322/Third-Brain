@@ -18,6 +18,10 @@ interface FooterColumn {
   links: FooterLink[];
 }
 
+/**
+ * The footer's link columns. The static project site publishes no app, so it
+ * carries no sign-in link.
+ */
 const COLUMNS: FooterColumn[] = [
   {
     title: "Product",
@@ -41,19 +45,21 @@ const COLUMNS: FooterColumn[] = [
       { label: "Security", href: "/#security" },
       { label: "GitHub", href: GITHUB_URL, external: true },
       { label: "License", href: GITHUB_LICENSE_URL, external: true },
-      // The static project site publishes no app, so it carries no sign-in link.
       ...(IS_STATIC_SITE ? [] : [{ label: "Sign in", href: "/login" }]),
       { label: "Get started", href: "/docs#quick-start" },
     ],
   },
 ];
 
+/**
+ * Site footer: the brand lockup beside the link columns, over a rule carrying the
+ * copyright line and the two links worth repeating.
+ */
 export function Footer() {
   return (
     <footer className="border-t border-border/60 bg-background">
       <div className="container py-16">
         <div className="grid gap-10 lg:grid-cols-5">
-          {/* Brand */}
           <div className="lg:col-span-2">
             <Link
               href="/"
@@ -67,7 +73,6 @@ export function Footer() {
             </p>
           </div>
 
-          {/* Link columns */}
           {COLUMNS.map((col) => (
             <div key={col.title}>
               <h3 className="text-xs font-semibold text-foreground">{col.title}</h3>

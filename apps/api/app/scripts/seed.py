@@ -41,16 +41,21 @@ from app.models.user import Membership, User
 from app.services.llm import embed_texts
 
 DEMO_ORG_SLUG = "acme"
-# There is deliberately NO default demo password: when DEMO_PASSWORD is unset, seeding
-# generates a fresh random secret and prints it once, so no well-known credential exists
-# anywhere (code, docs, or git history). ``or None`` (not a ``get`` default) so an empty
-# var from compose env plumbing means "unset". Rotate an already-seeded demo anytime with
-# `DEMO_PASSWORD=... python -m app.scripts.rotate_demo_password`.
+
 DEMO_PASSWORD = os.environ.get("DEMO_PASSWORD") or None
-# Mirror the RegisterRequest/LoginRequest policy (min 8, max 128): the login route rejects
-# anything outside this range, so seeding with one would create accounts that cannot log in.
+"""The operator-chosen demo password, or ``None`` to generate one.
+
+There is deliberately NO default demo password: when DEMO_PASSWORD is unset, seeding
+generates a fresh random secret and prints it once, so no well-known credential exists
+anywhere (code, docs, or git history). ``or None`` (not a ``get`` default) so an empty var
+from compose env plumbing means "unset". Rotate an already-seeded demo anytime with
+`DEMO_PASSWORD=... python -m app.scripts.rotate_demo_password`.
+"""
+
 MIN_PASSWORD_LENGTH = 8
 MAX_PASSWORD_LENGTH = 128
+"""Mirror the RegisterRequest/LoginRequest policy (min 8, max 128): the login route rejects
+anything outside this range, so seeding with one would create accounts that cannot log in."""
 
 
 def resolve_demo_password() -> tuple[str, bool]:
@@ -74,13 +79,20 @@ def _demo_email(var: str, default: str) -> str:
     return (os.environ.get(var) or default).strip().lower()
 
 
-# The seeded demo logins. Each address is independently overridable, so a deployment can
-# seed the demo on whatever addresses it likes; the open-source defaults are the neutral
-# reserved example.com. Rotation (``rotate_demo_password``) must run with the SAME values
-# the demo was seeded with, since it finds the accounts by these emails.
-ADMIN_EMAIL = _demo_email("DEMO_ADMIN_EMAIL", "admin@example.com")  # OWNER - sees everything
-ENGINEER_EMAIL = _demo_email("DEMO_ENGINEER_EMAIL", "engineer@example.com")  # Engineering team
-VIEWER_EMAIL = _demo_email("DEMO_VIEWER_EMAIL", "viewer@example.com")  # only org-wide content
+ADMIN_EMAIL = _demo_email("DEMO_ADMIN_EMAIL", "admin@example.com")
+"""The seeded OWNER login - sees everything.
+
+Each of the three demo addresses is independently overridable, so a deployment can seed the
+demo on whatever addresses it likes; the open-source defaults are the neutral reserved
+example.com. Rotation (``rotate_demo_password``) must run with the SAME values the demo was
+seeded with, since it finds the accounts by these emails.
+"""
+
+ENGINEER_EMAIL = _demo_email("DEMO_ENGINEER_EMAIL", "engineer@example.com")
+"""The seeded Engineering-team login."""
+
+VIEWER_EMAIL = _demo_email("DEMO_VIEWER_EMAIL", "viewer@example.com")
+"""The seeded login that sees only org-wide content."""
 
 
 def _naive_chunks(text: str, size: int = 120) -> list[str]:
@@ -88,7 +100,6 @@ def _naive_chunks(text: str, size: int = 120) -> list[str]:
     return [" ".join(words[i : i + size]) for i in range(0, len(words), size)] or [text]
 
 
-# (title, body) tuples per collection.
 HANDBOOK_DOCS = [
     (
         "Onboarding Guide",
@@ -109,6 +120,7 @@ HANDBOOK_DOCS = [
         "days. Escalate disputed charges to the finance team.",
     ),
 ]
+"""(title, body) tuples seeded into the Company Handbook collection."""
 
 ENGINEERING_DOCS = [
     (
@@ -130,6 +142,7 @@ ENGINEERING_DOCS = [
         "documents. The frontend is a Next.js dashboard.",
     ),
 ]
+"""(title, body) tuples seeded into the Engineering collection."""
 
 BOARD_FINANCE_DOCS = [
     (
@@ -145,6 +158,7 @@ BOARD_FINANCE_DOCS = [
         "confidential and restricted to the board and finance.",
     ),
 ]
+"""(title, body) tuples seeded into the Board & Finance collection."""
 
 
 async def _make_user(db, email: str, name: str, password: str) -> User:
@@ -218,6 +232,16 @@ async def _make_collection(
 
 
 async def seed() -> None:
+    """Create the Acme Inc. demo org, its people, its API key and its three collections.
+
+    The cast is three people with three different levels of access. The Engineering team
+    contains the admin + the engineer, but NOT the viewer. The minted API key acts as the
+    admin (full read across the org). The three collections then contrast:
+
+    1. everyone in the org can read the handbook;
+    2. only the Engineering team can read the engineering space;
+    3. only the owner (admin) + org admins can read Board & Finance.
+    """
     emails = {
         "DEMO_ADMIN_EMAIL": ADMIN_EMAIL,
         "DEMO_ENGINEER_EMAIL": ENGINEER_EMAIL,
@@ -247,7 +271,6 @@ async def seed() -> None:
         db.add(org)
         await db.flush()
 
-        # Three people with three different levels of access.
         admin = await _make_user(db, ADMIN_EMAIL, "Ada Admin", password)
         engineer = await _make_user(db, ENGINEER_EMAIL, "Evan Engineer", password)
         viewer = await _make_user(db, VIEWER_EMAIL, "Vera Viewer", password)
@@ -259,7 +282,6 @@ async def seed() -> None:
             ]
         )
 
-        # The Engineering team contains the admin + the engineer, but NOT the viewer.
         eng_team = Team(org_id=org.id, name="Engineering", slug="engineering")
         db.add(eng_team)
         await db.flush()
@@ -270,7 +292,6 @@ async def seed() -> None:
             ]
         )
 
-        # An API key that acts as the admin (full read across the org).
         full_key, prefix, hashed = generate_api_key()
         db.add(
             ApiKey(
@@ -284,7 +305,6 @@ async def seed() -> None:
             )
         )
 
-        # 1) Everyone in the org can read the handbook.
         await _make_collection(
             db,
             org_id=org.id,
@@ -297,7 +317,6 @@ async def seed() -> None:
             docs=HANDBOOK_DOCS,
         )
 
-        # 2) Only the Engineering team can read the engineering space.
         await _make_collection(
             db,
             org_id=org.id,
@@ -310,7 +329,6 @@ async def seed() -> None:
             docs=ENGINEERING_DOCS,
         )
 
-        # 3) Only the owner (admin) + org admins can read Board & Finance.
         await _make_collection(
             db,
             org_id=org.id,

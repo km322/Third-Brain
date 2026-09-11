@@ -65,10 +65,9 @@ class TeamCreate(BaseModel):
 class TeamUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=255)
     description: str | None = Field(default=None, max_length=1024)
-    # ``parent_team_id`` is presence-sensitive: omitting it leaves the parent unchanged,
-    # while sending ``null`` re-parents the team to the root. Callers detect the difference
-    # via ``model_fields_set``.
     parent_team_id: uuid.UUID | None = None
+    """Presence-sensitive: omitting it leaves the parent unchanged, while sending ``null``
+    re-parents the team to the root. Callers detect the difference via ``model_fields_set``."""
 
 
 class TeamMemberAdd(BaseModel):

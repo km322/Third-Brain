@@ -30,11 +30,11 @@ class Answer(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     org_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("organizations.id", ondelete="CASCADE"), index=True, nullable=False
     )
-    # Optional scoping: NULL => org-wide (governed by ``visibility``); set => also
-    # requires viewer access to the collection.
     collection_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("collections.id", ondelete="CASCADE"), index=True, nullable=True
     )
+    """Optional scoping: NULL => org-wide (governed by ``visibility``); set => also requires
+    viewer access to the collection."""
     created_by_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )

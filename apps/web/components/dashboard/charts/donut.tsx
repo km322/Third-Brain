@@ -69,7 +69,8 @@ interface DonutChartProps {
 /**
  * A reusable donut with a center total and a compact legend. Segment identity
  * is carried by color (from the caller) plus a labelled legend, so it never
- * relies on color alone. Renders a friendly empty state when there's no value
+ * relies on color alone. The center figure is overlaid on the donut hole rather
+ * than drawn by recharts. Renders a friendly empty state when there's no value
  * to divide.
  */
 export function DonutChart({
@@ -143,7 +144,6 @@ export function DonutChart({
             </Pie>
           </PieChart>
         </ResponsiveContainer>
-        {/* Center figure overlaid on the donut hole. */}
         <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center text-center">
           <span className="text-lg font-semibold tabular-nums tracking-tight">
             {formatValue(sum)}

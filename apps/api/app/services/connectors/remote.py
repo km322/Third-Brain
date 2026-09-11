@@ -41,35 +41,40 @@ class _RemoteSaasConnector(BaseConnector):
 
 
 class GoogleDriveConnector(_RemoteSaasConnector):
+    """Needs a shared drive id (or 'my-drive') plus an OAuth refresh token as the secret."""
+
     kind = DataSourceKind.GOOGLE_DRIVE
     provider_label = "Google Drive"
-    # A shared drive id (or 'my-drive') plus an OAuth refresh token stored as the secret.
     required_config = ("drive_id",)
 
 
 class SlackConnector(_RemoteSaasConnector):
+    """Needs which channels to index; bot token stored as the secret."""
+
     kind = DataSourceKind.SLACK
     provider_label = "Slack"
-    # Which channels to index; bot token stored as the secret.
     required_config = ("channels",)
 
 
 class GitHubConnector(_RemoteSaasConnector):
+    """Needs owner/repo; a PAT or app installation token stored as the secret."""
+
     kind = DataSourceKind.GITHUB
     provider_label = "GitHub"
-    # owner/repo; a PAT or app installation token stored as the secret.
     required_config = ("repo",)
 
 
 class NotionConnector(_RemoteSaasConnector):
+    """Needs a Notion integration token as the secret; optional root page id in config."""
+
     kind = DataSourceKind.NOTION
     provider_label = "Notion"
-    # Notion integration token stored as the secret; optional root page id in config.
     required_config = ()
 
 
 class ConfluenceConnector(_RemoteSaasConnector):
+    """Needs base_url + space key; API token stored as the secret."""
+
     kind = DataSourceKind.CONFLUENCE
     provider_label = "Confluence"
-    # base_url + space key; API token stored as the secret.
     required_config = ("base_url", "space")

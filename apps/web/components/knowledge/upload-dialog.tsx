@@ -59,15 +59,11 @@ export function UploadDialog({ collectionId, trigger, onCreated }: UploadDialogP
   const [open, setOpen] = React.useState(false);
   const [mode, setMode] = React.useState<Mode>("text");
 
-  // Text
   const [title, setTitle] = React.useState("");
   const [content, setContent] = React.useState("");
-  // URL
   const [url, setUrl] = React.useState("");
   const [urlTitle, setUrlTitle] = React.useState("");
-  // File
   const [file, setFile] = React.useState<File | null>(null);
-  // Shared
   const [visibility, setVisibility] = React.useState<string>(INHERIT);
 
   function reset() {

@@ -241,6 +241,15 @@ export default function InvitesPage() {
   );
 }
 
+/**
+ * Invite a new member by email.
+ *
+ * The acceptance link comes back exactly once, from this POST, and a default self-host
+ * sends no mail - so closing the dialog on success would destroy the only copy, and it is
+ * held in `created` and shown instead. A 409 means the email already belongs to a member;
+ * the backend message is surfaced verbatim so the admin knows to add them from Members
+ * instead.
+ */
 function InviteDialog({
   open,
   onOpenChange,
@@ -254,8 +263,6 @@ function InviteDialog({
 }) {
   const [email, setEmail] = React.useState("");
   const [inviteRole, setInviteRole] = React.useState<OrgRole>("viewer");
-  // The acceptance link comes back exactly once, from this POST. A default self-host
-  // sends no mail, so closing the dialog on success would destroy the only copy.
   const [created, setCreated] = React.useState<Invite | null>(null);
 
   const invite = useMutation({
@@ -274,8 +281,6 @@ function InviteDialog({
         onOpenChange(false);
       }
     },
-    // A 409 means the email already belongs to a member; surface the backend
-    // message so the admin knows to add them from Members instead.
     onError: (e) => toast.error(errMsg(e, "Couldn't send invitation")),
   });
 

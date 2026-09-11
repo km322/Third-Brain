@@ -21,8 +21,10 @@ const ForceGraphClient = dynamic(() => import("./graph-force-graph"), {
 
 const TAU = Math.PI * 2;
 
-/** How long the render loop keeps running after the last interaction before it
- * parks itself again (see the battery notes on `resumeGraph`). */
+/**
+ * How long the render loop keeps running after the last interaction before it
+ * parks itself again (see the render-loop notes on {@link GraphCanvasInner}).
+ */
 const IDLE_PAUSE_MS = 3000;
 
 /** force-graph's animation-loop controls. They live off {@link GraphInstance}
@@ -86,6 +88,46 @@ function useElementSize() {
   return { ref, ...size };
 }
 
+/**
+ * The graph canvas: a force-directed rendering of the document web, with semantic
+ * zoom, focus highlighting and an imperative camera handle.
+ *
+ * `dataRef` and its neighbours are live copies of the current props, read by the
+ * imperative handle and the per-frame paint callbacks. `baseZoomRef` records the
+ * zoom the full graph fits at; the semantic-zoom label thresholds are expressed
+ * relative to it, so the default framing always reads as the "topics" view
+ * regardless of how many documents (and thus how tight a fit) there are. Focusing
+ * a node zooms in past the node-label threshold, relative to that fit baseline, so
+ * the selected document and its neighbours read as individual files.
+ *
+ * Cluster membership sets are kept so a whole topic can be highlighted at once,
+ * and the focus geometry is recomputed each render - the paint callbacks close
+ * over it, so hovering and selecting repaint without restarting the simulation.
+ * The view is reframed whenever the underlying data set changes.
+ *
+ * The render loop is parked when it has nothing to do, because force-graph@1.51.4
+ * re-arms requestAnimationFrame every frame for the whole life of the mounted
+ * graph: even a fully settled graph keeps waking the tab ~60x/s. The loop is woken
+ * around interaction, camera moves and highlight changes, then idles back to sleep
+ * after `IDLE_PAUSE_MS`. `engineStoppedRef` keeps an idle timer from freezing a
+ * layout that is still cooling - only a stopped engine is safe to pause - so while
+ * the simulation is settling, `onEngineStop` owns scheduling the pause and we
+ * never cancel a live layout. New data and node drags both reheat the simulation
+ * and clear that flag. `onEngineStop` defers its pause rather than calling it
+ * inline, because force-graph re-arms requestAnimationFrame at the end of that
+ * very animate() cycle, so a synchronous pause would be immediately undone.
+ *
+ * The wake listeners sit on the sizing container (it always spans the canvas), so
+ * they fire before the graph instance exists and while the loop is paused;
+ * `onNodeHover` is dispatched from inside the loop, so resuming on pointermove is
+ * what keeps hover highlighting alive after an idle pause. Hover, selection and
+ * cluster highlighting can also change from outside the canvas (closing the node
+ * sheet, or the legend selecting a cluster), so the loop is woken on any such
+ * change and the dimming and labels update even if the graph had parked itself. A
+ * background tab shouldn't burn frames either: the loop hard-pauses when the
+ * document is hidden and wakes when it is shown again, and the idle timer is
+ * dropped on unmount so it never fires against a torn-down instance.
+ */
 function GraphCanvasInner(
   {
     data,
@@ -103,15 +145,11 @@ function GraphCanvasInner(
   const { ref: sizeRef, width, height } = useElementSize();
   const fgRef = React.useRef<GraphInstance | undefined>(undefined);
 
-  // Live copies for the imperative handle and per-frame callbacks.
   const dataRef = React.useRef(data);
   dataRef.current = data;
   const fitPendingRef = React.useRef(true);
   const userMovedRef = React.useRef(false);
 
-  // The zoom the full graph fits at. Semantic-zoom label thresholds are expressed
-  // relative to this, so the default framing always reads as the "topics" view
-  // regardless of how many documents (and thus how tight a fit) there are.
   const baseZoomRef = React.useRef(1);
   const captureBaseZoom = React.useCallback(() => {
     window.setTimeout(() => {
@@ -124,11 +162,6 @@ function GraphCanvasInner(
     [],
   );
 
-  // force-graph@1.51.4 re-arms requestAnimationFrame every frame for the whole life
-  // of the mounted graph, so even a fully settled graph keeps waking the tab ~60x/s.
-  // We park the loop once it goes idle and wake it around interaction, camera moves
-  // and highlight changes. `engineStoppedRef` keeps an idle timer from freezing a
-  // layout that is still cooling: only a stopped engine is safe to pause.
   const idleTimerRef = React.useRef<number | null>(null);
   const engineStoppedRef = React.useRef(false);
 
@@ -141,8 +174,6 @@ function GraphCanvasInner(
     if (idleTimerRef.current != null) window.clearTimeout(idleTimerRef.current);
     idleTimerRef.current = window.setTimeout(() => {
       idleTimerRef.current = null;
-      // Only park a graph whose simulation has cooled; while it is still settling,
-      // onEngineStop owns scheduling the pause so we never cancel a live layout.
       if (engineStoppedRef.current) pauseGraph();
     }, IDLE_PAUSE_MS);
   }, [pauseGraph]);
@@ -153,11 +184,6 @@ function GraphCanvasInner(
     scheduleIdlePause();
   }, [scheduleIdlePause]);
 
-  // Wake the loop on any pointer interaction, then let it idle back to sleep. The
-  // listeners sit on the sizing container (it always spans the canvas), so they fire
-  // before the graph instance exists and while the loop is paused. onNodeHover is
-  // dispatched from inside the loop, so resuming on pointermove is what keeps hover
-  // highlighting alive after an idle pause.
   React.useEffect(() => {
     const el = sizeRef.current;
     if (!el) return;
@@ -170,7 +196,6 @@ function GraphCanvasInner(
     };
   }, [resumeGraph, sizeRef]);
 
-  // A background tab shouldn't burn frames: hard-pause when hidden, wake when shown.
   React.useEffect(() => {
     const onVisibility = () => {
       if (document.hidden) pauseGraph();
@@ -180,7 +205,6 @@ function GraphCanvasInner(
     return () => document.removeEventListener("visibilitychange", onVisibility);
   }, [pauseGraph, resumeGraph]);
 
-  // Drop the idle timer on unmount so it never fires against a torn-down instance.
   React.useEffect(
     () => () => {
       if (idleTimerRef.current != null) window.clearTimeout(idleTimerRef.current);
@@ -188,18 +212,15 @@ function GraphCanvasInner(
     [],
   );
 
-  // Cluster membership sets, for highlighting a whole topic at once.
   const clusterMembers = React.useMemo(() => {
     const map = new Map<number, Set<string>>();
     for (const c of clusters) map.set(c.id, new Set(c.nodeIds));
     return map;
   }, [clusters]);
 
-  // Reframe the view whenever the underlying data set changes.
   React.useEffect(() => {
     fitPendingRef.current = true;
     userMovedRef.current = false;
-    // New data reheats the simulation; wake the loop so it runs and frames the fit.
     engineStoppedRef.current = false;
     resumeGraph();
     const t = setTimeout(() => {
@@ -212,10 +233,6 @@ function GraphCanvasInner(
     return () => clearTimeout(t);
   }, [data, captureBaseZoom, resumeGraph]);
 
-  // Hover, selection and cluster highlighting only repaint while the loop runs, and
-  // these can change from outside the canvas (e.g. closing the node sheet, or the
-  // legend selecting a cluster). Wake the loop on any such change so the dimming and
-  // labels update even if the graph had already parked itself.
   React.useEffect(() => {
     resumeGraph();
   }, [hoverId, selectedId, activeClusterId, resumeGraph]);
@@ -250,8 +267,6 @@ function GraphCanvasInner(
         const node = dataRef.current.nodes.find((n) => n.id === id);
         if (!fg || !node || node.x == null || node.y == null) return;
         fg.centerAt(node.x, node.y, 700);
-        // Zoom in past the node-label threshold (relative to the fit baseline) so
-        // the selected document and its neighbours read as individual files.
         fg.zoom(Math.max(fg.zoom(), baseZoomRef.current * 2.6), 700);
       },
       focusCluster: (clusterId: number) => {
@@ -271,8 +286,6 @@ function GraphCanvasInner(
     [captureBaseZoom, resumeGraph],
   );
 
-  // Focus geometry recomputed each render; the paint callbacks below close over
-  // it so hovering/selecting repaints without restarting the simulation.
   const focusId = hoverId ?? selectedId;
   const highlightSet = React.useMemo<Set<string> | null>(() => {
     if (focusId) {
@@ -298,6 +311,12 @@ function GraphCanvasInner(
     [focusId, activeClusterId, clusterMembers],
   );
 
+  /**
+   * Paint one node: a disc in its cluster color with a soft glow, a bright core
+   * for a lit-from-within look, a ring when it is the focus, and its title once
+   * semantic zoom crosses the node-label threshold. Nodes outside the highlight
+   * set are drawn as small dim dots instead.
+   */
   const paintNode = React.useCallback(
     (node: VizNode, ctx: CanvasRenderingContext2D, scale: number) => {
       if (node.x == null || node.y == null) return;
@@ -323,7 +342,6 @@ function GraphCanvasInner(
       ctx.fill();
       ctx.shadowBlur = 0;
 
-      // Bright core for a lit-from-within look.
       ctx.globalAlpha = isFocus ? 0.9 : 0.5;
       ctx.beginPath();
       ctx.arc(node.x, node.y, r * 0.45, 0, TAU);
@@ -396,7 +414,7 @@ function GraphCanvasInner(
     [highlightSet, isLinkHot],
   );
 
-  // Big translucent topic labels at each community centroid, faded by zoom.
+  /** Big translucent topic labels at each community centroid, faded by zoom. */
   const paintClusterLabels = React.useCallback(
     (ctx: CanvasRenderingContext2D, scale: number) => {
       const alpha = clusterLabelOpacity(relZoom(scale));
@@ -458,7 +476,6 @@ function GraphCanvasInner(
           onNodeClick={(n) => onSelectNode(n as VizNode)}
           onNodeDrag={() => {
             userMovedRef.current = true;
-            // Dragging reheats the simulation; the idle timer must not park it.
             engineStoppedRef.current = false;
           }}
           onBackgroundClick={() => {
@@ -471,10 +488,6 @@ function GraphCanvasInner(
               captureBaseZoom();
             }
             fitPendingRef.current = false;
-            // The simulation has cooled. Let the final fit render, then park the loop
-            // so a static graph stops waking the tab. The pause is deferred (not called
-            // here) because force-graph re-arms requestAnimationFrame at the end of this
-            // very animate() cycle, so a synchronous pause would be immediately undone.
             engineStoppedRef.current = true;
             scheduleIdlePause();
           }}

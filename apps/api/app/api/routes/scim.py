@@ -53,9 +53,6 @@ async def _load_member(db: AsyncSession, org_id: uuid.UUID, user_id: uuid.UUID):
     return user, membership
 
 
-# --------------------------------------------------------------------------- #
-# Users
-# --------------------------------------------------------------------------- #
 @router.get("/Users")
 async def list_users(
     filter: str | None = Query(default=None),
@@ -136,9 +133,6 @@ async def deprovision_user(
     return JSONResponse({}, status_code=status.HTTP_204_NO_CONTENT, media_type=_SCIM_MEDIA)
 
 
-# --------------------------------------------------------------------------- #
-# Groups
-# --------------------------------------------------------------------------- #
 async def _team_member_ids(db: AsyncSession, team_id: uuid.UUID) -> list[str]:
     rows = (
         (await db.execute(select(TeamMember.user_id).where(TeamMember.team_id == team_id)))

@@ -9,6 +9,10 @@ appear in any API response - only redacted samples.
 
 All planted secrets are realistic but harmless dummies (AWS's documented example
 access key id, a fabricated RSA block, a made-up GitHub token shape).
+
+The file walks that lifecycle in order: helpers, detection, review (findings, target
+collection, audience redaction), the refusal to reprocess while quarantined, approve,
+discard, retrieval defense-in-depth, clean content, then the MCP write tools.
 """
 
 from __future__ import annotations
@@ -70,9 +74,6 @@ _FLAGGED_UPDATE_TEXT = (
 )
 
 
-# --------------------------------------------------------------------------- #
-# Helpers
-# --------------------------------------------------------------------------- #
 async def _rpc(client, *, method, params=None, msg_id=1, headers=None):
     body = {"jsonrpc": "2.0", "id": msg_id, "method": method}
     if params is not None:
@@ -160,12 +161,14 @@ async def _audit_rows(db_session, org_id, action: str, document_id) -> int:
     ).scalar()
 
 
-# --------------------------------------------------------------------------- #
-# Detection: flagged content quarantines before indexing
-# --------------------------------------------------------------------------- #
 async def test_flagged_upload_is_quarantined_with_no_chunks_and_no_retrieval(
     client, db_session, token_headers, api, ingest_now
 ) -> None:
+    """Flagged content quarantines before indexing.
+
+    The raw key must never appear anywhere in the API response, redaction only, and
+    nothing was indexed: zero chunk rows and zero retrieval hits.
+    """
     org, owner, collection = await _org_with_collection(db_session)
     headers = token_headers(owner.id, org.id)
 
@@ -185,21 +188,23 @@ async def test_flagged_upload_is_quarantined_with_no_chunks_and_no_retrieval(
     assert detail["status"] == "quarantined"
     assert detail["chunk_count"] == 0
     assert detail.get("error") is None
-    # The raw key must never appear anywhere in the API response, redaction only.
     assert _AWS_KEY not in detail_resp.text
 
-    # Nothing was indexed: zero chunk rows and zero retrieval hits.
     assert await _chunk_rows(db_session, document_id) == 0
     hits = await _search_doc_ids(client, api, headers, _AWS_QUERY)
     assert document_id not in hits
 
 
-# --------------------------------------------------------------------------- #
-# Review: redacted findings, target collection, audience
-# --------------------------------------------------------------------------- #
 async def test_review_returns_redacted_findings_collection_and_audience(
     client, db_session, token_headers, api, ingest_now
 ) -> None:
+    """The review payload: redacted findings, the target collection and the audience.
+
+    The document was uploaded without a document-level visibility override, so it
+    inherits the collection's. The owner (org owner + collection manager) sees full
+    identities, and the permission counts are exact: one manager (the owner) and one
+    viewer (the plain member). The full secret appears nowhere in the payload.
+    """
     org, owner, collection = await _org_with_collection(db_session)
     member, _ = await factories.add_member(
         db_session, org=org, role=OrgRole.VIEWER, full_name="Org Member"
@@ -233,7 +238,6 @@ async def test_review_returns_redacted_findings_collection_and_audience(
     assert doc_block["id"] == document_id
     assert doc_block["title"] == "Gateway runbook"
     assert doc_block["status"] == "quarantined"
-    # Uploaded without a document-level override, so it inherits the collection.
     assert doc_block["visibility"] is None
 
     finding = next(f for f in body["findings"] if f["detector"] == "aws-access-key-id")
@@ -261,7 +265,6 @@ async def test_review_returns_redacted_findings_collection_and_audience(
     assert audience["total_users"] >= 2
     assert audience["truncated"] is False
     assert audience["note"] is None
-    # The owner (org owner + collection manager) sees full identities.
     owner_entry = next(e for e in audience["entries"] if e["user_id"] == str(owner.id))
     assert set(owner_entry) == {"user_id", "name", "email", "permission", "via"}
     assert owner_entry["permission"] == "manager"
@@ -272,29 +275,32 @@ async def test_review_returns_redacted_findings_collection_and_audience(
 
     counts = audience["permission_counts"]
     assert set(counts) == {"viewer", "editor", "manager"}
-    assert counts["manager"] >= 1  # the owner
-    assert counts["viewer"] >= 1  # the plain member
+    assert counts["manager"] >= 1
+    assert counts["viewer"] >= 1
     assert counts["viewer"] + counts["editor"] + counts["manager"] == audience["total_users"]
 
-    # The full secret appears nowhere in the review payload.
     assert _AWS_KEY not in resp.text
 
 
 async def test_review_requires_editor_and_quarantined_status(
     client, db_session, token_headers, api, ingest_now
 ) -> None:
+    """Who may review, and in which state.
+
+    A member with only VIEWER on the collection (the ORG-visibility baseline) is 403. A
+    user in another org cannot even see the document: 404, never 403. And review of a
+    non-quarantined document is a conflict.
+    """
     org, owner, collection = await _org_with_collection(db_session)
     owner_headers = token_headers(owner.id, org.id)
     document_id = await _quarantined_document(client, api, owner_headers, ingest_now, collection)
 
-    # A member with only VIEWER on the collection (the ORG-visibility baseline) is 403.
     viewer, _ = await factories.add_member(db_session, org=org, role=OrgRole.VIEWER)
     denied = await client.get(
         f"{api}/documents/{document_id}/review", headers=token_headers(viewer.id, org.id)
     )
     assert denied.status_code == 403, denied.text
 
-    # A user in another org cannot even see the document: 404, never 403.
     other_org, other_owner, _ = await factories.create_org_with_owner(db_session)
     unseen = await client.get(
         f"{api}/documents/{document_id}/review",
@@ -302,7 +308,6 @@ async def test_review_requires_editor_and_quarantined_status(
     )
     assert unseen.status_code == 404, unseen.text
 
-    # Review of a non-quarantined document is a conflict.
     clean_id = await _upload_and_ingest(
         client, api, owner_headers, ingest_now, collection, title="Primer", content=_CLEAN_TEXT
     )
@@ -311,19 +316,21 @@ async def test_review_requires_editor_and_quarantined_status(
     assert conflict.status_code == 409, conflict.text
 
 
-# --------------------------------------------------------------------------- #
-# Audience: caller-based redaction, document-visibility awareness, doc grants
-# --------------------------------------------------------------------------- #
 async def test_review_audience_redacts_identities_for_non_manager_editor(
     client, db_session, token_headers, api, ingest_now
 ) -> None:
     """The audience carries names + emails, so per-user identities are shown only to
-    collection managers and org admins; a plain editor sees the aggregate counts only."""
+    collection managers and org admins; a plain editor sees the aggregate counts only.
+
+    An editor (collection EDITOR grant, cannot manage) may review but not see identities;
+    the aggregate data is still exact - one manager (the owner) and one editor (this
+    editor) - and the note explains the redaction. A manager (collection MANAGER grant)
+    sees the full identity list.
+    """
     org, owner, collection = await _org_with_collection(db_session)
     owner_headers = token_headers(owner.id, org.id)
     document_id = await _quarantined_document(client, api, owner_headers, ingest_now, collection)
 
-    # An editor (collection EDITOR grant, cannot manage) may review but not see identities.
     editor, _ = await factories.add_member(db_session, org=org, role=OrgRole.VIEWER)
     await factories.grant_user(
         db_session,
@@ -339,15 +346,13 @@ async def test_review_audience_redacts_identities_for_non_manager_editor(
     assert resp.status_code == 200, resp.text
     audience = resp.json()["audience"]
     assert audience["entries"] == []
-    # Aggregate data is still exact, and the note explains the redaction.
     counts = audience["permission_counts"]
-    assert counts["manager"] >= 1  # the owner
-    assert counts["editor"] >= 1  # this editor
+    assert counts["manager"] >= 1
+    assert counts["editor"] >= 1
     assert counts["viewer"] + counts["editor"] + counts["manager"] == audience["total_users"]
     assert audience["total_users"] >= 2
     assert "manager" in (audience["note"] or "").lower()
 
-    # A manager (collection MANAGER grant) sees the full identity list.
     manager, _ = await factories.add_member(db_session, org=org, role=OrgRole.VIEWER)
     await factories.grant_user(
         db_session,
@@ -375,8 +380,9 @@ async def test_review_audience_reflects_org_visibility_override_in_private_colle
     client, db_session, token_headers, api, ingest_now
 ) -> None:
     """A document uploaded with visibility='org' into a PRIVATE collection becomes
-    org-readable on approval, so its audience must include every active member and the
-    review must surface the document's own visibility override."""
+    org-readable on approval, so its audience must include every active member (the owner
+    plus the three members) and the review must surface the document's own visibility
+    override."""
     org, owner, _ = await factories.create_org_with_owner(db_session)
     collection = await factories.create_collection(
         db_session, org=org, owner=owner, visibility=Visibility.PRIVATE
@@ -404,7 +410,6 @@ async def test_review_audience_reflects_org_visibility_override_in_private_colle
     assert body["document"]["visibility"] == "org"
 
     audience = body["audience"]
-    # Every active member (owner + the three members) is in the audience.
     assert audience["total_users"] == 1 + len(members)
     seen = {e["user_id"] for e in audience["entries"]}
     for member in members:
@@ -454,14 +459,14 @@ async def test_review_audience_includes_document_level_grant(
     assert grantee_entry["via"] == "document-grant"
 
 
-# --------------------------------------------------------------------------- #
-# Reprocess is refused while quarantined
-# --------------------------------------------------------------------------- #
 async def test_reprocess_on_quarantined_document_is_conflict(
     client, db_session, token_headers, api, ingest_now
 ) -> None:
     """A quarantined document must leave that state only through review (approve/discard),
-    never a plain reprocess that would flip it to PENDING and re-expose leftover chunks."""
+    never a plain reprocess that would flip it to PENDING and re-expose leftover chunks.
+
+    After the refusal it is still quarantined and untouched.
+    """
     org, owner, collection = await _org_with_collection(db_session)
     headers = token_headers(owner.id, org.id)
     document_id = await _quarantined_document(client, api, headers, ingest_now, collection)
@@ -469,13 +474,9 @@ async def test_reprocess_on_quarantined_document_is_conflict(
     resp = await client.post(f"{api}/documents/{document_id}/reprocess", headers=headers)
     assert resp.status_code == 409, resp.text
     assert "review" in resp.json()["detail"].lower()
-    # Still quarantined and untouched.
     assert (await _detail(client, api, headers, document_id))["status"] == "quarantined"
 
 
-# --------------------------------------------------------------------------- #
-# Approve: index anyway, audit trail, checksum-keyed approval
-# --------------------------------------------------------------------------- #
 async def test_approve_reindexes_and_writes_audit_trail(
     client, db_session, token_headers, api, ingest_now
 ) -> None:
@@ -557,9 +558,6 @@ async def test_approval_survives_reprocess_of_unchanged_content(
     assert document_id in hits
 
 
-# --------------------------------------------------------------------------- #
-# Discard
-# --------------------------------------------------------------------------- #
 async def test_discard_deletes_quarantined_document(
     client, db_session, token_headers, api, ingest_now
 ) -> None:
@@ -573,14 +571,14 @@ async def test_discard_deletes_quarantined_document(
     assert gone.status_code == 404
 
 
-# --------------------------------------------------------------------------- #
-# Retrieval defense-in-depth
-# --------------------------------------------------------------------------- #
 async def test_stale_chunks_of_quarantined_document_are_never_retrievable(
     client, db_session, token_headers, api
 ) -> None:
     """Chunks left over from a previously indexed version must vanish from retrieval
-    the moment the document is quarantined (the search queries gate on INDEXED)."""
+    the moment the document is quarantined (the search queries gate on INDEXED).
+
+    The first search is the positive control: while INDEXED the document is retrievable.
+    """
     org, owner, collection = await _org_with_collection(db_session)
     headers = token_headers(owner.id, org.id)
     document = await factories.create_document(
@@ -592,7 +590,6 @@ async def test_stale_chunks_of_quarantined_document_are_never_retrievable(
         created_by=owner,
     )
 
-    # Positive control: while INDEXED the document is retrievable.
     before = await _search_doc_ids(client, api, headers, _MIGRATION_QUERY)
     assert str(document.id) in before
 
@@ -603,9 +600,6 @@ async def test_stale_chunks_of_quarantined_document_are_never_retrievable(
     assert str(document.id) not in after
 
 
-# --------------------------------------------------------------------------- #
-# Clean content is untouched by the scanner
-# --------------------------------------------------------------------------- #
 async def test_clean_content_indexes_without_scan_artifacts(
     client, db_session, token_headers, api, ingest_now
 ) -> None:
@@ -629,12 +623,14 @@ async def test_clean_content_indexes_without_scan_artifacts(
     assert "secret_scan" not in (row.meta or {})
 
 
-# --------------------------------------------------------------------------- #
-# MCP: synchronous scan on the write tools
-# --------------------------------------------------------------------------- #
 async def test_mcp_add_knowledge_quarantines_then_rest_approve_indexes(
     client, db_session, token_headers, api, ingest_now
 ) -> None:
+    """An MCP write is scanned synchronously and quarantined, then approved over REST.
+
+    No key material leaks into the tool result, not even redacted samples, and the
+    persisted blob is what makes the quarantined MCP document approvable via REST.
+    """
     org, owner, collection = await _org_with_collection(db_session)
     owner_headers = token_headers(owner.id, org.id)
     _key, secret = await factories.create_api_key(
@@ -667,14 +663,12 @@ async def test_mcp_add_knowledge_quarantines_then_rest_approve_indexes(
     assert private_key["severity"] == "high"
     for finding in sc["findings"]:
         assert set(finding) == {"detector", "label", "severity", "occurrences"}
-    # No key material leaks into the tool result, not even redacted samples.
     assert _PRIVATE_KEY_MARKER not in json.dumps(called)
 
     document_id = sc["id"]
     assert await _chunk_rows(db_session, document_id) == 0
     assert await _audit_rows(db_session, org.id, "document.quarantined", document_id) >= 1
 
-    # The persisted blob makes the quarantined MCP document approvable via REST.
     approved = await client.post(f"{api}/documents/{document_id}/approve", headers=owner_headers)
     assert approved.status_code == 200, approved.text
     assert approved.json()["status"] == "pending"
@@ -687,6 +681,11 @@ async def test_mcp_add_knowledge_quarantines_then_rest_approve_indexes(
 async def test_mcp_update_knowledge_rejects_flagged_content_and_leaves_document_unchanged(
     client, db_session, token_headers, api
 ) -> None:
+    """A flagged MCP update is rejected outright, leaving the document exactly as it was.
+
+    It stays indexed with the same chunks, its old content stays searchable, and the
+    rejected token appears nowhere in its chunks.
+    """
     org, owner, collection = await _org_with_collection(db_session)
     owner_headers = token_headers(owner.id, org.id)
     _key, secret = await factories.create_api_key(
@@ -729,8 +728,6 @@ async def test_mcp_update_knowledge_rejects_flagged_content_and_leaves_document_
     assert "secret" in message, result
     assert _GITHUB_TOKEN not in json.dumps(updated)
 
-    # The document is left exactly as it was: still indexed, same chunks, old content
-    # searchable, and the rejected token nowhere in its chunks.
     after = await _detail(client, api, owner_headers, document_id)
     assert after["status"] == "indexed"
     assert after["chunk_count"] == before["chunk_count"]

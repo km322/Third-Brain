@@ -25,10 +25,9 @@ from app.services.llm import client as llm_client
 from app.services.llm.client import CompletionResult, EmbeddingResult
 
 
-# --------------------------------------------------------------------------- #
-# Disabled path - no OTLP endpoint means no provider, no spans, no network
-# --------------------------------------------------------------------------- #
 class TestTelemetryDisabled:
+    """Disabled path - no OTLP endpoint means no provider, no spans, no network."""
+
     def test_get_tracer_spans_are_non_recording(self) -> None:
         tracer = telemetry.get_tracer("tests.telemetry")
         with tracer.start_as_current_span("noop") as span:
@@ -52,13 +51,15 @@ class TestTelemetryDisabled:
         assert telemetry._provider is None
 
 
-# --------------------------------------------------------------------------- #
-# Helper parsing / result dataclass contract
-# --------------------------------------------------------------------------- #
 class TestOtlpHelpers:
+    """OTLP helper parsing."""
+
     def test_sample_ratio_clamps_out_of_range_without_raising(self, monkeypatch) -> None:
-        # TraceIdRatioBased raises for values outside [0, 1]; a misconfigured env var
-        # must be coerced to a safe ratio (and logged) rather than crash startup.
+        """``TraceIdRatioBased`` raises for values outside [0, 1].
+
+        A misconfigured env var must therefore be coerced to a safe ratio (and logged)
+        rather than crash startup.
+        """
         for raw, expected in [(10, 1.0), (-0.5, 0.0), (0.25, 0.25), ("nope", 1.0)]:
             monkeypatch.setattr(settings, "OTEL_TRACES_SAMPLE_RATIO", raw)
             assert telemetry._sample_ratio() == expected
@@ -71,14 +72,13 @@ class TestOtlpHelpers:
 
 
 class TestResultLatencyFields:
+    """The result dataclass contract."""
+
     def test_latency_ms_defaults_to_zero(self) -> None:
         assert EmbeddingResult(vectors=[], model="m").latency_ms == 0
         assert CompletionResult(text="t", model="m").latency_ms == 0
 
 
-# --------------------------------------------------------------------------- #
-# Recording path - LLM client spans captured by a private in-memory provider
-# --------------------------------------------------------------------------- #
 @pytest.fixture
 def llm_spans(monkeypatch):
     """Route the LLM client's module-level tracer to a local in-memory exporter."""
@@ -91,9 +91,15 @@ def llm_spans(monkeypatch):
 
 
 class TestLlmClientInstrumentation:
+    """Recording path - LLM client spans captured by a private in-memory provider."""
+
     async def test_complete_offline_records_chat_span_with_gen_ai_attributes(
         self, llm_spans
     ) -> None:
+        """The chat span carries the gen_ai attributes - and metadata only.
+
+        Message content must never leak into span attributes.
+        """
         marker = "MARKER-DO-NOT-TRACE-9f3a"
         result = await complete([ChatMessage(role="user", content=f"hi {marker}")])
         assert result.provider == "offline"
@@ -109,10 +115,13 @@ class TestLlmClientInstrumentation:
         assert attrs["gen_ai.usage.input_tokens"] >= 1
         assert attrs["gen_ai.usage.output_tokens"] >= 1
         assert attrs["gen_ai.response.finish_reasons"] == ("stop",)
-        # Metadata only: message content must never leak into span attributes.
         assert all(marker not in str(v) for v in attrs.values())
 
     async def test_embed_texts_offline_records_embeddings_span_and_latency(self, llm_spans) -> None:
+        """The embeddings span carries counts and latency - and metadata only.
+
+        The embedded text must never leak into span attributes.
+        """
         result = await embed_texts(["alpha", "beta"])
         assert isinstance(result.latency_ms, int)
         assert result.latency_ms >= 0
@@ -124,7 +133,6 @@ class TestLlmClientInstrumentation:
         assert attrs["gen_ai.system"] == "offline"
         assert attrs["app.text_count"] == 2
         assert attrs["gen_ai.usage.input_tokens"] == result.tokens
-        # Metadata only: the embedded text must never leak into span attributes.
         assert all("alpha" not in str(v) for v in attrs.values())
 
     async def test_stream_complete_populates_latency_and_ttft_meta(self, llm_spans) -> None:

@@ -22,20 +22,27 @@ from app.core.logging import get_logger
 
 logger = get_logger(__name__)
 
-# Cap remote downloads so a hostile/huge URL cannot exhaust memory.
 MAX_URL_BYTES = 25 * 1024 * 1024
+"""Cap remote downloads so a hostile/huge URL cannot exhaust memory."""
+
 URL_FETCH_TIMEOUT_SECONDS = 30.0
-# Hard wall-clock cap on the whole fetch (redirect loop + streaming). The httpx per-operation
-# timeout resets on every received chunk, so a slow-loris peer dribbling one byte per interval
-# can hold the connection open forever; this deadline bounds the total time regardless.
+
 URL_FETCH_TOTAL_DEADLINE_SECONDS = 60
+"""Hard wall-clock cap on the whole fetch (redirect loop + streaming). The httpx
+per-operation timeout resets on every received chunk, so a slow-loris peer dribbling one byte
+per interval can hold the connection open forever; this deadline bounds the total time
+regardless."""
+
 MAX_URL_REDIRECTS = 5
 
-# Decompression-bomb guards: a small PDF/DOCX can inflate to gigabytes of text and OOM the
-# worker. Cap the extracted output and, for zip-based formats, the declared uncompressed
-# size before parsing.
 MAX_EXTRACTED_CHARS = 20 * 1024 * 1024
+"""Decompression-bomb guard on the extracted output: a small PDF/DOCX can inflate to
+gigabytes of text and OOM the worker."""
+
 MAX_DOCX_UNCOMPRESSED_BYTES = 100 * 1024 * 1024
+"""The same decompression-bomb guard for zip-based formats, applied to the declared
+uncompressed size before parsing."""
+
 MAX_PDF_PAGES = 5000
 
 
@@ -86,6 +93,16 @@ async def _resolve_public_target(url: str) -> _PinnedTarget:
     TOCTOU: the previous approach validated the hostname and then let the HTTP client do a
     second, independent DNS lookup that an attacker-controlled resolver could rebind to an
     internal address between the two.
+
+    ``is_global`` is the single authoritative "routable public address" test: it rejects
+    private, loopback, link-local, reserved, multicast, unspecified AND carrier-grade NAT
+    (100.64.0.0/10) in one check. It is evaluated against the embedded IPv4 address for
+    IPv4-mapped/6to4/Teredo IPv6 forms (see :func:`_guard_address`), so an older interpreter
+    cannot report a wrapped internal target as global, and resolution is rejected if ANY
+    resolved address is non-public so a mixed answer cannot smuggle one through.
+
+    The returned ``host_header`` mirrors the URL authority minus any userinfo, so a
+    non-default port is preserved (host:port) exactly as a normal client would send it.
     """
     parts = urlsplit(url)
     if parts.scheme not in ("http", "https"):
@@ -102,12 +119,6 @@ async def _resolve_public_target(url: str) -> _PinnedTarget:
     resolved: list[ipaddress.IPv4Address | ipaddress.IPv6Address] = []
     for info in infos:
         ip = ipaddress.ip_address(info[4][0])
-        # ``is_global`` is the single authoritative "routable public address" test: it
-        # rejects private, loopback, link-local, reserved, multicast, unspecified AND
-        # carrier-grade NAT (100.64.0.0/10) in one check. Evaluate it against the embedded
-        # IPv4 address for IPv4-mapped/6to4/Teredo IPv6 forms (see ``_guard_address``), so an
-        # older interpreter cannot report a wrapped internal target as global. Reject if ANY
-        # resolved address is non-public so a mixed answer cannot smuggle one through.
         if not _guard_address(ip).is_global:
             raise ValueError(f"Refusing to fetch a non-public address ({ip}) - SSRF protection")
         resolved.append(ip)
@@ -118,8 +129,6 @@ async def _resolve_public_target(url: str) -> _PinnedTarget:
     literal = f"[{pinned}]" if pinned.version == 6 else str(pinned)
     pinned_netloc = f"{literal}:{parts.port}" if parts.port else literal
     pinned_url = urlunsplit((parts.scheme, pinned_netloc, parts.path, parts.query, parts.fragment))
-    # Host header mirrors the URL authority minus any userinfo, so a non-default port is
-    # preserved (host:port) exactly as a normal client would send it.
     host_header = parts.netloc.rsplit("@", 1)[-1]
     return _PinnedTarget(url=pinned_url, host_header=host_header, sni_hostname=host)
 
@@ -157,29 +166,35 @@ def _ext_of(filename: str | None) -> str:
     return filename.rsplit(".", 1)[-1].lower()
 
 
-# Structured formats, in match priority order: (extractor-key, MIME tokens, extensions).
 _STRUCTURED_FORMATS: list[tuple[str, set[str], set[str]]] = [
     ("pdf", {"pdf"}, {"pdf"}),
     ("docx", {"officedocument.wordprocessingml", "msword"}, {"docx"}),
-    # HTML by its own MIME tokens/extensions only. A bare "xml" substring also matches Office
-    # Open XML containers (xlsx/pptx MIMEs contain "openxmlformats"), which would hand a
-    # binary ZIP to the HTML parser and yield ~empty text.
     ("html", {"text/html", "application/xhtml"}, {"html", "htm"}),
     ("tsv", {"tab-separated"}, {"tsv"}),
     ("csv", {"csv"}, {"csv"}),
 ]
+"""Structured formats, in match priority order: (extractor-key, MIME tokens, extensions).
 
-# MIME types we treat as authoritative plain text: a recognized text MIME must NOT be
-# overridden by a misleading filename extension (e.g. a text/plain body titled "report.pdf").
+HTML matches its own MIME tokens/extensions only. A bare "xml" substring would also match
+Office Open XML containers (xlsx/pptx MIMEs contain "openxmlformats"), which would hand a
+binary ZIP to the HTML parser and yield ~empty text."""
+
 _PLAIN_TEXT_MIME_PREFIXES = ("text/",)
+"""MIME prefixes we treat as authoritative plain text: a recognized text MIME must NOT be
+overridden by a misleading filename extension (e.g. a text/plain body titled "report.pdf")."""
+
 _PLAIN_TEXT_MIME_TOKENS = {"markdown", "json", "yaml", "x-yaml", "javascript", "ecmascript"}
+"""MIME substrings carrying the same authoritative-plain-text meaning as
+``_PLAIN_TEXT_MIME_PREFIXES``."""
 
 
 def _detect_format(mime: str, ext: str) -> str | None:
     """Pick an extractor key from MIME (authoritative) then filename extension.
 
     A recognized MIME type wins: only when the MIME is absent or unrecognized do we fall
-    back to sniffing the filename extension. Returns ``None`` to mean "decode as plain text".
+    back to sniffing the filename extension. An unrecognized MIME (e.g.
+    ``application/octet-stream``) is not authoritative, so a correctly-named upload still
+    routes to its extractor. Returns ``None`` to mean "decode as plain text".
     """
     if mime:
         for name, mimes, _exts in _STRUCTURED_FORMATS:
@@ -189,18 +204,16 @@ def _detect_format(mime: str, ext: str) -> str | None:
             token in mime for token in _PLAIN_TEXT_MIME_TOKENS
         ):
             return None
-        # An unrecognized MIME (e.g. application/octet-stream) is not authoritative; fall
-        # through to the extension so a correctly-named upload still routes to its extractor.
     for name, _mimes, exts in _STRUCTURED_FORMATS:
         if ext in exts:
             return name
     return None
 
 
-# Above this fraction of Unicode replacement characters, a "text" decode is really a binary
-# blob (an image/zip/executable uploaded without a usable MIME): fail loudly instead of
-# indexing mojibake.
 _MAX_REPLACEMENT_CHAR_RATIO = 0.10
+"""Above this fraction of Unicode replacement characters, a "text" decode is really a binary
+blob (an image/zip/executable uploaded without a usable MIME): fail loudly instead of
+indexing mojibake."""
 
 
 def _normalize_pdf_text(text: str) -> str:
@@ -217,6 +230,13 @@ def _normalize_pdf_text(text: str) -> str:
 
 
 def _extract_pdf(data: bytes) -> str:
+    """Extract text page by page, enforcing the extracted-size cap INCREMENTALLY.
+
+    A decompression-bomb PDF inflates a small file into gigabytes of text, so extraction
+    aborts as soon as the running total crosses the limit instead of materializing every page
+    and checking only after the join. (The DOCX path guards its declared uncompressed size up
+    front; PDF has no such header, so this running cap is the equivalent bound.)
+    """
     from pypdf import PdfReader
 
     reader = PdfReader(io.BytesIO(data))
@@ -229,11 +249,6 @@ def _extract_pdf(data: bytes) -> str:
             text = page.extract_text() or ""
         except Exception:  # pragma: no cover - malformed page
             continue
-        # Enforce the extracted-size cap INCREMENTALLY: a decompression-bomb PDF inflates a
-        # small file into gigabytes of text, so abort as soon as the running total crosses the
-        # limit instead of materializing every page and checking only after the join (the DOCX
-        # path guards its declared uncompressed size up front; PDF has no such header, so this
-        # running cap is the equivalent bound).
         total += len(text)
         if total > MAX_EXTRACTED_CHARS:
             raise ValueError(f"Extracted text exceeds {MAX_EXTRACTED_CHARS} character limit")
@@ -243,12 +258,15 @@ def _extract_pdf(data: bytes) -> str:
 
 
 def _extract_docx(data: bytes) -> str:
+    """Extract paragraph and table text from a DOCX.
+
+    A DOCX is a ZIP, so a decompression bomb is rejected by its declared uncompressed size
+    before python-docx inflates it into memory.
+    """
     import zipfile
 
     import docx
 
-    # A DOCX is a ZIP; reject a decompression bomb by its declared uncompressed size before
-    # python-docx inflates it into memory.
     try:
         with zipfile.ZipFile(io.BytesIO(data)) as zf:
             uncompressed = sum(info.file_size for info in zf.infolist())
@@ -287,11 +305,14 @@ def _extract_csv(data: bytes, delimiter: str = ",") -> str:
 
 
 def _html_title(data: bytes) -> str | None:
+    """Read the ``<title>`` of an HTML document, or ``None`` if it has none.
+
+    Only ``<title>`` is parsed, so a large document does not build a full tree just to read
+    one tag.
+    """
     try:
         from bs4 import BeautifulSoup, SoupStrainer
 
-        # Parse only ``<title>`` so a large document does not build a full tree just to read
-        # one tag.
         soup = BeautifulSoup(data, "html.parser", parse_only=SoupStrainer("title"))
         if soup.title and soup.title.string:
             return soup.title.string.strip()[:1024] or None
@@ -311,7 +332,10 @@ def extract_text(
     A recognized structured format (PDF/DOCX/HTML/CSV/TSV) whose dedicated extractor
     fails RAISES: those bytes are not text, so decoding them as UTF-8 would index mojibake
     while reporting success. Unrecognized types are decoded as UTF-8 (Markdown, plain
-    text, and the like).
+    text, and the like); if the result is mostly replacement characters the bytes were
+    really binary (an image/zip uploaded without a usable MIME), so that fails too rather
+    than indexing mojibake as if it succeeded. A final length check backstops against any
+    format inflating to an unbounded amount of text.
     """
     if not data:
         return ""
@@ -330,16 +354,12 @@ def extract_text(
     elif fmt == "csv":
         text = _extract_csv(data)
     else:
-        # Markdown, plain text and everything else: decode as UTF-8 text. If the result is
-        # mostly replacement characters the bytes were really binary (an image/zip uploaded
-        # without a usable MIME), so fail rather than index mojibake as if it succeeded.
         text = _decode(data)
         if text:
             replacements = text.count("�")
             if replacements / len(text) > _MAX_REPLACEMENT_CHAR_RATIO:
                 raise ValueError("No extractable text found (content is not decodable text)")
 
-    # Backstop against any format inflating to an unbounded amount of text.
     if len(text) > MAX_EXTRACTED_CHARS:
         raise ValueError(f"Extracted text exceeds {MAX_EXTRACTED_CHARS} character limit")
     return text
@@ -350,20 +370,25 @@ async def fetch_url(url: str) -> FetchResult:
 
     Raises ``ValueError`` on network errors, non-2xx responses or oversized bodies -
     the caller surfaces these as a 400 to the user.
+
+    Redirects are followed MANUALLY so every hop is re-validated against SSRF (httpx's
+    auto-follow would bypass a check made only on the initial URL). Each hop is resolved once
+    and pinned to that IP, so the connection cannot rebind to an internal address after the
+    check. An overall deadline covers the entire fetch (all redirect hops + streaming):
+    httpx's timeout is per-operation and resets on each received chunk, so it cannot bound a
+    slow peer that keeps trickling bytes, and this is the hard wall-clock cap. Its handler
+    must precede the ``OSError`` one - builtin ``TimeoutError`` subclasses ``OSError``, so the
+    broad handler would otherwise swallow the deadline with the generic message.
+
+    Title extraction runs BeautifulSoup over up to ``MAX_URL_BYTES`` of HTML, so that
+    synchronous parse is kept off the request event loop.
     """
     import httpx
 
-    # Redirects are followed MANUALLY so every hop is re-validated against SSRF
-    # (httpx's auto-follow would bypass a check made only on the initial URL). Each hop is
-    # resolved once and pinned to that IP, so the connection cannot rebind to an internal
-    # address after the check.
     content = b""
     mime: str | None = None
     current = url
     try:
-        # Overall deadline over the entire fetch (all redirect hops + streaming). httpx's
-        # timeout is per-operation and resets on each received chunk, so it cannot bound a
-        # slow peer that keeps trickling bytes; this is the hard wall-clock cap.
         async with asyncio.timeout(URL_FETCH_TOTAL_DEADLINE_SECONDS):
             async with httpx.AsyncClient(
                 follow_redirects=False, timeout=URL_FETCH_TIMEOUT_SECONDS
@@ -401,8 +426,6 @@ async def fetch_url(url: str) -> FetchResult:
                 else:
                     raise ValueError("Too many redirects while fetching URL")
     except TimeoutError as exc:
-        # Must precede the OSError handler: builtin TimeoutError subclasses OSError, so the
-        # broad handler would otherwise swallow the deadline with the generic message.
         raise ValueError(
             f"Failed to fetch URL: exceeded {URL_FETCH_TOTAL_DEADLINE_SECONDS}s deadline"
         ) from exc
@@ -415,7 +438,5 @@ async def fetch_url(url: str) -> FetchResult:
         guessed, _ = mimetypes.guess_type(url)
         mime = guessed
 
-    # Title extraction runs BeautifulSoup over up to MAX_URL_BYTES of HTML; keep that
-    # synchronous parse off the request event loop.
     title = (await asyncio.to_thread(_html_title, content)) if (mime and "html" in mime) else None
     return FetchResult(content=content, mime_type=mime, title=title)

@@ -2,8 +2,10 @@ import type { MetadataRoute } from "next";
 
 import { IS_STATIC_SITE } from "@/components/marketing/links";
 
-// See the note in robots.ts: `output: "export"` requires metadata routes to opt into
-// being prerendered.
+/**
+ * See the note in robots.ts: `output: "export"` requires metadata routes to opt into
+ * being prerendered.
+ */
 export const dynamic = "force-static";
 
 /**

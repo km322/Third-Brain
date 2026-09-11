@@ -32,12 +32,14 @@ configure_logging()
 setup_telemetry("third-brain-api")
 logger = get_logger(__name__)
 
-# Secret keys we ship as placeholders and must never run in production.
 _INSECURE_SECRETS = {"", "change-me", "changeme", "secret", "test-secret-key"}
-# Also reject any secret that merely extends a shipped placeholder (e.g. the 40-char
-# ``.env.example`` default ``change-me-to-a-long-random-string-please``), which is long
-# enough to pass the length check but is not actually secret.
+"""Secret keys we ship as placeholders and must never run in production."""
+
 _INSECURE_SECRET_PREFIXES = ("change-me", "changeme")
+"""Also reject any secret that merely extends a shipped placeholder (e.g. the 40-char
+``.env.example`` default ``change-me-to-a-long-random-string-please``), which is long
+enough to pass the length check but is not actually secret."""
+
 _MIN_SECRET_LEN = 32
 
 
@@ -46,7 +48,23 @@ def validate_startup_config() -> None:
 
     * Refuses to boot when the environment is DEPLOYED (staging or production) and
       ``SECRET_KEY`` is a shipped placeholder or too short to be a real signing key.
+    * ``POSTGRES_PASSWORD`` guard: refuses to boot when the bundled Postgres is still on its
+      shipped default password, mirroring the ``SECRET_KEY`` guard above (a deployed env must
+      never run a publicly-known DB credential). Only meaningful when the app derives the DB
+      URL from the ``POSTGRES_*`` parts (an explicit ``DATABASE_URL`` carries its own
+      credentials).
     * Warns (does not block) on wildcard/permissive CORS, refusing to boot when deployed.
+      With ``allow_credentials=True``, Starlette reflects any Origin back and sets
+      ``Access-Control-Allow-Credentials: true``, so ``'*'`` lets any site make credentialed
+      cross-origin calls. Refuse to boot rather than ship that in a deployed env.
+    * Embeddings guard: a live completion provider with no embeddings-capable key (e.g. only
+      ``ANTHROPIC_API_KEY`` - Anthropic has no embeddings API) would silently fall back to the
+      offline stub for embeddings and corrupt the vector store. Per-org connectors can still
+      supply embeddings, so warn here; the embedding call itself raises when it actually hits
+      this fallback.
+    * Local storage: ensures the local upload directory exists so file/text ingestion can
+      write to it. The default (``/data/uploads``) is a mounted volume under docker-compose;
+      when running outside Docker, point ``STORAGE_LOCAL_PATH`` at a writable directory.
     """
     if settings.is_deployed:
         secret = settings.SECRET_KEY or ""
@@ -61,10 +79,6 @@ def validate_startup_config() -> None:
                 "strong, unique SECRET_KEY."
             )
 
-        # Refuse to boot when the bundled Postgres is still on its shipped default password,
-        # mirroring the SECRET_KEY guard above (a deployed env must never run a publicly-known
-        # DB credential). Only meaningful when the app derives the DB URL from the POSTGRES_*
-        # parts (an explicit DATABASE_URL carries its own credentials).
         if not settings.DATABASE_URL and settings.POSTGRES_PASSWORD == "thirdbrain":
             raise RuntimeError(
                 f"Refusing to start in {settings.ENVIRONMENT}: POSTGRES_PASSWORD is the shipped "
@@ -78,18 +92,11 @@ def validate_startup_config() -> None:
             "requests -- this is permissive and unsafe."
         )
         if settings.is_deployed:
-            # With allow_credentials=True, Starlette reflects any Origin back and sets
-            # Access-Control-Allow-Credentials: true, so '*' lets any site make credentialed
-            # cross-origin calls. Refuse to boot rather than ship that in a deployed env.
             raise RuntimeError(
                 f"{msg} Set BACKEND_CORS_ORIGINS to an explicit allowlist when deployed."
             )
         logger.warning("%s", msg)
 
-    # A live completion provider with no embeddings-capable key (e.g. only ANTHROPIC_API_KEY -
-    # Anthropic has no embeddings API) would silently fall back to the offline stub for
-    # embeddings and corrupt the vector store. Per-org connectors can still supply embeddings,
-    # so warn here; the embedding call itself raises when it actually hits this fallback.
     if settings.EMBEDDING_PROVIDER not in ("fake", "offline"):
         from app.services.llm import effective_provider
 
@@ -103,9 +110,6 @@ def validate_startup_config() -> None:
                 "offline stub. Set one to enable real embeddings."
             )
 
-    # Ensure the local upload directory exists so file/text ingestion can write to it.
-    # The default (/data/uploads) is a mounted volume under docker-compose; when running
-    # outside Docker, point STORAGE_LOCAL_PATH at a writable directory.
     if settings.STORAGE_BACKEND == "local":
         try:
             os.makedirs(settings.STORAGE_LOCAL_PATH, exist_ok=True)
@@ -122,10 +126,14 @@ def validate_startup_config() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    """Run the startup document reaper, then close shared clients on shutdown.
+
+    The reaper resets any documents left mid-ingestion by a previous crash/deploy so they
+    surface as FAILED (and can be reprocessed) instead of being stranded in "processing"
+    forever. It never blocks boot: a failure is warned about and swallowed.
+    """
     logger.info("Starting %s v%s (%s)", settings.PROJECT_NAME, __version__, settings.ENVIRONMENT)
 
-    # Reset any documents left mid-ingestion by a previous crash/deploy so they surface as
-    # FAILED (and can be reprocessed) instead of being stranded in "processing" forever.
     try:
         from app.core.db import SessionLocal
         from app.services.ingestion import reap_stuck_documents
@@ -152,6 +160,18 @@ async def lifespan(app: FastAPI):
 
 
 def create_app() -> FastAPI:
+    """Build the FastAPI app: validate config, add middleware, mount every surface.
+
+    Middleware order matters: the *last* added is the outermost. We want the request id
+    bound before anything else runs (so every log line - access log included - carries it),
+    hence ``RequestIDMiddleware`` is registered last. ``BodySizeLimitMiddleware`` is
+    registered first (innermost) so its 413 still flows back out through the
+    security-header, access-log and request-id layers.
+
+    The OpenAI-compatible surface (which defines its own ``/v1`` prefix) and the MCP server
+    mount are both optional during build: an import failure is warned about rather than
+    taking the app down.
+    """
     validate_startup_config()
 
     app = FastAPI(
@@ -163,11 +183,6 @@ def create_app() -> FastAPI:
         openapi_url="/openapi.json",
     )
 
-    # Middleware order matters: the *last* added is the outermost. We want the request
-    # id bound before anything else runs (so every log line - access log included -
-    # carries it), hence RequestIDMiddleware is registered last.
-    # BodySizeLimit is registered first (innermost) so its 413 still flows back out through
-    # the security-header, access-log and request-id layers.
     app.add_middleware(BodySizeLimitMiddleware, max_bytes=settings.MAX_REQUEST_BODY_BYTES)
     app.add_middleware(SecurityHeadersMiddleware)
     app.add_middleware(AccessLogMiddleware)
@@ -194,7 +209,6 @@ def create_app() -> FastAPI:
 
     app.include_router(api_router, prefix=settings.API_V1_PREFIX)
 
-    # OpenAI-compatible surface (defines its own /v1 prefix). Optional during build.
     try:
         from app.api.openai_compat import router as openai_router
 
@@ -202,7 +216,6 @@ def create_app() -> FastAPI:
     except Exception as exc:  # pragma: no cover
         logger.warning("OpenAI-compatible endpoint not mounted: %s", exc)
 
-    # MCP server mount. Optional during build.
     try:
         from app.mcp import mount_mcp
 

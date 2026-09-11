@@ -38,10 +38,9 @@ def _reset_shared_client() -> None:
     llm_client._client = None
 
 
-# --------------------------------------------------------------------------- #
-# Non-streaming stand-ins
-# --------------------------------------------------------------------------- #
 class _FakeResponse:
+    """A non-streaming stand-in for the ``httpx.Response`` the client reads."""
+
     def __init__(self, payload: dict) -> None:
         self._payload = payload
 
@@ -53,6 +52,11 @@ class _FakeResponse:
 
 
 def _make_post_client(payload: dict, captured: dict | None = None):
+    """An ``httpx.AsyncClient`` stand-in whose ``post`` always answers with ``payload``.
+
+    When ``captured`` is passed, the request's url/headers/json are recorded into it.
+    """
+
     class _Client:
         def __init__(self, *args, **kwargs) -> None:  # noqa: ANN002, ANN003
             pass
@@ -76,11 +80,13 @@ def _messages_payload(text: str = "ok", stop_reason: str = "end_turn") -> dict:
     }
 
 
-# --------------------------------------------------------------------------- #
-# Key/base coupling - no platform key may ever reach an org-supplied base, and the
-# Anthropic platform key is only ever paired with the Anthropic platform base.
-# --------------------------------------------------------------------------- #
 class TestEndpointCoupling:
+    """Key/base coupling.
+
+    No platform key may ever reach an org-supplied base, and the Anthropic platform key is
+    only ever paired with the Anthropic platform base.
+    """
+
     def test_custom_base_never_borrows_any_platform_key(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -111,13 +117,13 @@ class TestEndpointCoupling:
     async def test_completion_to_custom_base_sends_no_platform_key(
         self, provider_mode: None, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        """A keyless org connector pointed at an attacker-controlled base URL sends no key."""
         monkeypatch.setattr(settings, "ANTHROPIC_API_KEY", "ANTHROPIC-PLATFORM-SECRET")
         captured: dict = {}
         monkeypatch.setattr(
             llm_client.httpx, "AsyncClient", _make_post_client(_messages_payload(), captured)
         )
 
-        # Keyless org connector pointed at an attacker-controlled base URL.
         await complete(
             [ChatMessage(role="user", content="hi")],
             "claude-haiku-4-5",
@@ -131,13 +137,16 @@ class TestEndpointCoupling:
         assert "x-api-key" not in captured["headers"]
 
 
-# --------------------------------------------------------------------------- #
-# complete() - Anthropic request/response wire shape
-# --------------------------------------------------------------------------- #
 class TestCompleteAnthropic:
+    """:func:`complete` - the Anthropic request/response wire shape."""
+
     async def test_request_and_response_shape(
         self, provider_mode: None, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        """System messages hoist into the top-level system string; tool maps to user.
+
+        ``max_tokens`` is REQUIRED by the API, so the module default fills a ``None``.
+        """
         captured: dict = {}
         payload = {
             "content": [
@@ -166,14 +175,12 @@ class TestCompleteAnthropic:
         assert captured["headers"]["x-api-key"] == "org-key"
         assert captured["headers"]["anthropic-version"] == "2023-06-01"
         body = captured["json"]
-        # System messages hoist into the top-level system string; tool maps to user.
         assert body["system"] == "Be terse."
         assert body["messages"] == [
             {"role": "user", "content": "hi"},
             {"role": "assistant", "content": "hello"},
             {"role": "user", "content": "tool output"},
         ]
-        # max_tokens is REQUIRED by the API - the module default fills a None.
         assert body["max_tokens"] == 16384
         assert body["temperature"] == 0.2
 
@@ -189,7 +196,7 @@ class TestCompleteAnthropic:
             "claude-opus-4-7",
             "claude-opus-4-8",
             "claude-opus-5",
-            "claude-opus-5-20260301",  # dated variant - pins prefix (not exact) matching
+            "claude-opus-5-20260301",
             "claude-sonnet-5",
             "claude-fable-5",
             "claude-mythos-5",
@@ -198,6 +205,11 @@ class TestCompleteAnthropic:
     async def test_temperature_omitted_for_models_that_reject_it(
         self, model: str, provider_mode: None, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        """Models that reject ``temperature`` never receive it.
+
+        ``claude-opus-5-20260301`` is a dated variant, which pins prefix (not exact)
+        matching.
+        """
         captured: dict = {}
         monkeypatch.setattr(
             llm_client.httpx, "AsyncClient", _make_post_client(_messages_payload(), captured)
@@ -257,8 +269,11 @@ class TestCompleteAnthropic:
     async def test_refusal_stop_reason_maps_to_content_filter(
         self, provider_mode: None, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        # Claude 4.5+/5 safety classifiers decline with HTTP 200, stop_reason
-        # "refusal" and empty content - normalized, not passed through raw.
+        """Claude 4.5+/5 safety classifiers decline with HTTP 200.
+
+        The response carries ``stop_reason`` "refusal" and empty content, which the
+        adapter normalizes rather than passing through raw.
+        """
         monkeypatch.setattr(
             llm_client.httpx,
             "AsyncClient",
@@ -305,13 +320,13 @@ class TestCompleteAnthropic:
         assert "[offline model]" in result.text
 
 
-# --------------------------------------------------------------------------- #
-# Platform completion fallback: OpenAI key -> Anthropic key -> Google key -> offline
-# --------------------------------------------------------------------------- #
 class TestPlatformFallback:
+    """The platform completion fallback: OpenAI key -> Anthropic key -> Google key -> offline."""
+
     async def test_anthropic_key_serves_platform_completions(
         self, provider_mode: None, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        """The OpenAI-family default model can't be served by Anthropic, so it is substituted."""
         monkeypatch.setattr(settings, "OPENAI_API_KEY", None)
         monkeypatch.setattr(settings, "ANTHROPIC_API_KEY", "anthro-platform")
         monkeypatch.setattr(settings, "GOOGLE_API_KEY", None)
@@ -325,7 +340,6 @@ class TestPlatformFallback:
 
         assert captured["url"] == f"{settings.ANTHROPIC_BASE_URL}/v1/messages"
         assert captured["headers"]["x-api-key"] == "anthro-platform"
-        # The OpenAI-family default model can't be served by Anthropic - substituted.
         assert captured["json"]["model"] == "claude-opus-5"
         assert result.provider == "anthropic"
 
@@ -355,10 +369,12 @@ class TestPlatformFallback:
         assert result.provider == "offline"
 
 
-# --------------------------------------------------------------------------- #
-# embed_texts() - Anthropic has no embeddings API; fail loudly, never fake vectors.
-# --------------------------------------------------------------------------- #
 class TestEmbeddingsUnsupported:
+    """:func:`embed_texts` against Anthropic, which has no embeddings API.
+
+    It must fail loudly, and never fake vectors.
+    """
+
     async def test_embed_texts_raises_runtime_error(self, provider_mode: None) -> None:
         with pytest.raises(RuntimeError, match="no embeddings API"):
             await embed_texts(
@@ -370,18 +386,19 @@ class TestEmbeddingsUnsupported:
             )
 
 
-# --------------------------------------------------------------------------- #
-# stream_complete() - Anthropic SSE event shape
-# --------------------------------------------------------------------------- #
 def _sse(obj: dict) -> str:
+    """One Anthropic SSE event line."""
     return "data: " + json.dumps(obj)
 
 
 def _text_delta(text: str) -> str:
+    """A ``content_block_delta`` SSE event carrying ``text``."""
     return _sse({"type": "content_block_delta", "delta": {"type": "text_delta", "text": text}})
 
 
 class _FakeStreamResponse:
+    """A streaming stand-in for the ``httpx.Response`` the client iterates."""
+
     def __init__(self, lines: list[str], *, fail_on_status: bool) -> None:
         self._lines = lines
         self._fail_on_status = fail_on_status
@@ -391,9 +408,13 @@ class _FakeStreamResponse:
             raise RuntimeError("provider returned 500")
 
     async def aiter_lines(self):
+        """Yield the canned lines, then simulate the connection dropping mid-stream.
+
+        The drop happens after any real deltas, which is the case the client has to
+        recover from.
+        """
         for line in self._lines:
             yield line
-        # Simulate the provider connection dropping mid-stream, after any real deltas.
         raise RuntimeError("connection dropped mid-stream")
 
 
@@ -409,6 +430,7 @@ class _FakeStreamCtx:
 
 
 def _make_stream_client(lines: list[str], *, fail_on_status: bool = False):
+    """A streaming ``httpx.AsyncClient`` stand-in, plus the dict its request is recorded in."""
     captured: dict = {}
 
     class _Client:
@@ -425,6 +447,8 @@ def _make_stream_client(lines: list[str], *, fail_on_status: bool = False):
 
 
 class TestStreamCompleteAnthropic:
+    """:func:`stream_complete` - the Anthropic SSE event shape."""
+
     async def test_streams_text_deltas_until_message_stop(
         self, provider_mode: None, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -485,8 +509,11 @@ class TestStreamCompleteAnthropic:
     async def test_mid_stream_failure_does_not_append_offline_stub(
         self, provider_mode: None, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        # Real deltas then the connection drops (no message_stop): keep the partial
-        # answer and the real provider attribution, never splice in the canned stub.
+        """Real deltas, then the connection drops with no ``message_stop``.
+
+        Keep the partial answer and the real provider attribution; never splice in the
+        canned stub.
+        """
         lines = [_text_delta("Hello "), _text_delta("world")]
         client_cls, _ = _make_stream_client(lines)
         monkeypatch.setattr(llm_client.httpx, "AsyncClient", client_cls)

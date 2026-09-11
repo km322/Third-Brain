@@ -49,9 +49,6 @@ from app.services.metering import record_audit
 router = APIRouter(prefix="/orgs", tags=["orgs"])
 
 
-# --------------------------------------------------------------------------- #
-# Organizations
-# --------------------------------------------------------------------------- #
 @router.get("", response_model=list[OrgRead])
 async def list_orgs(
     db: AsyncSession = Depends(get_db),
@@ -125,7 +122,11 @@ async def update_current_org(
     db: AsyncSession = Depends(get_db),
     ctx: AuthContext = Depends(require_role(OrgRole.ADMIN)),
 ) -> Organization:
-    """Update the active organization's name and/or settings (admin only)."""
+    """Update the active organization's name and/or settings (admin only).
+
+    ``settings`` is shallow-merged so callers can patch individual keys without losing the
+    rest.
+    """
     org = await db.get(Organization, ctx.org_id)
     if org is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organization not found")
@@ -133,16 +134,12 @@ async def update_current_org(
     if data.get("name") is not None:
         org.name = data["name"].strip()
     if data.get("settings") is not None:
-        # Shallow-merge so callers can patch individual keys without losing the rest.
         org.settings = {**(org.settings or {}), **data["settings"]}
     await db.commit()
     await db.refresh(org)
     return org
 
 
-# --------------------------------------------------------------------------- #
-# Members (admin only)
-# --------------------------------------------------------------------------- #
 async def _load_member(db: AsyncSession, org_id: uuid.UUID, membership_id: uuid.UUID) -> Membership:
     membership = (
         await db.execute(
@@ -191,6 +188,12 @@ async def invite_member(
     Without an email-delivery pipeline, the invitee must already have a Third Brain
     account; the membership is created in the ``INVITED`` state and an admin can move
     it to ``ACTIVE`` via ``PATCH /orgs/members/{id}``.
+
+    The response does NOT embed the invitee's user profile. This endpoint accepts an
+    arbitrary email and is reachable by any org admin (which any self-registered user can
+    become), so returning name/avatar/last_login/created_at would leak a cross-tenant user's
+    profile and make the route a PII-harvesting oracle. The membership fields are enough for
+    the caller; the members list (own-org only) still shows full profiles.
     """
     if payload.role == OrgRole.OWNER and ctx.org_role != OrgRole.OWNER:
         raise HTTPException(
@@ -217,11 +220,6 @@ async def invite_member(
     )
     db.add(membership)
     await db.commit()
-    # Do NOT embed the invitee's user profile in the response. This endpoint accepts an
-    # arbitrary email and is reachable by any org admin (which any self-registered user can
-    # become), so returning name/avatar/last_login/created_at would leak a cross-tenant user's
-    # profile and make the route a PII-harvesting oracle. The membership fields are enough for
-    # the caller; the members list (own-org only) still shows full profiles.
     return MembershipRead(
         id=membership.id,
         org_id=membership.org_id,
@@ -239,19 +237,23 @@ async def update_member(
     db: AsyncSession = Depends(get_db),
     ctx: AuthContext = Depends(require_role(OrgRole.ADMIN)),
 ) -> Membership:
-    """Change a member's role and/or status (admin only)."""
+    """Change a member's role and/or status (admin only).
+
+    Owner-level transitions (in either direction) are owner-only, as is changing an owner's
+    status. An org is never left without an owner, and its last remaining owner cannot be
+    suspended/deactivated either (that would lock everyone out - a suspended owner can't
+    switch into the org).
+    """
     membership = await _load_member(db, ctx.org_id, membership_id)
     data = payload.model_dump(exclude_unset=True)
 
     new_role = data.get("role")
     if new_role is not None and new_role != membership.role:
-        # Owner-level transitions (in either direction) are owner-only.
         if OrgRole.OWNER in (new_role, membership.role) and ctx.org_role != OrgRole.OWNER:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Only an owner can change owner-level roles",
             )
-        # Never leave an org without an owner.
         if (
             membership.role == OrgRole.OWNER
             and new_role != OrgRole.OWNER
@@ -268,14 +270,11 @@ async def update_member(
 
     new_status = data.get("status")
     if new_status is not None:
-        # Changing an owner's status (in either direction) is owner-only.
         if membership.role == OrgRole.OWNER and ctx.org_role != OrgRole.OWNER:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Only an owner can change an owner's status",
             )
-        # Don't let an org suspend/deactivate its last remaining owner (which would
-        # lock everyone out - a suspended owner can't switch into the org).
         if (
             membership.role == OrgRole.OWNER
             and new_status != MembershipStatus.ACTIVE
@@ -300,7 +299,21 @@ async def remove_member(
     db: AsyncSession = Depends(get_db),
     ctx: AuthContext = Depends(require_role(OrgRole.ADMIN)),
 ) -> Response:
-    """Remove a member from the active organization (admin only)."""
+    """Remove a member from the active organization (admin only).
+
+    Removal also purges the user's ACL grants and team memberships in this org.
+    ``AccessGrant.principal_id`` and ``TeamMember.user_id`` have no FK to the membership, so
+    without this a later re-invite of the same user would silently restore every
+    grant/team-derived permission they once held - access no admin re-granted. Collection
+    ownership has no FK to the membership either; it is cleared so a removed owner keeps no
+    implicit MANAGER on collections they owned (which a later re-invite of the same user
+    would otherwise silently restore).
+
+    API keys the removed user created OR that impersonate them are revoked, scoped to this
+    org. These keys carry the org's access independently of the membership row, so without
+    this an offboarded admin keeps live programmatic access indefinitely (a non-acts_as key
+    does not even depend on the deleted user still being active).
+    """
     membership = await _load_member(db, ctx.org_id, membership_id)
     if membership.user_id == ctx.user_id:
         raise HTTPException(
@@ -321,10 +334,6 @@ async def remove_member(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Cannot remove the last owner of the organization",
             )
-    # Purge the user's ACL grants and team memberships in this org. AccessGrant.principal_id
-    # and TeamMember.user_id have no FK to the membership, so without this a later re-invite
-    # of the same user would silently restore every grant/team-derived permission they once
-    # held - access no admin re-granted.
     await db.execute(
         delete(AccessGrant).where(
             AccessGrant.org_id == ctx.org_id,
@@ -338,18 +347,11 @@ async def remove_member(
             TeamMember.team_id.in_(select(Team.id).where(Team.org_id == ctx.org_id)),
         )
     )
-    # Collection ownership has no FK to the membership either; clear it so a removed owner
-    # keeps no implicit MANAGER on collections they owned (which a later re-invite of the
-    # same user would otherwise silently restore).
     await db.execute(
         update(Collection)
         .where(Collection.org_id == ctx.org_id, Collection.owner_id == membership.user_id)
         .values(owner_id=None)
     )
-    # Revoke API keys the removed user created OR that impersonate them, scoped to this org.
-    # These keys carry the org's access independently of the membership row, so without this
-    # an offboarded admin keeps live programmatic access indefinitely (a non-acts_as key does
-    # not even depend on the deleted user still being active).
     await db.execute(
         update(ApiKey)
         .where(

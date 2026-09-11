@@ -31,6 +31,7 @@ async function bridgeSession({ url, apiKey = API_KEY, lines }) {
   return { raw, responses, logs };
 }
 
+/** Exactly one newline-terminated line per response: the protocol framing. */
 test("round-trips requests and writes one line per response", async () => {
   const server = await startFakeServer();
   try {
@@ -47,13 +48,13 @@ test("round-trips requests and writes one line per response", async () => {
     assert.equal(responses[1].id, 2);
     const names = responses[1].result.tools.map((tool) => tool.name);
     assert.ok(names.includes("search_knowledge"));
-    // Exactly one newline-terminated line per response: the protocol framing.
     assert.equal(raw.split("\n").length - 1, 2);
   } finally {
     await server.close();
   }
 });
 
+/** Two POSTs reach the server: the notification was forwarded, it just gets no reply. */
 test("notifications are forwarded but produce no stdout", async () => {
   const server = await startFakeServer();
   try {
@@ -69,7 +70,7 @@ test("notifications are forwarded but produce no stdout", async () => {
     const forwarded = server.requests.filter(
       (req) => req.method === "POST" && req.url === "/mcp",
     );
-    assert.equal(forwarded.length, 2); // the notification did reach the server
+    assert.equal(forwarded.length, 2);
   } finally {
     await server.close();
   }
@@ -98,9 +99,14 @@ test("server-side JSON-RPC errors are relayed verbatim", async () => {
   }
 });
 
+/**
+ * The fake server is closed before the session starts, so the port is dead. The failed
+ * request gets an error reply carrying its id; the failed notification stays silent. Both
+ * failures are logged to stderr, never to stdout.
+ */
 test("connection failures map to a JSON-RPC error with the request id", async () => {
   const server = await startFakeServer();
-  await server.close(); // the port is now dead
+  await server.close();
   const { responses, logs } = await bridgeSession({
     url: server.url,
     lines: [
@@ -108,11 +114,11 @@ test("connection failures map to a JSON-RPC error with the request id", async ()
       JSON.stringify({ jsonrpc: "2.0", method: "notifications/progress" }),
     ],
   });
-  assert.equal(responses.length, 1); // the failed notification stays silent
+  assert.equal(responses.length, 1);
   assert.equal(responses[0].id, 42);
   assert.equal(responses[0].error.code, TRANSPORT_ERROR);
   assert.match(responses[0].error.message, /transport error/i);
-  assert.equal(logs.length, 2); // both failures logged to stderr, never stdout
+  assert.equal(logs.length, 2);
 });
 
 test("non-2xx HTTP responses map to a JSON-RPC error with the request id", async () => {
@@ -131,6 +137,7 @@ test("non-2xx HTTP responses map to a JSON-RPC error with the request id", async
   }
 });
 
+/** The single reply is the server's own parse-error response, relayed unchanged. */
 test("blank lines are ignored and unparseable lines still get a reply", async () => {
   const server = await startFakeServer();
   try {
@@ -138,7 +145,7 @@ test("blank lines are ignored and unparseable lines still get a reply", async ()
       url: server.url,
       lines: ["", "   ", "{not json"],
     });
-    assert.equal(responses.length, 1); // the server's parse-error reply, relayed
+    assert.equal(responses.length, 1);
     assert.equal(responses[0].id, null);
     assert.equal(responses[0].error.code, -32700);
   } finally {
@@ -146,6 +153,7 @@ test("blank lines are ignored and unparseable lines still get a reply", async ()
   }
 });
 
+/** A batch of only notifications stays silent on failure; one with a request replies. */
 test("classifyMessage distinguishes requests, notifications and garbage", () => {
   assert.deepEqual(classifyMessage('{"jsonrpc":"2.0","id":9,"method":"ping"}'), {
     id: 9,
@@ -157,7 +165,6 @@ test("classifyMessage distinguishes requests, notifications and garbage", () => 
   });
   assert.deepEqual(classifyMessage("{oops"), { id: null, isNotification: false });
   assert.deepEqual(classifyMessage("[1,2]"), { id: null, isNotification: false });
-  // A batch of only notifications stays silent on failure; a batch with a request replies.
   assert.deepEqual(classifyMessage('[{"method":"a"},{"method":"b"}]'), {
     id: null,
     isNotification: true,
@@ -168,9 +175,14 @@ test("classifyMessage distinguishes requests, notifications and garbage", () => 
   });
 });
 
+/**
+ * The bridge dispatches concurrently, so a slow first request must not delay a fast
+ * second one; JSON-RPC clients match by id, so out-of-order arrival is fine. The fake
+ * fetch holds the first request on a gate until the second has been answered, and the
+ * gate is only released after the fast request has had time to complete - so the expected
+ * reply order is [2, 1]: the fast one replied first despite being sent second.
+ */
 test("a slow request does not head-of-line block a fast one (out-of-order ok)", async () => {
-  // The bridge dispatches concurrently, so a slow first request must not delay a fast
-  // second one; JSON-RPC clients match by id, so out-of-order arrival is fine.
   let firstResolve;
   const gate = new Promise((resolve) => {
     firstResolve = resolve;
@@ -180,7 +192,7 @@ test("a slow request does not head-of-line block a fast one (out-of-order ok)", 
     const msg = JSON.parse(init.body);
     call += 1;
     if (call === 1) {
-      await gate; // hold the first request until the second has been answered
+      await gate;
     }
     return {
       status: 200,
@@ -202,20 +214,23 @@ test("a slow request does not head-of-line block a fast one (out-of-order ok)", 
   input.write(JSON.stringify({ jsonrpc: "2.0", id: 2, method: "fast" }) + "\n");
   input.end();
 
-  // Give the fast (second) request time to complete before releasing the slow one.
   await new Promise((resolve) => setTimeout(resolve, 20));
   firstResolve();
   await done;
 
-  assert.deepEqual(order, [2, 1]); // fast replied first despite being sent second
+  assert.deepEqual(order, [2, 1]);
 });
 
+/**
+ * The id used here is beyond 2^53, so a JSON parse/stringify round-trip would corrupt it.
+ * The fake response body is a single line, which the bridge must pass through verbatim
+ * rather than re-serialize.
+ */
 test("large numeric ids survive the bridge without precision loss", async () => {
-  const bigId = "12345678901234567890"; // beyond 2^53; a JSON round-trip would corrupt it
+  const bigId = "12345678901234567890";
   const fetchImpl = async () => ({
     status: 200,
     ok: true,
-    // Single-line body: the bridge must pass it through verbatim, not re-serialize.
     text: async () => `{"jsonrpc":"2.0","id":${bigId},"result":{}}`,
   });
   const input = new PassThrough();

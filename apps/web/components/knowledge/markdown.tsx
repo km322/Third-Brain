@@ -12,8 +12,11 @@ import * as React from "react";
  * renders as plain text, which is the safe default.
  */
 
-// Quantifiers are bounded so a pathological line (many "[" with no closing "]") cannot
-// backtrack quadratically and freeze the tab while typing.
+/**
+ * Inline span tokens: bold, italic, inline code and links. Quantifiers are bounded
+ * so a pathological line (many "[" with no closing "]") cannot backtrack
+ * quadratically and freeze the tab while typing.
+ */
 const INLINE_RE =
   /(\*\*[^*]{1,500}\*\*|\*[^*\n]{1,500}\*|`[^`\n]{1,500}`|\[[^\]\n]{1,500}\]\([^)\s]{1,2000}\))/g;
 
@@ -77,6 +80,13 @@ interface Block {
   node: React.ReactNode;
 }
 
+/**
+ * Split `text` into block-level nodes, testing each line against the block kinds
+ * in turn: fenced code block (whose closing fence, or EOF, is consumed with it),
+ * heading, horizontal rule, blockquote (consecutive `>` lines), unordered list,
+ * ordered list, and finally a paragraph - consecutive plain lines joined with
+ * soft breaks.
+ */
 function parseBlocks(text: string): Block[] {
   const lines = text.replaceAll("\r\n", "\n").split("\n");
   const blocks: Block[] = [];
@@ -91,7 +101,6 @@ function parseBlocks(text: string): Block[] {
       continue;
     }
 
-    // Fenced code block.
     if (line.trimStart().startsWith("```")) {
       const body: string[] = [];
       i += 1;
@@ -99,7 +108,7 @@ function parseBlocks(text: string): Block[] {
         body.push(lines[i]);
         i += 1;
       }
-      i += 1; // closing fence (or EOF)
+      i += 1;
       blocks.push({
         key: key++,
         node: (
@@ -111,7 +120,6 @@ function parseBlocks(text: string): Block[] {
       continue;
     }
 
-    // Heading.
     const heading = /^(#{1,6})\s+(.*)$/.exec(line);
     if (heading) {
       const level = heading[1].length;
@@ -124,14 +132,12 @@ function parseBlocks(text: string): Block[] {
       continue;
     }
 
-    // Horizontal rule.
     if (/^\s*(-{3,}|\*{3,}|_{3,})\s*$/.test(line)) {
       blocks.push({ key: key++, node: <hr className="my-4 border-border" /> });
       i += 1;
       continue;
     }
 
-    // Blockquote (consecutive > lines).
     if (line.trimStart().startsWith(">")) {
       const body: string[] = [];
       while (i < lines.length && lines[i].trimStart().startsWith(">")) {
@@ -149,7 +155,6 @@ function parseBlocks(text: string): Block[] {
       continue;
     }
 
-    // Unordered list.
     if (/^\s*[-*]\s+/.test(line)) {
       const items: string[] = [];
       while (i < lines.length && /^\s*[-*]\s+/.test(lines[i])) {
@@ -169,7 +174,6 @@ function parseBlocks(text: string): Block[] {
       continue;
     }
 
-    // Ordered list.
     if (/^\s*\d+[.)]\s+/.test(line)) {
       const items: string[] = [];
       while (i < lines.length && /^\s*\d+[.)]\s+/.test(lines[i])) {
@@ -189,7 +193,6 @@ function parseBlocks(text: string): Block[] {
       continue;
     }
 
-    // Paragraph: consecutive plain lines join with soft breaks.
     const body: string[] = [];
     while (
       i < lines.length &&

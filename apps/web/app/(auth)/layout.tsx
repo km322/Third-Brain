@@ -14,9 +14,7 @@ import { LOGO_PATH, LogoLockup, LogoMark } from "@/components/brand/logo";
 export default function AuthLayout({ children }: { children: ReactNode }) {
   return (
     <div className="grid min-h-screen lg:grid-cols-2">
-      {/* Brand panel - decorative, hidden on small screens. */}
       <aside className="relative hidden border-r border-border/60 bg-muted/30 dark:bg-card lg:block">
-        {/* Watermark: the mark's own geometry drawn as a hairline. */}
         <div
           aria-hidden
           className="pointer-events-none absolute inset-0 flex items-center justify-center overflow-hidden"
@@ -44,7 +42,6 @@ export default function AuthLayout({ children }: { children: ReactNode }) {
         </Link>
       </aside>
 
-      {/* Form column. */}
       <main className="flex flex-col px-6 py-8 sm:px-12">
         <div className="flex items-center justify-between">
           <Link
@@ -55,7 +52,6 @@ export default function AuthLayout({ children }: { children: ReactNode }) {
             Back to home
           </Link>
 
-          {/* Compact lockup shown when the brand panel is hidden. */}
           <LogoLockup
             className="lg:hidden"
             markClassName="h-6 w-6"

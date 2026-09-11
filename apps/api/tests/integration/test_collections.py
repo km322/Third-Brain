@@ -63,7 +63,8 @@ async def test_divergent_embedding_model_is_rejected(
     client, db_session, token_headers, api
 ) -> None:
     """All chunks share one global vector space, so a per-collection embedding model in a
-    different space is rejected rather than silently corrupting retrieval."""
+    different space is rejected rather than silently corrupting retrieval. The platform model
+    itself is an explicit no-op override and stays accepted."""
     from app.core.config import settings
 
     org, owner, _ = await factories.create_org_with_owner(db_session)
@@ -76,7 +77,6 @@ async def test_divergent_embedding_model_is_rejected(
     )
     assert rejected.status_code == 422, rejected.text
 
-    # The platform model itself (an explicit no-op override) is accepted.
     ok = await client.post(
         f"{api}/collections",
         headers=headers,

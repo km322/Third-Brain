@@ -36,8 +36,13 @@ function Brand({ onClick }: { onClick?: () => void }) {
 }
 
 /**
- * Sticky top navigation. Collapses to a slide-down panel on mobile and grows a
- * hairline border, blur and whisper shadow once the page is scrolled.
+ * Sticky top navigation. Collapses to a slide-down panel on mobile (which locks
+ * body scroll while it is open) and grows a hairline border, blur and whisper
+ * shadow once the page is scrolled.
+ *
+ * The desktop link row is absolutely positioned so the links center on the bar
+ * itself, not on the leftover space between the (narrower) brand and the (wider)
+ * actions.
  */
 export function Navbar() {
   const [open, setOpen] = React.useState(false);
@@ -50,7 +55,6 @@ export function Navbar() {
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
 
-  // Lock body scroll while the mobile panel is open.
   React.useEffect(() => {
     document.body.style.overflow = open ? "hidden" : "";
     return () => {
@@ -70,8 +74,6 @@ export function Navbar() {
       <div className="container relative flex h-16 items-center justify-between gap-6">
         <Brand onClick={() => setOpen(false)} />
 
-        {/* Absolutely positioned so the links center on the bar itself, not the
-            leftover space between the (narrower) brand and (wider) actions. */}
         <nav className="absolute left-1/2 top-1/2 hidden -translate-x-1/2 -translate-y-1/2 items-center gap-7 md:flex">
           {NAV_LINKS.map((link) => (
             <Link
@@ -117,7 +119,6 @@ export function Navbar() {
         </div>
       </div>
 
-      {/* Mobile panel */}
       {open && (
         <div className="border-t border-border/60 bg-background/95 backdrop-blur-xl md:hidden">
           <div className="container flex flex-col py-4">

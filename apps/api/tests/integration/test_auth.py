@@ -22,10 +22,14 @@ pytestmark = pytest.mark.integration
 
 async def test_login_is_rate_limited(client, api, monkeypatch) -> None:
     """Repeated login attempts for one identifier from one IP are throttled (429), so the
-    auth endpoints cannot be brute-forced / credential-stuffed at full request rate."""
+    auth endpoints cannot be brute-forced / credential-stuffed at full request rate.
+
+    The limiter clock is frozen so every attempt lands in the same 60s window (no boundary
+    flake). The first attempts are ordinary 401s; once the per-minute budget is spent, 429
+    kicks in.
+    """
     import app.core.deps as deps
 
-    # Freeze the limiter clock so every attempt lands in the same 60s window (no boundary flake).
     frozen = real_datetime(2024, 1, 1, 12, 0, 30, tzinfo=UTC)
 
     class _FrozenDatetime:
@@ -37,7 +41,6 @@ async def test_login_is_rate_limited(client, api, monkeypatch) -> None:
 
     body = {"email": f"brute-{uuid.uuid4().hex}@example.com", "password": "wrong-password"}
     statuses = [(await client.post(f"{api}/auth/login", json=body)).status_code for _ in range(12)]
-    # The first attempts are ordinary 401s; once the per-minute budget is spent, 429 kicks in.
     assert 429 in statuses, statuses
     assert statuses[-1] == 429, statuses
 
@@ -93,6 +96,7 @@ async def test_login_wrong_password_is_unauthorized(client, api, register) -> No
 
 
 async def test_refresh_issues_new_access_token(client, api, register) -> None:
+    """A refresh mints an access token that authenticates."""
     session = await register(client)
     refresh_token = session["tokens"]["refresh_token"]
 
@@ -101,7 +105,6 @@ async def test_refresh_issues_new_access_token(client, api, register) -> None:
     new_tokens = resp.json()
     assert new_tokens["access_token"]
 
-    # The freshly-minted access token authenticates.
     me = await client.get(
         f"{api}/users/me",
         headers={"Authorization": f"Bearer {new_tokens['access_token']}"},
@@ -112,8 +115,11 @@ async def test_refresh_issues_new_access_token(client, api, register) -> None:
 
 async def test_refresh_preserves_active_org(client, api, register) -> None:
     """Passing the active org to /auth/refresh resumes into it, so a silent token refresh
-    doesn't quietly switch the user back to their default org mid-session (finding 9)."""
-    session = await register(client)  # bootstraps org A as the default
+    doesn't quietly switch the user back to their default org mid-session (finding 9).
+
+    Registering bootstraps org A as the default, and the refresh below asks for org B.
+    """
+    session = await register(client)
     headers = session["headers"]
 
     created = await client.post(f"{api}/orgs", headers=headers, json={"name": "Second Org"})
@@ -133,8 +139,8 @@ async def test_refresh_preserves_active_org(client, api, register) -> None:
 
 
 async def test_refresh_rejects_an_access_token(client, api, register) -> None:
+    """Passing the *access* token where a refresh token is expected must fail."""
     session = await register(client)
-    # Passing the *access* token where a refresh token is expected must fail.
     resp = await client.post(
         f"{api}/auth/refresh",
         json={"refresh_token": session["tokens"]["access_token"]},
@@ -155,11 +161,11 @@ async def test_access_token_with_non_uuid_subject_is_unauthorized(client, api) -
 async def test_access_token_with_non_uuid_org_is_unauthorized(client, api, register) -> None:
     """A validly-signed access token whose ``org`` claim is not a UUID must yield 401,
     not a 500. A real, active user is used for ``sub`` so resolution reaches the org
-    claim before the malformed value is parsed."""
+    claim before the malformed value is parsed. ``ver`` matches the fresh user's
+    token_version (0) so resolution passes the session-revocation check and reaches the
+    malformed org claim under test."""
     session = await register(client)
     user_id = decode_token(session["tokens"]["access_token"])["sub"]
-    # ``ver`` matches the fresh user's token_version (0) so resolution passes the
-    # session-revocation check and reaches the malformed org claim under test.
     token = create_access_token(user_id, extra={"org": "not-a-uuid", "ver": 0})
     resp = await client.get(f"{api}/users/me", headers={"Authorization": f"Bearer {token}"})
     assert resp.status_code == 401, resp.text
@@ -167,11 +173,11 @@ async def test_access_token_with_non_uuid_org_is_unauthorized(client, api, regis
 
 
 async def test_logout_and_unauthenticated_access(client, api, register) -> None:
+    """After logout, no credentials at all -> 401 on a protected route."""
     session = await register(client)
     logout = await client.post(f"{api}/auth/logout", headers=session["headers"])
     assert logout.status_code == 204, logout.text
 
-    # No credentials at all -> 401 on a protected route.
     anon = await client.get(f"{api}/users/me")
     assert anon.status_code == 401, anon.text
 
@@ -232,10 +238,16 @@ async def test_logout_does_not_revoke_another_users_refresh_token(client, api, r
 async def test_refresh_rate_limit_is_keyed_per_token(client, api, register, monkeypatch) -> None:
     """The refresh limiter keys on a hash of the whole token, not a shared JWT prefix:
     distinct tokens from one IP never contend for a bucket (12 rotations all succeed),
-    while replaying one token from one IP is throttled like any brute-force attempt."""
+    while replaying one token from one IP is throttled like any brute-force attempt.
+
+    The limiter clock is frozen so every attempt lands in the same 60s window (no boundary
+    flake). The first half rotates through 12 refreshes, always presenting the newest token -
+    under the old constant-prefix key those would share one bucket and start 429ing. The
+    second half replays a single token 12 times, which shares one bucket and is throttled
+    after the first exchange succeeds.
+    """
     import app.core.deps as deps
 
-    # Freeze the limiter clock so every attempt lands in the same 60s window (no boundary flake).
     frozen = real_datetime(2024, 1, 1, 12, 0, 30, tzinfo=UTC)
 
     class _FrozenDatetime:
@@ -245,8 +257,6 @@ async def test_refresh_rate_limit_is_keyed_per_token(client, api, register, monk
 
     monkeypatch.setattr(deps, "datetime", _FrozenDatetime)
 
-    # Distinct tokens: rotate through 12 refreshes, always presenting the newest token.
-    # Under the old constant-prefix key these would share one bucket and start 429ing.
     session = await register(client)
     token = session["tokens"]["refresh_token"]
     for attempt in range(12):
@@ -254,19 +264,21 @@ async def test_refresh_rate_limit_is_keyed_per_token(client, api, register, monk
         assert resp.status_code == 200, f"attempt {attempt}: {resp.status_code} {resp.text}"
         token = resp.json()["refresh_token"]
 
-    # The same token replayed 12 times shares one bucket and is throttled.
     other = await register(client)
     same = other["tokens"]["refresh_token"]
     statuses = [
         (await client.post(f"{api}/auth/refresh", json={"refresh_token": same})).status_code
         for _ in range(12)
     ]
-    assert statuses[0] == 200, statuses  # first exchange succeeds
+    assert statuses[0] == 200, statuses
     assert 429 in statuses, statuses
     assert statuses[-1] == 429, statuses
 
 
 async def test_change_password_wrong_current_is_rejected(client, api, register) -> None:
+    """A wrong current password is rejected and the credentials are unchanged: the original
+    password still logs in.
+    """
     session = await register(client)
     resp = await client.post(
         f"{api}/auth/change-password",
@@ -275,7 +287,6 @@ async def test_change_password_wrong_current_is_rejected(client, api, register) 
     )
     assert resp.status_code == 400, resp.text
 
-    # The credentials are unchanged: the original password still logs in.
     login = await client.post(
         f"{api}/auth/login",
         json={"email": session["email"], "password": session["password"]},
@@ -287,7 +298,12 @@ async def test_change_password_rotates_credentials_and_revokes_old_sessions(
     client, api, register
 ) -> None:
     """A successful password change returns a working token pair minted with the new
-    ``token_version`` while both the old access AND old refresh tokens die (401)."""
+    ``token_version`` while both the old access AND old refresh tokens die (401).
+
+    The fresh pair works, so the caller stays signed in without re-authenticating; every
+    pre-change session is revoked, access and refresh alike; and only the new password
+    authenticates afterwards.
+    """
     session = await register(client)
     old_access = session["tokens"]["access_token"]
     old_refresh = session["tokens"]["refresh_token"]
@@ -300,7 +316,6 @@ async def test_change_password_rotates_credentials_and_revokes_old_sessions(
     assert resp.status_code == 200, resp.text
     new_tokens = resp.json()
 
-    # The fresh pair works: the caller stays signed in without re-authenticating.
     me = await client.get(
         f"{api}/users/me", headers={"Authorization": f"Bearer {new_tokens['access_token']}"}
     )
@@ -310,13 +325,11 @@ async def test_change_password_rotates_credentials_and_revokes_old_sessions(
     )
     assert refreshed.status_code == 200, refreshed.text
 
-    # Every pre-change session is revoked - access and refresh alike.
     old_me = await client.get(f"{api}/users/me", headers={"Authorization": f"Bearer {old_access}"})
     assert old_me.status_code == 401, old_me.text
     old_ref = await client.post(f"{api}/auth/refresh", json={"refresh_token": old_refresh})
     assert old_ref.status_code == 401, old_ref.text
 
-    # Only the new password authenticates.
     new_login = await client.post(
         f"{api}/auth/login", json={"email": session["email"], "password": "N3w-Sup3rSecret!"}
     )

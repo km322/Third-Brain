@@ -19,20 +19,24 @@ const IS_CI = !!process.env.CI;
 
 export default defineConfig({
   testDir: "./e2e",
-  // Collect only spec files; shared helpers live alongside them but must not be
-  // treated as tests.
+  /**
+   * Collect only spec files; shared helpers live alongside them but must not be
+   * treated as tests.
+   */
   testMatch: /.*\.spec\.ts$/,
 
-  // Ingestion + retrieval are asynchronous (worker + embeddings), so give each
-  // test room while still failing fast on a genuinely stuck flow.
+  /**
+   * Ingestion + retrieval are asynchronous (worker + embeddings), so give each
+   * test room while still failing fast on a genuinely stuck flow.
+   */
   timeout: 90_000,
   expect: { timeout: 15_000 },
 
   fullyParallel: true,
-  // Never let a committed `test.only` silently narrow the CI run.
+  /** Never let a committed `test.only` silently narrow the CI run. */
   forbidOnly: IS_CI,
   retries: IS_CI ? 2 : 0,
-  // Keep runs deterministic in CI (shared backend state); parallelize locally.
+  /** Keep runs deterministic in CI (shared backend state); parallelize locally. */
   workers: IS_CI ? 1 : undefined,
 
   reporter: IS_CI

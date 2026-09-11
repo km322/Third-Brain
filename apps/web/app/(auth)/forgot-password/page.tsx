@@ -45,12 +45,16 @@ const forgotSchema = z.object({
 
 type ForgotValues = z.infer<typeof forgotSchema>;
 
+/**
+ * Password-reset guidance.
+ *
+ * Self-service (emailed) reset needs a delivery pipeline the backend does not have yet.
+ * What exists today: an owner/admin resets the password from the Members page and hands
+ * the user a temporary password, which they change under Settings > Security. Rather
+ * than falsely claim a link was sent, this page explains that flow. `submitted` just
+ * toggles the guidance card.
+ */
 export default function ForgotPasswordPage() {
-  // Self-service (emailed) reset needs a delivery pipeline the backend does not have yet.
-  // What exists today: an owner/admin resets the password from the Members page and hands
-  // the user a temporary password, which they change under Settings > Security. Rather
-  // than falsely claim a link was sent, this page explains that flow. `submitted` just
-  // toggles the guidance card.
   const [submitted, setSubmitted] = React.useState(false);
 
   const {

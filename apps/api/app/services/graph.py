@@ -41,13 +41,13 @@ from app.services.permissions import RetrievalScope, build_retrieval_scope
 logger = get_logger(__name__)
 tracer = get_tracer(__name__)
 
-# Similarity graphs are stable over short windows and expensive to compute, so cache the
-# whole payload briefly. The key varies per caller-visibility (see ``_cache_key``).
 _GRAPH_CACHE_TTL_SECONDS = 300
+"""Similarity graphs are stable over short windows and expensive to compute, so cache the
+whole payload briefly. The key varies per caller-visibility (see ``_cache_key``)."""
 
-# Upper bound on how many visible documents the single-document ``neighbors`` view scans
-# for centroids: the richest documents win, mirroring the whole-graph node cap.
 _NEIGHBOR_CANDIDATE_CAP = 1000
+"""Upper bound on how many visible documents the single-document ``neighbors`` view scans
+for centroids: the richest documents win, mirroring the whole-graph node cap."""
 
 _NODE_COLUMNS = (
     Document.id,
@@ -106,11 +106,14 @@ def _cache_key(
     *,
     center_id: uuid.UUID | None = None,
 ) -> str:
-    # Hash the exact capped visible-id set so two principals only ever share a cached graph
-    # when they see exactly the same documents. ``total_visible`` disambiguates callers whose
-    # capped set is identical but whose full visible count (and thus ``truncated``) differs.
-    # ``center_id`` namespaces the single-document neighbours subgraph so it can never
-    # collide with the whole-org graph key.
+    """The visibility-keyed Redis cache key for a graph payload.
+
+    Hashes the exact capped visible-id set so two principals only ever share a cached graph
+    when they see exactly the same documents. ``total_visible`` disambiguates callers whose
+    capped set is identical but whose full visible count (and thus ``truncated``) differs.
+    ``center_id`` namespaces the single-document neighbours subgraph so it can never
+    collide with the whole-org graph key.
+    """
     digest = hashlib.sha256(",".join(sorted(str(i) for i in ids)).encode("utf-8")).hexdigest()
     collection = str(collection_id) if collection_id else "all"
     prefix = f"graph-neighbors:{center_id}" if center_id is not None else "graph"
@@ -123,7 +126,10 @@ def _cache_key(
 async def _fetch_nodes(
     db: AsyncSession, scope: RetrievalScope, limit: int
 ) -> tuple[list[Row], int]:
-    """Return the capped node rows (richest documents first) and the total visible count."""
+    """Return the capped node rows and the total visible count.
+
+    Richest documents win the cap: most chunks, then most recently indexed/created.
+    """
     visible = _visible_indexed_chunk_select(scope).distinct().subquery()
     total_visible = int(await db.scalar(select(func.count()).select_from(visible)) or 0)
     rows = (
@@ -131,7 +137,6 @@ async def _fetch_nodes(
             select(*_NODE_COLUMNS)
             .join(Collection, Collection.id == Document.collection_id)
             .where(Document.id.in_(select(visible.c.document_id)))
-            # Richest documents win the cap: most chunks, then most recently indexed/created.
             .order_by(
                 Document.chunk_count.desc(),
                 Document.indexed_at.desc().nulls_last(),

@@ -15,10 +15,11 @@ import { IS_STATIC_SITE } from "@/components/marketing/links";
  *
  * Absolute base matches `metadataBase` in app/layout.tsx; the fallback keeps a local
  * build valid.
+ *
+ * `force-static` because Next compiles metadata routes to Route Handlers, and
+ * `output: "export"` refuses to build one that has not opted into being prerendered.
+ * Both builds want the same thing: a file computed once at build time.
  */
-// Next compiles metadata routes to Route Handlers, and `output: "export"` refuses to
-// build one that has not opted into being prerendered. Both builds want the same thing:
-// a file computed once at build time.
 export const dynamic = "force-static";
 
 export default function robots(): MetadataRoute.Robots {

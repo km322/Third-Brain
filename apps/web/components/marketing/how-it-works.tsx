@@ -25,6 +25,10 @@ const STEPS: Step[] = [
   },
 ];
 
+/**
+ * The three-step story - connect, work, documented - closing on the permission
+ * gate stated as a set-piece sentence.
+ */
 export function HowItWorks() {
   return (
     <section
@@ -56,7 +60,6 @@ export function HowItWorks() {
           ))}
         </div>
 
-        {/* The permission gate, as a set-piece sentence. */}
         <div className="mx-auto mt-20 max-w-2xl text-center">
           <p className="text-balance text-xl font-medium leading-snug tracking-[-0.01em] text-foreground sm:text-2xl">
             Before any chunk reaches a model, the permission gate drops everything the

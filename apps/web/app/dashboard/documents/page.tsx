@@ -207,25 +207,34 @@ function ChunkSheet({
   );
 }
 
+/**
+ * The documents table with its filters, chunk viewer and row actions.
+ *
+ * Reprocess and Delete require EDITOR+ on the backend, and a plain viewer would only get
+ * a 403, so those actions are not offered to them.
+ *
+ * The collection and author filters are URL-seeded. The App Router does not remount the
+ * page when only search params change (e.g. clicking the sidebar "Documents" link while
+ * filtered), so an effect re-syncs each filter whenever its param actually changes. The
+ * author filter means ALL = everyone and "mcp" = written by connected agents, deep-linkable
+ * via ?via=mcp exactly as ?collection= seeds the collection filter. Any filter change
+ * resets back to the first page, and the chunk viewer is itself deep-linkable from
+ * citations (`?doc=<id>`).
+ *
+ * The list polls while any visible document is still being ingested.
+ */
 function DocumentsInner() {
   const searchParams = useSearchParams();
   const queryClient = useQueryClient();
   const { role } = useAuth();
-  // Reprocess/Delete require EDITOR+ on the backend; a plain viewer would only get a 403,
-  // so don't offer those actions to them.
   const canManage = orgRoleAtLeast(role, "editor");
 
-  // URL-seeded filters. The App Router does not remount the page when only search
-  // params change (e.g. clicking the sidebar "Documents" link while filtered), so an
-  // effect re-syncs each filter whenever its param actually changes.
   const collectionParam = searchParams.get("collection") ?? ALL;
   const [collectionId, setCollectionId] = React.useState<string>(collectionParam);
   React.useEffect(() => {
     setCollectionId(collectionParam);
   }, [collectionParam]);
   const [status, setStatus] = React.useState<string>(ALL);
-  // "Author" filter: ALL = everyone, "mcp" = written by connected agents. Deep-linkable
-  // via ?via=mcp, mirroring how ?collection= seeds the collection filter above.
   const viaParam = searchParams.get("via") === "mcp" ? "mcp" : ALL;
   const [author, setAuthor] = React.useState<string>(viaParam);
   React.useEffect(() => {
@@ -235,7 +244,6 @@ function DocumentsInner() {
   const search = useDebounced(rawSearch);
   const [page, setPage] = React.useState(1);
 
-  // Reset to the first page whenever a filter changes.
   React.useEffect(() => {
     setPage(1);
   }, [collectionId, status, author, search]);
@@ -258,7 +266,6 @@ function DocumentsInner() {
     queryKey: ["documents", params],
     queryFn: () => api.get<Page<DocumentItem>>("/documents", params),
     placeholderData: (prev) => prev,
-    // Poll while any visible document is still being ingested.
     refetchInterval: (query) => {
       const items = query.state.data?.items ?? [];
       return items.some((d) => isProcessingStatus(d.status)) ? 4000 : false;
@@ -269,7 +276,6 @@ function DocumentsInner() {
   const total = data?.total ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
-  // Chunk viewer + deep-linking from citations (`?doc=<id>`).
   const [activeDoc, setActiveDoc] = React.useState<DocumentItem | null>(null);
   const [sheetOpen, setSheetOpen] = React.useState(false);
   const [deleteTarget, setDeleteTarget] = React.useState<DocumentItem | null>(null);

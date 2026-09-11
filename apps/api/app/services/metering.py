@@ -40,7 +40,7 @@ async def record_usage(
     meta: dict[str, Any] | None = None,
 ) -> None:
     try:
-        await db.flush()  # settle caller state into the outer tx before the savepoint
+        await db.flush()
         async with db.begin_nested():
             db.add(
                 UsageRecord(
@@ -78,7 +78,7 @@ async def record_audit(
         resolved_org = org_id or (ctx.org_id if ctx else None)
         if resolved_org is None:
             return
-        await db.flush()  # settle caller state into the outer tx before the savepoint
+        await db.flush()
         async with db.begin_nested():
             db.add(
                 AuditLog(

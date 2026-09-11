@@ -23,8 +23,9 @@ from benchmarks.harness import RetrievalConfig, run
 
 pytestmark = pytest.mark.integration
 
-# apps/api/benchmarks/golden, resolved relative to this test file (apps/api/tests/integration).
 GOLDEN_DIR = pathlib.Path(__file__).resolve().parents[2] / "benchmarks" / "golden"
+"""``apps/api/benchmarks/golden``, resolved relative to this test file
+(``apps/api/tests/integration``)."""
 
 
 def _normal_query(ds: BenchmarkDataset) -> QuerySpec:
@@ -53,36 +54,38 @@ def _permission_critical_query(ds: BenchmarkDataset) -> QuerySpec:
 
 
 async def test_benchmark_harness_smoke_holds_permission_invariant(db_ready) -> None:
+    """A tiny slice - two queries, one hybrid config, retrieval only (no RAG answers) - keeps
+    the smoke fast while still ingesting the corpus and running real permission-scoped
+    retrieval. One run is produced per (query, config).
+
+    A normal query, whose answering docs are visible to the asker, must return some hits. The
+    hard invariant is that no run may surface a document outside the asker's ground-truth
+    visible set: that is the whole point of the harness passing no collection filter.
+    Specifically for the permission-critical query, the relevant-but-forbidden document is in
+    the corpus and matches the query, yet the permission engine must keep it out of results.
+    """
     ds = load_dataset(str(GOLDEN_DIR))
     assert validate_dataset(ds) == [], "golden dataset must be internally consistent"
 
     normal = _normal_query(ds)
     blocked = _permission_critical_query(ds)
 
-    # A tiny slice: two queries, one hybrid config, retrieval only (no RAG answers) keeps the
-    # smoke fast while still ingesting the corpus and running real permission-scoped retrieval.
     slice_ds = dataclasses.replace(ds, queries=[normal, blocked])
     config = RetrievalConfig(key="hybrid_k10", hybrid=True, top_k=10)
 
     result = await run(slice_ds, [config], with_answers=False)
 
-    # One run per (query, config); the harness produced the runs it was asked for.
     assert len(result.runs) == 2
     by_query = {r.query_id: r for r in result.runs}
 
-    # A normal query (its answering docs are visible to the asker) returns some hits.
     normal_run = by_query[normal.query_id]
     assert normal_run.ranked_doc_ids, "expected retrieval hits for a normal query"
 
-    # The hard invariant: no run may surface a document outside the asker's ground-truth
-    # visible set. This is the whole point of the harness passing no collection filter.
     for query_run in result.runs:
         visible = set(result.visible_doc_ids[query_run.principal_key])
         leaked = [doc_id for doc_id in query_run.ranked_doc_ids if doc_id not in visible]
         assert leaked == [], f"permission leakage in {query_run.query_id}: {leaked}"
 
-    # Specifically for the permission-critical query: the relevant-but-forbidden document is
-    # in the corpus and matches the query, yet the permission engine keeps it out of results.
     blocked_run = by_query[blocked.query_id]
     blocked_visible = set(result.visible_doc_ids[blocked.principal_key])
     forbidden = set(blocked.relevant_doc_ids) - blocked_visible

@@ -10,9 +10,11 @@ export type ForceGraphClientProps = ForceGraphProps<VizNodeData, VizLinkData> & 
   assignRef?: (instance: GraphInstance | undefined) => void;
 };
 
-// react-force-graph's default export is a deeply-generic function component. We
-// render it through a permissive cast so this wrapper stays the single place
-// that touches those generics; callers get the strongly-typed props above.
+/**
+ * react-force-graph's default export is a deeply-generic function component. We
+ * render it through a permissive cast so this wrapper stays the single place
+ * that touches those generics; callers get the strongly-typed props above.
+ */
 const ForceGraph = ForceGraph2D as unknown as React.ForwardRefExoticComponent<
   Record<string, unknown> & React.RefAttributes<unknown>
 >;

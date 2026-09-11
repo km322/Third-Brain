@@ -100,7 +100,11 @@ async def _find_user_by_email(db: AsyncSession, org_id: uuid.UUID, email: str) -
 async def _resolve_principal(
     db: AsyncSession, source: DataSource, principal: RemotePrincipal
 ) -> tuple[PrincipalType, uuid.UUID] | None:
-    """Resolve a source-system principal to a Third Brain (user|team) grantee, or None."""
+    """Resolve a source-system principal to a Third Brain (user|team) grantee, or None.
+
+    Falling back on the mapping table, a USER principal whose id is an email auto-maps to a
+    matching org member.
+    """
     ident = (
         await db.execute(
             select(ExternalIdentity).where(
@@ -112,7 +116,6 @@ async def _resolve_principal(
     ).scalar_one_or_none()
     if ident is not None:
         return _resolved_principal(ident)
-    # Auto-map a USER principal whose id is an email to a matching org member.
     if principal.kind == ExternalPrincipalKind.USER and "@" in principal.external_id:
         user_id = await _find_user_by_email(db, source.org_id, principal.external_id)
         if user_id is not None:
@@ -127,6 +130,8 @@ async def _sync_document_acl(
 
     Records the raw source principals (for later backfill) and only materialises grants for
     principals that resolve to a user/team. Never adds a grant that duplicates a manual one.
+    This source's prior grants + principal records for the doc are cleared first, then
+    rebuilt.
     """
     existing = (
         (
@@ -143,7 +148,6 @@ async def _sync_document_acl(
     )
     manual = {(g.principal_type, g.principal_id) for g in existing if g.source_id is None}
 
-    # Clear this source's prior grants + principal records for the doc, then rebuild.
     await db.execute(
         delete(AccessGrant).where(
             AccessGrant.resource_type == ResourceType.DOCUMENT,
@@ -191,7 +195,16 @@ async def _sync_document_acl(
 async def _upsert_document(
     db: AsyncSession, source: DataSource, rdoc: RemoteDocument
 ) -> tuple[Document, bool, bool]:
-    """Create or update the Document for ``rdoc``. Returns (document, created, changed)."""
+    """Create or update the Document for ``rdoc``. Returns (document, created, changed).
+
+    An existing document that is unchanged and already indexed keeps its index and has only
+    light metadata refreshed; the caller still re-syncs the ACL (source permissions may have
+    changed independently).
+
+    A new document is flushed to assign its id for the storage key, and the collection's
+    ``document_count`` is kept in step with the manual upload routes via an atomic
+    expression so a concurrent sync/upload cannot lose the update.
+    """
     content = rdoc.content
     checksum = hashlib.sha256(content).hexdigest()
     filename = rdoc.external_id.rsplit("/", 1)[-1] or rdoc.title
@@ -205,8 +218,6 @@ async def _upsert_document(
     ).scalar_one_or_none()
 
     if existing is not None:
-        # Unchanged and already indexed: keep the index, refresh only light metadata; the
-        # caller still re-syncs the ACL (source permissions may have changed independently).
         if existing.checksum == checksum and existing.status == DocumentStatus.INDEXED:
             existing.title = rdoc.title[:1024]
             existing.source_uri = rdoc.source_uri
@@ -241,12 +252,10 @@ async def _upsert_document(
         external_id=rdoc.external_id,
     )
     db.add(doc)
-    await db.flush()  # assign id for the storage key
+    await db.flush()
     key = _storage_key(source.org_id, doc.id, filename)
     await get_storage().save(key, content, rdoc.mime_type)
     doc.storage_key = key
-    # Keep the collection's document_count in step with the manual upload routes (atomic
-    # expression so a concurrent sync/upload can't lose the update).
     await db.execute(
         update(Collection)
         .where(Collection.id == source.collection_id)
@@ -263,14 +272,16 @@ def _storage_key(org_id: uuid.UUID, document_id: uuid.UUID, filename: str | None
 
 
 async def _delete_doc(db: AsyncSession, doc: Document) -> None:
-    """Delete a synced document, its blob and its (FK-less) document-level grants."""
+    """Delete a synced document, its blob and its (FK-less) document-level grants.
+
+    AccessGrants have no FK to documents, so they are removed explicitly (chunks +
+    external-principal rows cascade via their FKs).
+    """
     if doc.storage_key:
         try:
             await get_storage().delete(doc.storage_key)
         except Exception:  # pragma: no cover - blob cleanup is best-effort
             pass
-    # AccessGrants have no FK to documents, so remove them explicitly (chunks +
-    # external-principal rows cascade via their FKs).
     await db.execute(
         delete(AccessGrant).where(
             AccessGrant.resource_type == ResourceType.DOCUMENT,
@@ -307,6 +318,15 @@ async def sync_data_source(db: AsyncSession, source_id: uuid.UUID) -> SyncStats:
 
     Raises :class:`ConnectorError` (mapped to 4xx by the route) on connector failures,
     after flipping the source to ERROR with a message.
+
+    Failure is caught as ``BaseException`` (not just ``Exception``) so that
+    ``asyncio.CancelledError`` - raised on the arq ``job_timeout``, a graceful worker
+    shutdown, or a client disconnect on the inline route - ALSO flips the source out of
+    SYNCING. Otherwise a cancelled sync stays SYNCING forever and the due-sync cron (which
+    only picks ACTIVE sources) never schedules it again; a hard kill that skips even that
+    handler is caught by :func:`reap_stuck_data_sources`. The source is flipped to ERROR
+    (visible + retryable) and the exception re-raised, so SystemExit/KeyboardInterrupt
+    still bubble.
     """
     source = await db.get(DataSource, source_id)
     if source is None:
@@ -375,12 +395,6 @@ async def sync_data_source(db: AsyncSession, source_id: uuid.UUID) -> SyncStats:
         logger.info("data_source_synced", data_source_id=str(source.id), **stats.as_dict())
         return stats
     except BaseException as exc:
-        # BaseException (not just Exception) so that asyncio.CancelledError - raised on the arq
-        # job_timeout, a graceful worker shutdown, or a client disconnect on the inline route -
-        # ALSO flips the source out of SYNCING. Otherwise a cancelled sync stays SYNCING forever
-        # and the due-sync cron (which only picks ACTIVE sources) never schedules it again; a
-        # hard kill that skips even this handler is caught by reap_stuck_data_sources. We flip to
-        # ERROR (visible + retryable) and re-raise, so SystemExit/KeyboardInterrupt still bubble.
         await db.rollback()
         source = await db.get(DataSource, source_id)
         if source is not None:
@@ -395,10 +409,10 @@ async def sync_data_source(db: AsyncSession, source_id: uuid.UUID) -> SyncStats:
         raise
 
 
-# A data source stuck in SYNCING longer than this was almost certainly stranded by a hard
-# worker death (OOM/SIGKILL) or a redelivery gap that skipped the in-band handler. Well above
-# the 600s arq job_timeout so a legitimately long sync is never reaped mid-flight.
 STUCK_SYNC_TIMEOUT_SECONDS = 30 * 60
+"""A data source stuck in SYNCING longer than this was almost certainly stranded by a hard
+worker death (OOM/SIGKILL) or a redelivery gap that skipped the in-band handler. Well above
+the 600s arq job_timeout so a legitimately long sync is never reaped mid-flight."""
 
 
 async def reap_stuck_data_sources(

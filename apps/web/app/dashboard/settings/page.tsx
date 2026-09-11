@@ -152,6 +152,10 @@ function ProfileCard({ user, onSaved }: { user: User | null; onSaved: () => void
   );
 }
 
+/**
+ * Password change. On success the server revokes every other session, so the fresh token
+ * pair is stored to keep this one signed in.
+ */
 function SecurityCard() {
   const [currentPassword, setCurrentPassword] = React.useState("");
   const [newPassword, setNewPassword] = React.useState("");
@@ -170,8 +174,6 @@ function SecurityCard() {
       return api.post<AuthTokens>("/auth/change-password", body);
     },
     onSuccess: (tokens) => {
-      // The server revokes every other session; store the fresh pair so this
-      // one stays signed in.
       auth.setSession(tokens.access_token, tokens.refresh_token);
       setCurrentPassword("");
       setNewPassword("");

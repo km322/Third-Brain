@@ -39,8 +39,6 @@ class ResolvedProvider(NamedTuple):
     provider: str | None
 
 
-# Connector type -> wire provider understood by :mod:`app.services.llm.providers`.
-# Every OpenAI-compatible flavour speaks the "openai" wire shape.
 _WIRE_PROVIDERS: dict[ConnectorType, str] = {
     ConnectorType.OPENAI: "openai",
     ConnectorType.AZURE_OPENAI: "openai",
@@ -49,6 +47,9 @@ _WIRE_PROVIDERS: dict[ConnectorType, str] = {
     ConnectorType.ANTHROPIC: "anthropic",
     ConnectorType.GOOGLE: "google",
 }
+"""Connector type -> wire provider understood by :mod:`app.services.llm.providers`.
+
+Every OpenAI-compatible flavour speaks the "openai" wire shape."""
 
 
 def wire_provider(connector_type: ConnectorType) -> str:
@@ -56,10 +57,11 @@ def wire_provider(connector_type: ConnectorType) -> str:
     return _WIRE_PROVIDERS.get(connector_type, "openai")
 
 
-# Keys under which an api base / endpoint may be stored, in priority order.
 _API_BASE_KEYS = ("api_base", "base_url", "endpoint", "azure_endpoint")
-# Keys under which the secret token may be stored, in priority order.
+"""Keys under which an api base / endpoint may be stored, in priority order."""
+
 _API_KEY_KEYS = ("api_key", "key", "token", "secret_key")
+"""Keys under which the secret token may be stored, in priority order."""
 
 
 def decrypt_credentials(connector: Connector) -> dict:

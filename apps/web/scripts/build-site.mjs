@@ -28,12 +28,14 @@ const OUT_DIR = path.join(WEB_DIR, "out");
 /** Absolute base for the canonical and Open Graph URLs. Override per deployment. */
 const DEFAULT_SITE_URL = "https://third-brain.ai";
 
-/** Paths, relative to apps/web, that are left out of the staged copy. */
+/**
+ * Paths, relative to apps/web, that are left out of the staged copy: first the routes the
+ * public site must not publish, since both need a running API behind them, then build
+ * output, test artifacts, and the dependency tree (symlinked in instead).
+ */
 const EXCLUDED = new Set([
-  // Routes the public site must not publish: both need a running API behind them.
   "app/(auth)",
   "app/dashboard",
-  // Build output, test artifacts, and the dependency tree (symlinked in instead).
   ".next",
   "out",
   "node_modules",
@@ -92,13 +94,16 @@ function toPosix(relativePath) {
   return relativePath.split(path.sep).join("/");
 }
 
+/**
+ * Copy apps/web into the staging directory, minus {@link EXCLUDED} and any local env file
+ * - those carry per-machine settings and must not reach a published build.
+ */
 async function stageSource(staging) {
   await fs.cp(WEB_DIR, staging, {
     recursive: true,
     filter: (src) => {
       const rel = toPosix(path.relative(WEB_DIR, src));
       if (rel === "") return true;
-      // Local env files carry per-machine settings and must not reach a published build.
       if (path.basename(rel).startsWith(".env")) return false;
       return !EXCLUDED.has(rel);
     },

@@ -13,10 +13,11 @@ pytestmark = pytest.mark.integration
 
 
 async def test_feedback_and_knowledge_gaps(client, db_session, token_headers, api) -> None:
+    """A zero-result search is a knowledge gap and returns an insight id to rate. Retention is
+    OFF by default, so the gap report exposes no raw query text."""
     org, owner, _ = await factories.create_org_with_owner(db_session)
     headers = token_headers(owner.id, org.id)
 
-    # A zero-result search is a knowledge gap and returns an insight id to rate.
     search = await client.post(
         f"{api}/search", headers=headers, json={"query": "nonexistent topic xyz"}
     )
@@ -37,7 +38,6 @@ async def test_feedback_and_knowledge_gaps(client, db_session, token_headers, ap
     assert report["total_queries"] >= 1
     assert report["unanswered"] >= 1
     assert report["negative"] >= 1
-    # Retention is OFF by default: no raw query text is exposed.
     assert report["query_text_retained"] is False
     assert report["top_gaps"] == []
 

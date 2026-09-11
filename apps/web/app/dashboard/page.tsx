@@ -55,6 +55,20 @@ function humanizeAction(action: string): string {
   return words.charAt(0).toUpperCase() + words.slice(1);
 }
 
+/**
+ * Dashboard overview - headline counts, usage and recent activity for the active org.
+ *
+ * Query gating: the audit log is admin/owner-only, so the request is never fired for
+ * other roles. The agent-written documents come from the ACL-scoped documents endpoint,
+ * so that one is safe for all roles (unlike the admin-only audit log). Collection names
+ * are resolved only to give the agent-docs list context - best-effort, since the list
+ * still renders if that query hasn't loaded.
+ *
+ * A brand-new workspace has no knowledge yet, so it is greeted as a first visit that
+ * points at the core loop (create a knowledge base) instead of showing a bare all-zeros
+ * dashboard. Any trailing period on the org name is stripped so a name like "Acme Inc."
+ * doesn't render a double period in the sentence under the greeting.
+ */
 export default function OverviewPage() {
   const { user, org, role } = useAuth();
   const isAdmin = role === "admin" || role === "owner";
@@ -68,29 +82,22 @@ export default function OverviewPage() {
     "/analytics/usage",
     { days: 30 },
   );
-  // The audit log is admin/owner-only; don't fire the request for other roles.
   const audit = useApiQuery<Page<AuditLogEntry>>(
     ["analytics", "audit", 1, 8],
     "/analytics/audit",
     { page: 1, page_size: 8 },
     { enabled: isAdmin, retry: false },
   );
-  // Documents connected agents wrote via MCP. Uses the ACL-scoped documents endpoint, so
-  // it's safe for all roles (unlike the admin-only audit log above).
   const agentDocs = useApiQuery<Page<DocumentItem>>(
     ["documents", "via", "mcp"],
     "/documents",
     { via: "mcp", page_size: 5 },
   );
-  // Resolve collection names for the agent-docs list context (best-effort; the list still
-  // renders if this hasn't loaded).
   const collections = useApiQuery<Collection[]>(["collections"], "/collections");
 
   const stats = overview.data;
   const loading = overview.isLoading;
   const firstName = user?.full_name?.split(" ")[0];
-  // A brand-new workspace has no knowledge yet: greet as a first visit and point at
-  // the core loop (create a knowledge base) instead of a bare all-zeros dashboard.
   const isFirstRun = !!stats && stats.documents === 0 && stats.collections === 0;
   const canCreate = orgRoleAtLeast(role, "editor");
   const greeting = firstName
@@ -98,8 +105,6 @@ export default function OverviewPage() {
       ? `Welcome to Third Brain, ${firstName}`
       : `Welcome back, ${firstName}`
     : "Overview";
-  // Strip any trailing period on the org name so a name like "Acme Inc." doesn't
-  // render a double period in the sentence below.
   const orgName = org?.name?.replace(/\.\s*$/, "");
 
   const cards = [
@@ -263,6 +268,12 @@ export default function OverviewPage() {
   );
 }
 
+/**
+ * The recent documents connected agents wrote via MCP.
+ *
+ * A fetch failure must not masquerade as the "no agent docs yet" onboarding state, so the
+ * error branch is rendered ahead of the empty state.
+ */
 function AgentDocs({
   loading,
   error,
@@ -290,7 +301,6 @@ function AgentDocs({
     );
   }
 
-  // A fetch failure must not masquerade as the "no agent docs yet" onboarding state.
   if (error) {
     return (
       <div className="flex flex-1 items-center gap-2 text-sm text-destructive">

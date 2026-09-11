@@ -1,5 +1,8 @@
-// Typed API client for the Third Brain backend.
-// Dashboard pages use the exported `api` instance: `await api.get<Collection[]>("/collections")`.
+/**
+ * Typed API client for the Third Brain backend.
+ *
+ * Dashboard pages use the exported `api` instance: `await api.get<Collection[]>("/collections")`.
+ */
 
 import type { ChatStreamMeta, Citation } from "@/lib/types";
 
@@ -19,7 +22,7 @@ export class ApiError extends Error {
   }
 }
 
-// -- token storage (client-side) --
+/** Token storage (client-side). */
 export const auth = {
   get token() {
     if (typeof window === "undefined") return null;
@@ -50,17 +53,23 @@ export const auth = {
   },
 };
 
-// Silently renew an expired access token using the stored refresh token. Concurrent 401s
-// share a single in-flight refresh so we don't fire N refreshes at once.
+/**
+ * The in-flight silent refresh, if any. Concurrent 401s share a single one so we don't
+ * fire N refreshes at once.
+ */
 let refreshPromise: Promise<boolean> | null = null;
 
+/**
+ * Silently renew an expired access token using the stored refresh token.
+ *
+ * The active org is sent along so the refreshed session resumes into the org the user is
+ * working in, not their default org - otherwise a silent refresh would quietly switch
+ * tenants mid-session and render another org's data under the current org's UI.
+ */
 async function doRefresh(): Promise<boolean> {
   const rt = auth.refreshToken;
   if (!rt) return false;
   try {
-    // Send the active org so the refreshed session resumes into the org the user is
-    // working in, not their default org - otherwise a silent refresh would quietly switch
-    // tenants mid-session and render another org's data under the current org's UI.
     const res = await fetch(`${API_BASE}/auth/refresh`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -134,6 +143,20 @@ function buildQuery(params?: Record<string, QueryValue | QueryValue[]>) {
   return s ? `?${s}` : "";
 }
 
+/**
+ * Issue one request against the API and decode its response.
+ *
+ * The access token is short-lived; on a 401 we try to silently renew it once with the
+ * refresh token before giving up, so an expired token doesn't drop in-progress work. The
+ * refresh call itself is never recursed on.
+ *
+ * When the dead session is cleared instead, navigation may be under way, so the returned
+ * promise never settles - callers must not flash transient error toasts while the page
+ * unloads.
+ *
+ * Failures raise {@link ApiError} carrying the backend's `detail` and `code`, falling back
+ * to the status text when the error body is not JSON.
+ */
 async function request<T>(
   method: string,
   path: string,
@@ -163,14 +186,9 @@ async function request<T>(
   });
 
   if (res.status === 401 && typeof window !== "undefined") {
-    // The access token is short-lived; try to silently renew it once with the refresh
-    // token before giving up, so an expired token doesn't drop in-progress work. Never
-    // recurse on the refresh call itself.
     if (!isRetry && !path.startsWith("/auth/") && (await refreshSession())) {
       return request<T>(method, path, body, init, true);
     }
-    // Navigation may be under way; never settle so callers don't flash transient
-    // error toasts while the page unloads.
     if (redirectToLogin()) return new Promise<T>(() => {});
   }
 
@@ -181,9 +199,7 @@ async function request<T>(
       const data = await res.json();
       detail = data.detail ?? detail;
       code = data.code;
-    } catch {
-      /* non-JSON error */
-    }
+    } catch {}
     throw new ApiError(res.status, detail, code);
   }
 
@@ -206,10 +222,19 @@ export const api = {
   baseUrl: API_BASE,
 };
 
-// Streaming helper for chat: consumes the SSE frames from POST /search/chat (stream=true).
-// Each frame is `data: {"type":"token","text":...}` or a final
-// `data: {"type":"citations","citations":[...]}` then `data: [DONE]`. Citations ride the
-// same stream so the caller never needs a second, separately-metered /search for them.
+/**
+ * Streaming helper for chat: consumes the SSE frames from POST /search/chat (stream=true).
+ * Each frame is `data: {"type":"token","text":...}` or a final
+ * `data: {"type":"citations","citations":[...]}` then `data: [DONE]`. Citations ride the
+ * same stream so the caller never needs a second, separately-metered /search for them.
+ *
+ * A 401 mirrors {@link request}: try one silent refresh, else clear the dead session and
+ * bounce.
+ *
+ * A failed response surfaces the backend's error message (rate limit, missing scope,
+ * provider failure…) instead of a generic "Stream failed", so the Ask UI can show what
+ * actually went wrong; a non-JSON error body falls back to the status text.
+ */
 export async function streamChat(
   path: string,
   body: unknown,
@@ -229,30 +254,28 @@ export async function streamChat(
     signal,
   });
   if (res.status === 401 && typeof window !== "undefined") {
-    // Mirror request(): try one silent refresh, else clear the dead session and bounce.
     if (!isRetry && (await refreshSession())) {
       return streamChat(path, body, onToken, onCitations, signal, true);
     }
     if (redirectToLogin()) return new Promise<void>(() => {});
   }
   if (!res.ok || !res.body) {
-    // Surface the backend's error message (rate limit, missing scope, provider failure…)
-    // instead of a generic "Stream failed", so the Ask UI can show what actually went wrong.
     let detail = res.statusText || "Stream failed";
     let code: string | undefined;
     try {
       const data = await res.json();
       detail = data?.detail ?? data?.error?.message ?? detail;
       code = data?.code;
-    } catch {
-      /* non-JSON error body */
-    }
+    } catch {}
     throw new ApiError(res.status, detail, code);
   }
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
-  // Consume every complete `\n\n`-terminated SSE frame currently in the buffer.
+  /**
+   * Consume every complete `\n\n`-terminated SSE frame currently in the buffer. A
+   * malformed frame is ignored rather than failing the stream.
+   */
   const drain = () => {
     let sep: number;
     while ((sep = buffer.indexOf("\n\n")) !== -1) {
@@ -276,9 +299,7 @@ export async function streamChat(
             conversation_id: evt.conversation_id,
             web_sources: evt.web_sources ?? [],
           });
-      } catch {
-        /* ignore a malformed frame */
-      }
+      } catch {}
     }
   };
   while (true) {

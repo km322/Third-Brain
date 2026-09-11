@@ -17,12 +17,11 @@ from app.services.chunking import (
 )
 
 
-# --------------------------------------------------------------------------- #
-# _windows - pure integer arithmetic
-# --------------------------------------------------------------------------- #
 class TestWindows:
+    """:func:`_windows` - pure integer arithmetic."""
+
     def test_overlap_step(self) -> None:
-        # size=4, overlap=1 => step=3.
+        """size=4, overlap=1 => step=3."""
         assert list(_windows(10, 4, 1)) == [(0, 4), (3, 7), (6, 10)]
 
     def test_zero_overlap_tiles_exactly(self) -> None:
@@ -35,13 +34,16 @@ class TestWindows:
         assert list(_windows(0, 4, 1)) == []
 
     def test_terminates_when_overlap_would_stall(self) -> None:
-        # step is floored at 1 even if overlap >= size, so this must terminate.
+        """Step is floored at 1 even if overlap >= size, so this must terminate.
+
+        The windows are non-empty and their starts advance strictly.
+        """
         windows = list(_windows(5, 3, 3))
-        assert windows  # non-empty
+        assert windows
         assert windows[-1][1] == 5
         starts = [s for s, _ in windows]
         assert starts == sorted(starts)
-        assert len(set(starts)) == len(starts)  # strictly advancing
+        assert len(set(starts)) == len(starts)
 
     def test_last_window_reaches_end(self) -> None:
         windows = list(_windows(100, 10, 3))
@@ -50,18 +52,14 @@ class TestWindows:
         assert all(0 <= s < e <= 100 for s, e in windows)
 
 
-# --------------------------------------------------------------------------- #
-# TextChunk dataclass
-# --------------------------------------------------------------------------- #
 def test_textchunk_fields() -> None:
     chunk = TextChunk(index=2, content="hi", token_count=1)
     assert (chunk.index, chunk.content, chunk.token_count) == (2, "hi", 1)
 
 
-# --------------------------------------------------------------------------- #
-# chunk_text - invariants under both backends
-# --------------------------------------------------------------------------- #
 class TestChunkText:
+    """:func:`chunk_text` - invariants that hold under both backends."""
+
     def test_empty_inputs_return_no_chunks(self) -> None:
         assert chunk_text("") == []
         assert chunk_text("   \n\t ") == []
@@ -105,20 +103,22 @@ class TestChunkText:
         assert chunks[0].token_count <= settings.CHUNK_SIZE_TOKENS
 
     def test_unicode_is_preserved(self) -> None:
+        """Text round-trips through encode/decode without corrupting characters."""
         text = "café über naïve 日本語 emoji 🚀 résumé " * 20
         chunks = chunk_text(text, chunk_size=8, overlap=2)
         assert chunks
         assert [c.index for c in chunks] == list(range(len(chunks)))
         joined = " ".join(c.content for c in chunks)
-        # Round-trips through encode/decode without corrupting characters.
         assert "café" in joined
         assert "日本語" in joined
         assert "🚀" in joined
 
     def test_multibyte_boundaries_are_not_corrupted(self) -> None:
-        # A long run of CJK text (no whitespace) forces multi-byte characters to straddle
-        # tiktoken window boundaries. The decoder must not emit U+FFFD replacement chars,
-        # and every original character must survive somewhere in the chunk set.
+        """A long run of CJK text (no whitespace) straddles multi-byte window boundaries.
+
+        The decoder must not emit U+FFFD replacement chars, and every original character
+        must survive somewhere in the chunk set.
+        """
         text = "服务和路由配置管理系统的设计与实现原理详解" * 40
         chunks = chunk_text(text, chunk_size=16, overlap=4)
         assert len(chunks) > 1
@@ -134,20 +134,25 @@ class TestChunkText:
         assert all(0 < c.token_count <= 50 for c in chunks)
 
 
-# --------------------------------------------------------------------------- #
-# Natural-boundary requirements: chunks end at paragraph/sentence end points and
-# no information is cut off. These invariants hold under BOTH backends.
-# --------------------------------------------------------------------------- #
 class TestNaturalBoundaries:
+    """Natural-boundary requirements.
+
+    Chunks end at paragraph/sentence end points and no information is cut off. These
+    invariants hold under BOTH backends.
+    """
+
     def test_sentences_are_never_cut(self) -> None:
+        """Every chunk closes at a sentence end.
+
+        And every sentence survives intact, exactly once - no loss, no duplication.
+        """
         text = " ".join(f"Sentence number {i} talks about topic {i}." for i in range(40))
         chunks = chunk_text(text, chunk_size=25, overlap=5)
         assert len(chunks) > 1
         for c in chunks:
-            assert c.content.endswith(".")  # every chunk closes at a sentence end
+            assert c.content.endswith(".")
         joined = " ".join(c.content for c in chunks)
         for i in range(40):
-            # Every sentence survives intact, exactly once (no loss, no duplication).
             assert joined.count(f"Sentence number {i} talks about topic {i}.") == 1
 
     def test_paragraphs_that_fit_pack_into_one_verbatim_chunk(self) -> None:
@@ -157,29 +162,32 @@ class TestNaturalBoundaries:
         assert chunks[0].content == text
 
     def test_split_lands_on_the_paragraph_boundary(self) -> None:
+        """One paragraph fits the budget, two do not: the cut falls exactly between them."""
         paragraph = " ".join(f"Alpha beta gamma {i}." for i in range(8))
         text = paragraph + "\n\n" + paragraph
         chunks = chunk_text(text, chunk_size=60, overlap=0)
-        # One paragraph fits the budget, two do not: the cut falls exactly between them.
         assert [c.content for c in chunks] == [paragraph, paragraph]
 
     def test_oversized_unpunctuated_run_stays_bounded(self) -> None:
-        # No sentence boundary exists, so the fallback windows must still cap size.
+        """No sentence boundary exists, so the fallback windows must still cap size."""
         text = " ".join(f"w{i}" for i in range(400))
         chunks = chunk_text(text, chunk_size=50, overlap=10)
         assert len(chunks) > 1
         assert all(0 < c.token_count <= 50 for c in chunks)
 
     def test_chunks_close_near_target_not_at_the_ceiling(self) -> None:
-        # With a big ceiling and a small target, chunks close at the first paragraph
-        # boundary past the target instead of packing on toward the ceiling.
+        """With a big ceiling and a small target, chunks close near the target.
+
+        They cut at the first paragraph boundary past the target instead of packing on
+        toward the ceiling, so the emitted chunks stay far below the 200-token ceiling.
+        """
         paragraph = " ".join(f"Item {i} is described right here now." for i in range(2))
         text = "\n\n".join(paragraph for _ in range(12))
         chunks = chunk_text(text, chunk_size=200, overlap=0, target=30)
         assert len(chunks) > 2
         for c in chunks:
             assert c.content.endswith(".")
-            assert c.token_count <= 60  # far below the 200 ceiling
+            assert c.token_count <= 60
 
     def test_heading_starts_a_new_chunk_once_buffer_is_substantial(self) -> None:
         body = " ".join(f"Sentence {i} of this section body." for i in range(6))
@@ -190,8 +198,10 @@ class TestNaturalBoundaries:
         assert chunks[1].content.startswith("## Section Two")
 
     def test_tiny_sections_are_not_fragmented_by_headings(self) -> None:
-        # A heading only forces a break once the buffer holds half the target, so
-        # heading-dense text with tiny sections still packs into one chunk.
+        """A heading only forces a break once the buffer holds half the target.
+
+        So heading-dense text with tiny sections still packs into one chunk.
+        """
         text = "## A\n\nTwo words.\n\n## B\n\nThree more words."
         chunks = chunk_text(text, chunk_size=500, overlap=0, target=40)
         assert len(chunks) == 1
@@ -211,10 +221,9 @@ class TestNaturalBoundaries:
         assert "It has two sentences." in joined
 
 
-# --------------------------------------------------------------------------- #
-# Whitespace fallback path (exercised directly, independent of tiktoken)
-# --------------------------------------------------------------------------- #
 class TestWhitespaceFallback:
+    """The whitespace fallback path, exercised directly and independently of tiktoken."""
+
     def test_word_windows_reindex_after_dropping_empties(self) -> None:
         chunks = _chunk_with_whitespace("alpha beta gamma delta", 2, 0)
         assert [c.index for c in chunks] == list(range(len(chunks)))
@@ -225,8 +234,10 @@ class TestWhitespaceFallback:
         assert _chunk_with_whitespace("", 4, 1) == []
 
     def test_paragraph_text_is_preserved_verbatim(self) -> None:
-        # Paragraphs that fit the budget are packed as-is (original spacing intact),
-        # joined by the natural paragraph separator - nothing is rewritten or lost.
+        """Paragraphs that fit the budget are packed as-is, with original spacing intact.
+
+        They are joined by the natural paragraph separator - nothing is rewritten or lost.
+        """
         chunks = _chunk_with_whitespace("one   two\n\nthree\tfour", 10, 0)
         assert len(chunks) == 1
         assert chunks[0].content == "one   two\n\nthree\tfour"

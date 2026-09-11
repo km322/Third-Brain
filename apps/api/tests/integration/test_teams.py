@@ -26,7 +26,11 @@ async def _create_team(client, api, headers, name, *, parent_team_id=None):
 
 
 async def test_team_crud_and_membership(client, db_session, token_headers, api) -> None:
-    """The creator is enrolled as a lead; CRUD + membership round-trips for an admin."""
+    """The creator is enrolled as a lead; CRUD + membership round-trips for an admin.
+
+    The creator is added as the first member with the lead role, hence the member_count of 1
+    on the fresh team.
+    """
     org, owner, _ = await factories.create_org_with_owner(db_session)
     member, _ = await factories.add_member(db_session, org=org, role=OrgRole.EDITOR)
     headers = token_headers(owner.id, org.id)
@@ -40,7 +44,6 @@ async def test_team_crud_and_membership(client, db_session, token_headers, api) 
     team = created.json()
     assert team["slug"]
     assert team["parent_team_id"] is None
-    # The creator is added as the first member with the lead role.
     assert team["member_count"] == 1
     team_id = team["id"]
 
@@ -90,13 +93,13 @@ async def test_team_membership_changes_require_team_admin(
 ) -> None:
     """Membership changes confer the team's grants, so they require management authority. A
     plain editor (neither org admin nor a lead) must not add themselves to a team; an org
-    admin can.
+    admin can. A plain editor must not be able to escalate by joining a team that may own
+    resources / hold grants.
     """
     org, owner, _ = await factories.create_org_with_owner(db_session)
     team = await factories.create_team(db_session, org=org)
     editor, _ = await factories.add_member(db_session, org=org, role=OrgRole.EDITOR)
 
-    # A plain editor cannot escalate by joining a team that may own resources / hold grants.
     self_add = await client.post(
         f"{api}/teams/{team.id}/members",
         headers=token_headers(editor.id, org.id),
@@ -104,7 +107,6 @@ async def test_team_membership_changes_require_team_admin(
     )
     assert self_add.status_code == 403, self_add.text
 
-    # An org admin can manage membership.
     admin, _ = await factories.add_member(db_session, org=org, role=OrgRole.ADMIN)
     added = await client.post(
         f"{api}/teams/{team.id}/members",
@@ -160,14 +162,16 @@ async def test_team_lead_manages_their_own_team(client, db_session, token_header
 async def test_parent_lead_administers_descendant_subteam(
     client, db_session, token_headers, api
 ) -> None:
-    """A lead of a PARENT team administers a descendant sub-team it does not directly lead."""
+    """A lead of a PARENT team administers a descendant sub-team it does not directly lead.
+
+    parent_lead creates and thus leads P; owner (admin) creates S under P so parent_lead is
+    NOT a member/lead of S - authority over S must flow purely from leading the ancestor.
+    """
     org, owner, _ = await factories.create_org_with_owner(db_session)
     owner_headers = token_headers(owner.id, org.id)
     parent_lead, _ = await factories.add_member(db_session, org=org, role=OrgRole.EDITOR)
     outsider_member, _ = await factories.add_member(db_session, org=org, role=OrgRole.EDITOR)
 
-    # parent_lead creates and thus leads P; owner (admin) creates S under P so parent_lead is
-    # NOT a member/lead of S -- authority over S must flow purely from leading the ancestor.
     parent = await _create_team(client, api, token_headers(parent_lead.id, org.id), "Parent")
     assert parent.status_code == 201, parent.text
     parent_id = parent.json()["id"]
@@ -205,12 +209,15 @@ async def test_subteam_lead_can_rename_with_unchanged_parent(
 
     The dashboard always re-sends the current ``parent_team_id`` on a rename; that must be
     treated as "no move" and skip the destination-parent admin check, not 403 the lead.
+
+    owner creates parent P, then creates child C under P and makes sub_lead its lead, so
+    sub_lead leads C but is not a member/lead of P and is not an org admin. Actually MOVING C
+    under a team they don't administer is still refused.
     """
     org, owner, _ = await factories.create_org_with_owner(db_session)
     owner_headers = token_headers(owner.id, org.id)
     sub_lead, _ = await factories.add_member(db_session, org=org, role=OrgRole.EDITOR)
 
-    # owner creates parent P; owner creates child C under P and makes sub_lead its lead.
     parent = await _create_team(client, api, owner_headers, "Parent")
     parent_id = parent.json()["id"]
     child = await _create_team(client, api, owner_headers, "Child", parent_team_id=parent_id)
@@ -223,7 +230,6 @@ async def test_subteam_lead_can_rename_with_unchanged_parent(
     )
     assert added.status_code == 200, added.text
 
-    # sub_lead leads C but is not a member/lead of P and is not an org admin.
     lead_headers = token_headers(sub_lead.id, org.id)
     renamed = await client.patch(
         f"{api}/teams/{child_id}",
@@ -234,7 +240,6 @@ async def test_subteam_lead_can_rename_with_unchanged_parent(
     assert renamed.json()["name"] == "Child Renamed"
     assert renamed.json()["parent_team_id"] == parent_id
 
-    # But actually MOVING it under a team they don't administer is still refused.
     other = await _create_team(client, api, owner_headers, "Other Parent")
     moved = await client.patch(
         f"{api}/teams/{child_id}",
@@ -366,13 +371,15 @@ async def test_reparent_requires_admin_on_new_parent(
     """Re-parenting requires management authority over the DESTINATION, not just the moved
     team. Otherwise a lead could graft their team under a privileged team to inherit its
     downward-flowing grants. An org admin (or a lead of the destination) may still move it.
+
+    Here `lead` leads their own team, while `owner` owns a separate team `lead` does not
+    administer.
     """
     org, owner, _ = await factories.create_org_with_owner(db_session)
     owner_headers = token_headers(owner.id, org.id)
     lead, _ = await factories.add_member(db_session, org=org, role=OrgRole.EDITOR)
     lead_headers = token_headers(lead.id, org.id)
 
-    # `lead` leads their own team; `owner` owns a separate team `lead` does not administer.
     mine = await _create_team(client, api, lead_headers, "Mine")
     assert mine.status_code == 201, mine.text
     mine_id = mine.json()["id"]
@@ -417,6 +424,10 @@ async def test_last_lead_cannot_be_removed_or_demoted(
     """A team must keep at least one lead: removing/demoting the final lead is 409 for a
     non-admin, while a plain member or a non-last lead may be removed/demoted, and an org
     admin may override and drop the last lead.
+
+    A plain member may always be removed and the lead count is untouched; with two leads,
+    demoting one is fine because a lead remains. Once `lead` is the sole lead, neither
+    demoting nor removing them is allowed for a non-admin.
     """
     org, _owner, _ = await factories.create_org_with_owner(db_session)
     lead, _ = await factories.add_member(db_session, org=org, role=OrgRole.EDITOR)
@@ -441,17 +452,14 @@ async def test_last_lead_cannot_be_removed_or_demoted(
         )
     ).status_code == 200
 
-    # A plain member may always be removed; the lead count is untouched.
     assert (
         await client.delete(f"{api}/teams/{team_id}/members/{plain.id}", headers=lead_headers)
     ).status_code == 204
-    # With two leads, demoting one is fine because a lead remains.
     demote_non_last = await client.patch(
         f"{api}/teams/{team_id}/members/{second.id}", headers=lead_headers, json={"role": "member"}
     )
     assert demote_non_last.status_code == 200, demote_non_last.text
 
-    # `lead` is now the sole lead: neither demoting nor removing them is allowed for a non-admin.
     self_demote = await client.patch(
         f"{api}/teams/{team_id}/members/{lead.id}", headers=lead_headers, json={"role": "member"}
     )
@@ -461,7 +469,6 @@ async def test_last_lead_cannot_be_removed_or_demoted(
     )
     assert self_remove.status_code == 409, self_remove.text
 
-    # An org admin may override and remove the last lead.
     admin, _ = await factories.add_member(db_session, org=org, role=OrgRole.ADMIN)
     admin_remove = await client.delete(
         f"{api}/teams/{team_id}/members/{lead.id}", headers=token_headers(admin.id, org.id)

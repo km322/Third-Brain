@@ -28,10 +28,13 @@ INGEST_TASK_NAME = "ingest_document_task"
 _pool = None
 _pool_lock = asyncio.Lock()
 
-# Strong references to detached inline-ingestion tasks. The event loop only keeps a weak
-# reference to a bare ``create_task`` result, so without this an un-awaited task can be
-# garbage-collected mid-run - stranding the document in ``pending``.
 _bg_tasks: set[asyncio.Task] = set()
+"""Strong references to detached inline-ingestion tasks.
+
+The event loop only keeps a weak reference to a bare ``create_task`` result, so without
+this an un-awaited task can be garbage-collected mid-run - stranding the document in
+``pending``.
+"""
 
 
 async def get_arq_pool():
@@ -96,6 +99,11 @@ async def enqueue_ingest(doc_id: uuid.UUID) -> bool:
 
     Returns ``True`` if the job was enqueued to the worker, ``False`` if it fell back
     to inline execution. Either way the document will be processed.
+
+    The inline fallback task is detached from the request lifecycle so the response
+    returns immediately, but a strong reference is kept until it finishes (see
+    ``_bg_tasks``). Request-scoped contextvars (request_id binding, trace context) flow
+    into the task automatically.
     """
     try:
         pool = await get_arq_pool()
@@ -106,9 +114,6 @@ async def enqueue_ingest(doc_id: uuid.UUID) -> bool:
         logger.warning(
             "ingest_enqueue_failed", document_id=str(doc_id), error=str(exc), inline=True
         )
-        # Detach from the request lifecycle so the response returns immediately, but keep a
-        # strong reference until it finishes (see ``_bg_tasks``). Request-scoped contextvars
-        # (request_id binding, trace context) flow into the task automatically.
         task = asyncio.create_task(_run_inline(doc_id))
         _bg_tasks.add(task)
         task.add_done_callback(_bg_tasks.discard)

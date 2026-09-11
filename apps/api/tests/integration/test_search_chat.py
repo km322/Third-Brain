@@ -86,6 +86,8 @@ async def test_search_can_narrow_to_a_collection(client, db_session, token_heade
 async def test_chat_is_grounded_and_returns_citations(
     client, db_session, token_headers, api
 ) -> None:
+    """The answer a user sees must never leak the internal RAG prompt scaffolding, even on the
+    offline stub path (the default zero-key evaluation mode)."""
     org, owner, _ = await factories.create_org_with_owner(db_session)
     collection = await factories.create_collection(
         db_session, org=org, owner=owner, visibility=Visibility.ORG
@@ -107,8 +109,6 @@ async def test_chat_is_grounded_and_returns_citations(
     assert resp.status_code == 200, resp.text
     body = resp.json()
     assert isinstance(body["answer"], str) and body["answer"]
-    # The answer a user sees must never leak the internal RAG prompt scaffolding, even on
-    # the offline stub path (the default zero-key evaluation mode).
     assert "<passage" not in body["answer"]
     assert "Answer the question using only" not in body["answer"]
     citations = body["citations"]
@@ -121,7 +121,11 @@ async def test_streaming_chat_persists_usage_and_audit(
 ) -> None:
     """A fully-consumed streamed answer records its COMPLETION usage and a search_chat
     audit row (both committed in the stream's ``finally``), so streamed Asks are metered
-    exactly like non-streamed ones."""
+    exactly like non-streamed ones.
+
+    Citations ride the same stream, so the client needs no second ``/search``: a citations
+    frame is present and carries the grounding document.
+    """
     from sqlalchemy import func, select
 
     from app.models.audit import AuditLog
@@ -148,8 +152,6 @@ async def test_streaming_chat_persists_usage_and_audit(
         async for chunk in resp.aiter_text():
             body += chunk
     assert body.strip(), "expected streamed answer tokens"
-    # Citations ride the same stream (so the client needs no second /search): a citations
-    # frame is present and carries the grounding document.
     assert '"type": "citations"' in body
     assert str(collection.id) in body
     assert "data: [DONE]" in body

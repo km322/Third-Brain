@@ -36,7 +36,30 @@ depends_on = None
 
 
 def upgrade() -> None:
-    # pgvector must exist before the Vector column / HNSW index are created.
+    """Build the complete baseline schema on an empty database.
+
+    Ordering: pgvector must exist before the ``Vector`` column / HNSW index are created. The
+    ``source_id`` columns on ``access_grants`` (source-synced ACLs) and ``documents``
+    (connectors) are the data-source linkage; their cross-table FKs to ``data_sources`` are
+    added near the end, once that table exists. ``device_authorizations`` - CLI sign-in
+    approved from the browser (the /device-auth flow) - is created last, after its FK targets
+    (organizations, users, api_keys); its partial unique index keeps ``user_code``
+    unambiguous only among PENDING rows.
+
+    Columns: ``documents.verification_status`` and its companions carry verified answers /
+    content freshness, and their ``server_default`` mirrors the value the ORM writes so raw
+    inserts are also safe. ``documents.sensitivity`` is the DLP/PII classification - NONE
+    unless the sensitivity scan hit. The dimension of ``document_chunks.embedding`` is driven
+    by EMBEDDING_DIM (matching ``models.chunk.DocumentChunk.embedding``) so a non-default
+    embedding model produces a schema that actually accepts its vectors; the default is 1536
+    (text-embedding-3-small), and changing it requires a fresh DB or a manual
+    ``ALTER TABLE ... TYPE vector(N)`` + HNSW rebuild.
+
+    Indexes: ``ix_document_chunks_content_fts`` is the full-text keyword-search index for
+    hybrid retrieval - a functional expression index that cannot be declared on the model, so
+    it is created explicitly here. The block after the cross-table FKs holds the performance
+    indexes for hot lookup/ordering paths.
+    """
     op.execute("CREATE EXTENSION IF NOT EXISTS vector")
     op.execute("CREATE EXTENSION IF NOT EXISTS pg_trgm")
 
@@ -75,7 +98,6 @@ def upgrade() -> None:
     sa.Column('principal_id', sa.Uuid(), nullable=False),
     sa.Column('permission', sa.Enum('NONE', 'VIEWER', 'EDITOR', 'MANAGER', name='permissionlevel', native_enum=False, length=32), nullable=False),
     sa.Column('granted_by_id', sa.Uuid(), nullable=True),
-    # Data-source linkage (source-synced ACLs). FK added after ``data_sources`` exists.
     sa.Column('source_id', sa.Uuid(), nullable=True),
     sa.Column('id', sa.Uuid(), nullable=False),
     sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
@@ -269,16 +291,12 @@ def upgrade() -> None:
     sa.Column('error', sa.Text(), nullable=True),
     sa.Column('indexed_at', sa.DateTime(timezone=True), nullable=True),
     sa.Column('metadata', sa.JSON(), nullable=False),
-    # Verified answers / content freshness (feature: verification). ``server_default`` mirrors
-    # the value the ORM writes so raw inserts are also safe.
     sa.Column('verification_status', sa.Enum('UNVERIFIED', 'VERIFIED', 'STALE', name='verificationstatus', native_enum=False, length=16), server_default='UNVERIFIED', nullable=False),
     sa.Column('verified_by_id', sa.Uuid(), nullable=True),
     sa.Column('verified_at', sa.DateTime(timezone=True), nullable=True),
     sa.Column('review_interval_days', sa.Integer(), nullable=True),
     sa.Column('expires_at', sa.DateTime(timezone=True), nullable=True),
-    # DLP classification (feature: PII/DLP). NONE unless the sensitivity scan hit.
     sa.Column('sensitivity', sa.Enum('NONE', 'PII', 'CONFIDENTIAL', name='sensitivitylevel', native_enum=False, length=16), server_default='NONE', nullable=False),
-    # Data-source linkage (feature: connectors). FK added after ``data_sources`` exists.
     sa.Column('source_id', sa.Uuid(), nullable=True),
     sa.Column('external_id', sa.String(length=1024), nullable=True),
     sa.Column('id', sa.Uuid(), nullable=False),
@@ -310,10 +328,6 @@ def upgrade() -> None:
     sa.Column('chunk_index', sa.Integer(), nullable=False),
     sa.Column('content', sa.Text(), nullable=False),
     sa.Column('token_count', sa.Integer(), nullable=False),
-    # Dimension is driven by EMBEDDING_DIM (matching models.chunk.DocumentChunk.embedding) so
-    # a non-default embedding model produces a schema that actually accepts its vectors. The
-    # default is 1536 (text-embedding-3-small). Changing it requires a fresh DB or a manual
-    # ``ALTER TABLE ... TYPE vector(N)`` + HNSW rebuild.
     sa.Column('embedding', Vector(settings.EMBEDDING_DIM), nullable=True),
     sa.Column('metadata', sa.JSON(), nullable=False),
     sa.Column('id', sa.Uuid(), nullable=False),
@@ -329,8 +343,6 @@ def upgrade() -> None:
     op.create_index(op.f('ix_document_chunks_id'), 'document_chunks', ['id'], unique=False)
     op.create_index(op.f('ix_document_chunks_org_id'), 'document_chunks', ['org_id'], unique=False)
 
-    # Full-text keyword-search index for hybrid retrieval. This is a functional expression
-    # index that cannot be declared on the model, so it is created explicitly here.
     op.execute(
         "CREATE INDEX IF NOT EXISTS ix_document_chunks_content_fts "
         "ON document_chunks USING gin (to_tsvector('english', content))"
@@ -603,7 +615,6 @@ def upgrade() -> None:
     op.create_index(op.f('ix_document_external_principals_org_id'), 'document_external_principals', ['org_id'], unique=False)
     op.create_index(op.f('ix_document_external_principals_source_id'), 'document_external_principals', ['source_id'], unique=False)
 
-    # Cross-table FKs to ``data_sources`` (created last): added now that the target exists.
     op.create_foreign_key(
         'fk_access_grants_source_id_data_sources', 'access_grants', 'data_sources',
         ['source_id'], ['id'], ondelete='CASCADE',
@@ -613,7 +624,6 @@ def upgrade() -> None:
         ['source_id'], ['id'], ondelete='CASCADE',
     )
 
-    # Performance indexes for hot lookup/ordering paths.
     op.create_index('ix_users_email_lower', 'users', [sa.text('lower(email)')], unique=True)
     op.create_index(
         'ix_documents_org_visibility', 'documents', ['org_id'],
@@ -623,9 +633,6 @@ def upgrade() -> None:
     op.create_index('ix_documents_meta_file_token', 'documents', [sa.text("(metadata ->> 'file_token')")])
     op.create_index('ix_memberships_org_created', 'memberships', ['org_id', 'created_at'])
 
-    # Device authorizations: CLI sign-in approved from the browser (the /device-auth flow).
-    # Created last, after its FK targets (organizations, users, api_keys). The partial unique
-    # index keeps ``user_code`` unambiguous only among PENDING rows.
     op.create_table(
         "device_authorizations",
         sa.Column("org_id", sa.Uuid(), nullable=True),
@@ -705,7 +712,15 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    # Device authorizations: dropped first, before FK targets.
+    """Drop the baseline schema in reverse dependency order.
+
+    Device authorizations go first, before their FK targets.
+
+    ``ix_documents_meta_file_token`` is dropped with ``if_exists``: a DB stamped at this
+    baseline BEFORE that index was folded in never ran the create, so an unconditional drop
+    would make downgrade fail on exactly those DBs (see docs/DEPLOYMENT.md, "Upgrading a
+    database stamped at an older baseline").
+    """
     op.drop_index("uq_device_auth_user_code_pending", table_name="device_authorizations")
     op.drop_index(op.f("ix_device_authorizations_user_code"), table_name="device_authorizations")
     op.drop_index(op.f("ix_device_authorizations_org_id"), table_name="device_authorizations")
@@ -719,9 +734,6 @@ def downgrade() -> None:
     op.drop_table("device_authorizations")
     op.execute("DROP INDEX IF EXISTS ix_document_chunks_content_fts")
     op.drop_index('ix_memberships_org_created', table_name='memberships')
-    # if_exists: a DB stamped at this baseline BEFORE an index was folded in never ran the
-    # create, so an unconditional drop would make downgrade fail on exactly those DBs (see
-    # docs/DEPLOYMENT.md, "Upgrading a database stamped at an older baseline").
     op.drop_index('ix_documents_meta_file_token', table_name='documents', if_exists=True)
     op.drop_index('ix_documents_org_created', table_name='documents')
     op.drop_index(

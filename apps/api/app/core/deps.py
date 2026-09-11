@@ -39,9 +39,9 @@ logger = get_logger(__name__)
 
 _ROLE_RANK = {OrgRole.VIEWER: 0, OrgRole.EDITOR: 1, OrgRole.ADMIN: 2, OrgRole.OWNER: 3}
 
-# Only refresh ``ApiKey.last_used_at`` when it is this stale, so authenticating a busy key
-# does not incur a write on every request.
 _LAST_USED_THROTTLE = timedelta(minutes=5)
+"""Only refresh ``ApiKey.last_used_at`` when it is this stale, so authenticating a busy
+key does not incur a write on every request."""
 
 
 @dataclass
@@ -67,7 +67,11 @@ class AuthContext:
         return self.org_role in (OrgRole.OWNER, OrgRole.ADMIN)
 
     def has_scope(self, scope: str) -> bool:
-        # Session users act with their role; scope gating applies only to API keys.
+        """Whether the caller holds ``scope``.
+
+        Session users act with their role, so they always pass; scope gating applies
+        only to API keys.
+        """
         if self.api_key is None:
             return True
         return "*" in self.scopes or scope in self.scopes
@@ -109,6 +113,12 @@ def _extract_credential(
 
 
 async def _auth_from_jwt(token: str, db: AsyncSession) -> AuthContext:
+    """Resolve a dashboard access token to its user, org and membership role.
+
+    The membership status check is enforced on every request so suspension takes effect
+    immediately - even for access tokens issued before the membership was suspended (or
+    still only invited).
+    """
     try:
         payload = decode_token(token)
     except jwt.PyJWTError as exc:
@@ -148,8 +158,6 @@ async def _auth_from_jwt(token: str, db: AsyncSession) -> AuthContext:
     if membership is None:
         raise HTTPException(status_code=403, detail="Not a member of this organization")
     if membership.status != MembershipStatus.ACTIVE:
-        # Enforced on every request so suspension takes effect immediately - even for
-        # access tokens issued before the membership was suspended (or still only invited).
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Your membership of this organization is not active",
@@ -183,6 +191,11 @@ async def _record_key_use(db: AsyncSession, api_key: ApiKey, now: datetime) -> N
 
 
 async def _auth_from_api_key(raw_key: str, db: AsyncSession) -> AuthContext:
+    """Resolve a raw API key to its org and effective role.
+
+    The effective role comes from the impersonated user when the key sets ``acts_as``,
+    else it is derived from the key's scopes.
+    """
     hashed = hash_api_key(raw_key)
     api_key = (
         await db.execute(select(ApiKey).where(ApiKey.hashed_key == hashed))
@@ -194,7 +207,6 @@ async def _auth_from_api_key(raw_key: str, db: AsyncSession) -> AuthContext:
         raise HTTPException(status_code=401, detail="API key expired")
     await _record_key_use(db, api_key, now)
 
-    # Effective role: from the impersonated user if set, else derived from scopes.
     user: User | None = None
     org_role = _role_from_scopes(api_key.scopes)
     if api_key.acts_as_user_id:
@@ -234,6 +246,13 @@ async def get_auth_context(
     authorization: str | None = Header(default=None),
     x_api_key: str | None = Header(default=None, alias="X-API-Key"),
 ) -> AuthContext:
+    """Authenticate the request via whichever credential it presents.
+
+    When a presented credential is rejected, that is logged as a security event (metadata
+    only, never the token) so credential stuffing / API-key probing is detectable. The
+    field is named ``auth_kind`` (not ``credential``) so the secret-redaction backstop
+    does not censor this non-secret credential type.
+    """
     kind, token = _extract_credential(request, authorization, x_api_key)
     try:
         if kind == "apikey":
@@ -241,11 +260,7 @@ async def get_auth_context(
         else:
             ctx = await _auth_from_jwt(token, db)
     except HTTPException as exc:
-        # A presented credential was rejected. Log it as a security event (metadata only,
-        # never the token) so credential stuffing / API-key probing is detectable.
         if exc.status_code in (status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN):
-            # Field is named ``auth_kind`` (not ``credential``) so the secret-redaction
-            # backstop does not censor this non-secret credential type.
             logger.warning("auth_failed", auth_kind=kind, status=exc.status_code, reason=exc.detail)
         raise
     _bind_observability_context(ctx)
@@ -281,9 +296,14 @@ async def get_session_context(
 
 
 def require_role(min_role: OrgRole):
+    """Dependency: the caller's org role is ``min_role`` or higher.
+
+    A denial is logged without identifying fields because org_id/user_id/api_key_id are
+    already bound on the log context by auth.
+    """
+
     async def _dep(ctx: AuthContext = Depends(get_auth_context)) -> AuthContext:
         if not role_at_least(ctx.org_role, min_role):
-            # org_id/user_id/api_key_id are already bound on the log context by auth.
             logger.warning(
                 "permission_denied",
                 check="role",
@@ -334,12 +354,12 @@ def require_any_scope(*scopes: str):
     return _dep
 
 
-# Capability-scope policy for the knowledge surface, enforced on API-key callers (human
-# sessions carry an implicit ``*`` and always pass). Writing requires a write/ingest scope;
-# reading requires any recognized capability (write implies read), so an empty-scoped key can
-# neither read nor write - closing the gap where scopes were a no-op on the read surface.
 WRITE_SCOPES = ("write", "ingest")
 READ_SCOPES = ("read", "search", "write", "ingest", "manage")
+"""Capability-scope policy for the knowledge surface, enforced on API-key callers (human
+sessions carry an implicit ``*`` and always pass). Writing requires a write/ingest scope;
+reading requires any recognized capability (write implies read), so an empty-scoped key can
+neither read nor write - closing the gap where scopes were a no-op on the read surface."""
 
 
 def require_read_scope():
@@ -352,12 +372,12 @@ def require_write_scope():
     return require_any_scope(*WRITE_SCOPES)
 
 
-# A brute-force / credential-stuffing guard for the unauthenticated auth endpoints, which
-# carry no API key and so are not covered by ``enforce_rate_limit``. Keyed by the presented
-# identifier (email) and client IP so one attacker cannot both hammer a single account and
-# spray many accounts from one host.
 _LOGIN_RATE_LIMIT_PER_MINUTE = 10
 _LOGIN_RATE_WINDOW_SECONDS = 60
+"""A brute-force / credential-stuffing guard for the unauthenticated auth endpoints, which
+carry no API key and so are not covered by ``enforce_rate_limit``. Keyed by the presented
+identifier (email) and client IP so one attacker cannot both hammer a single account and
+spray many accounts from one host."""
 
 
 def _login_rate_bucket(request: Request, identifier: str) -> str:
@@ -369,9 +389,13 @@ def _login_rate_bucket(request: Request, identifier: str) -> str:
 
 
 def _raise_login_rate_limited() -> None:
+    """Raise 429 with a ``Retry-After`` the caller can trust.
+
+    ``retry_after`` is the number of seconds until the fixed window rolls over, so a
+    polling client (the CLI device flow) can back off exactly long enough rather than
+    guessing.
+    """
     logger.warning("login_rate_limit_exceeded", limit=_LOGIN_RATE_LIMIT_PER_MINUTE)
-    # Seconds until the fixed window rolls over, so a polling client (the CLI device
-    # flow) can back off exactly long enough rather than guessing.
     retry_after = _LOGIN_RATE_WINDOW_SECONDS - (
         int(datetime.now(UTC).timestamp()) % _LOGIN_RATE_WINDOW_SECONDS
     )

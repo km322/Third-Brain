@@ -9,7 +9,8 @@ export const DEMO_MEDIA = {
 
 /**
  * Landing demo section: the recorded product walkthrough, framed like the hero's
- * proof element - hairline edge, one neutral shadow, a figure caption underneath.
+ * proof element - hairline edge, one neutral shadow, a figure caption underneath
+ * left-aligned to the frame edge as in the hero.
  *
  * Cheap by construction, because this sits four to six screens below the fold:
  * - `preload="none"` - the video is only fetched when a visitor presses play.
@@ -59,7 +60,6 @@ export function DemoVideo() {
             </video>
           </div>
 
-          {/* Figure caption - left-aligned to the frame edge, as in the hero. */}
           <p className="mt-4 flex items-baseline gap-2 text-sm text-muted-foreground">
             <span className="shrink-0 font-mono text-xs text-muted-foreground/70">
               Fig. 2

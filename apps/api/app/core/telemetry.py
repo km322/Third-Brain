@@ -73,7 +73,11 @@ def _traces_endpoint(base: str) -> str:
 
 
 def setup_telemetry(service_name: str | None = None) -> None:
-    """Install the tracer provider and instrument shared libraries (idempotent)."""
+    """Install the tracer provider and instrument shared libraries (idempotent).
+
+    ``app.core.db`` is imported inside the function rather than at module level to avoid
+    an import cycle.
+    """
     global _provider
     if _provider is not None:
         return
@@ -103,7 +107,6 @@ def setup_telemetry(service_name: str | None = None) -> None:
     trace.set_tracer_provider(provider)
     _provider = provider
 
-    # Imported here rather than at module level to avoid an import cycle via app.core.db.
     from app.core.db import engine
 
     SQLAlchemyInstrumentor().instrument(engine=engine.sync_engine)
@@ -118,10 +121,12 @@ def setup_telemetry(service_name: str | None = None) -> None:
 
 
 def instrument_app(app: FastAPI) -> None:
-    """Attach FastAPI server-span instrumentation (no-op when tracing is disabled)."""
+    """Attach FastAPI server-span instrumentation (no-op when tracing is disabled).
+
+    ``exclude_spans``: per-message ASGI receive/send spans add dozens of internal spans to
+    every streamed (SSE) response without diagnostic value.
+    """
     if settings.otel_enabled:
-        # exclude_spans: per-message ASGI receive/send spans add dozens of internal
-        # spans to every streamed (SSE) response without diagnostic value.
         FastAPIInstrumentor.instrument_app(
             app,
             excluded_urls="/health,/api/v1/health,/docs,/openapi.json",

@@ -56,7 +56,7 @@ class LocalStorage:
         self.base = Path(base_path)
 
     def _full(self, key: str) -> Path:
-        # Guard against path traversal escaping the base directory.
+        """Resolve ``key`` under the base directory, guarding against path traversal."""
         target = (self.base / key).resolve()
         base = self.base.resolve()
         if base not in target.parents and target != base:

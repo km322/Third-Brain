@@ -1,21 +1,26 @@
 /** HTTP client for the Third Brain MCP endpoint (GET descriptor + JSON-RPC POST). */
 
-// The MCP server's JSON-RPC error code for a missing/invalid credential.
+/** The MCP server's JSON-RPC error code for a missing/invalid credential. */
 export const UNAUTHORIZED = -32001;
 
 const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "::1"]);
 
-/** Loopback hosts are exempt from the https requirement (local dev never leaves the box). */
+/**
+ * Loopback hosts are exempt from the https requirement (local dev never leaves the box).
+ *
+ * URL.hostname keeps the brackets on an IPv6 literal ("[::1]"), so they are stripped
+ * before matching; canonical IPv6 loopback (0:0:...:1) is already collapsed to "::1" by
+ * the URL parser. The two regexes cover the rest of 127.0.0.0/8 and its IPv4-mapped IPv6
+ * form (e.g. ::ffff:127.0.0.1).
+ */
 function isLoopbackHost(hostname) {
-  // URL.hostname keeps the brackets on an IPv6 literal ("[::1]"); strip them before matching,
-  // and canonical IPv6 loopback (0:0:...:1) is already collapsed to "::1" by the URL parser.
   const h = String(hostname || "")
     .toLowerCase()
     .replace(/^\[|\]$/g, "");
   return (
     LOOPBACK_HOSTS.has(h) ||
-    /^127(\.\d{1,3}){3}$/.test(h) || // 127.0.0.0/8
-    /^::ffff:127(\.\d{1,3}){3}$/.test(h) // IPv4-mapped IPv6 loopback, e.g. ::ffff:127.0.0.1
+    /^127(\.\d{1,3}){3}$/.test(h) ||
+    /^::ffff:127(\.\d{1,3}){3}$/.test(h)
   );
 }
 
@@ -24,6 +29,15 @@ function allowsInsecureHttp(env) {
   return /^(1|true|yes|on)$/i.test(v);
 }
 
+/**
+ * Canonicalise a user-supplied server URL to a bare origin (no trailing slash, no
+ * ``/mcp`` suffix), defaulting a scheme-less input to https. Parsing through ``new URL``
+ * throws on garbage input.
+ *
+ * Never send the API key over cleartext HTTP to a remote host. Loopback is exempt (local
+ * dev), and THIRD_BRAIN_ALLOW_INSECURE_HTTP=1 is an explicit opt-out for a trusted
+ * network.
+ */
 export function normalizeUrl(raw, { env = process.env } = {}) {
   let url = String(raw || "").trim();
   if (!url) {
@@ -36,9 +50,7 @@ export function normalizeUrl(raw, { env = process.env } = {}) {
   if (url.toLowerCase().endsWith("/mcp")) {
     url = url.slice(0, -"/mcp".length).replace(/\/+$/, "");
   }
-  const parsed = new URL(url); // throws on garbage input
-  // Never send the API key over cleartext HTTP to a remote host. Loopback is exempt (local
-  // dev), and THIRD_BRAIN_ALLOW_INSECURE_HTTP=1 is an explicit opt-out for a trusted network.
+  const parsed = new URL(url);
   if (parsed.protocol === "http:" && !isLoopbackHost(parsed.hostname) && !allowsInsecureHttp(env)) {
     const err = new Error(
       `Refusing to use an insecure http:// URL for ${parsed.host}: your API key would be sent ` +
@@ -51,12 +63,15 @@ export function normalizeUrl(raw, { env = process.env } = {}) {
   return url;
 }
 
-/** ``fetch`` that turns a transport failure into a legible message with the OS cause. */
+/**
+ * ``fetch`` that turns a transport failure into a legible message with the OS cause.
+ *
+ * undici surfaces the real reason (ECONNREFUSED, ENOTFOUND, ...) on ``err.cause``.
+ */
 async function doFetch(fetchImpl, target, init) {
   try {
     return await fetchImpl(target, init);
   } catch (err) {
-    // undici surfaces the real reason (ECONNREFUSED, ENOTFOUND, ...) on err.cause.
     const code = err && err.cause && err.cause.code;
     throw new Error(
       `Could not reach ${target}${code ? ` (${code})` : ""}: ${err.message}`,
@@ -79,7 +94,11 @@ export async function fetchDescriptor(url, { fetchImpl = fetch } = {}) {
   return descriptor;
 }
 
-/** One JSON-RPC request over POST {server}/mcp. Returns the parsed response body. */
+/**
+ * One JSON-RPC request over POST {server}/mcp. Returns the parsed response body, or
+ * ``null`` for an HTTP 202, which is how the server acknowledges a notification (no body
+ * to parse).
+ */
 export async function rpc(url, apiKey, message, { fetchImpl = fetch } = {}) {
   const headers = { "Content-Type": "application/json" };
   if (apiKey) {
@@ -94,7 +113,7 @@ export async function rpc(url, apiKey, message, { fetchImpl = fetch } = {}) {
     throw new Error(`POST ${url}/mcp failed with HTTP ${resp.status}.`);
   }
   if (resp.status === 202) {
-    return null; // notification: acknowledged, no body
+    return null;
   }
   return await resp.json();
 }

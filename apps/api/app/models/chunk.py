@@ -19,11 +19,16 @@ class DocumentChunk(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 
     ``org_id`` and ``collection_id`` are denormalized onto the chunk so that the
     permission-aware vector search can filter without extra joins.
+
+    ``ix_document_chunks_embedding_hnsw`` is an HNSW index for fast cosine ANN search over
+    the pgvector column. ``ix_document_chunks_doc_order`` is unique so a document can never
+    hold two chunks at the same index - a backstop against a concurrent double-ingestion
+    inserting a duplicate set of chunks (the ingestion path also serializes on a
+    per-document advisory lock).
     """
 
     __tablename__ = "document_chunks"
     __table_args__ = (
-        # HNSW index for fast cosine ANN search over the pgvector column.
         Index(
             "ix_document_chunks_embedding_hnsw",
             "embedding",
@@ -31,9 +36,6 @@ class DocumentChunk(UUIDPrimaryKeyMixin, TimestampMixin, Base):
             postgresql_with={"m": 16, "ef_construction": 64},
             postgresql_ops={"embedding": "vector_cosine_ops"},
         ),
-        # Unique so a document can never hold two chunks at the same index - a backstop
-        # against a concurrent double-ingestion inserting a duplicate set of chunks (the
-        # ingestion path also serializes on a per-document advisory lock).
         Index("ix_document_chunks_doc_order", "document_id", "chunk_index", unique=True),
     )
 

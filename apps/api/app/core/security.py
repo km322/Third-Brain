@@ -1,6 +1,10 @@
 """Security primitives: password hashing, JWTs, API-key + secret handling.
 
 Kept dependency-free of the rest of the app so it is trivially unit-testable.
+
+The module is laid out in four sections, in this order: passwords, JWTs, API keys and
+symmetric encryption. API keys are only ever stored as a hash; the raw key is shown
+once. The symmetric encryption helpers exist to protect connector credentials at rest.
 """
 
 from __future__ import annotations
@@ -18,12 +22,10 @@ from cryptography.fernet import Fernet
 
 from app.core.config import settings
 
-API_KEY_PREFIX = "tb"  # keys look like: tb_live_<random>
+API_KEY_PREFIX = "tb"
+"""Keys look like: ``tb_live_<random>``."""
 
 
-# --------------------------------------------------------------------------- #
-# Passwords
-# --------------------------------------------------------------------------- #
 def _bcrypt_prehash(password: str) -> bytes:
     """SHA-256 then base64 so passwords of any length fit bcrypt's 72-byte input
     without silent truncation (the Django ``bcrypt_sha256`` approach)."""
@@ -57,9 +59,6 @@ async def verify_password_async(plain: str, hashed: str) -> bool:
     return await asyncio.to_thread(verify_password, plain, hashed)
 
 
-# --------------------------------------------------------------------------- #
-# JWTs
-# --------------------------------------------------------------------------- #
 def _create_token(
     subject: str,
     token_type: Literal["access", "refresh"],
@@ -101,9 +100,6 @@ def decode_token(token: str) -> dict[str, Any]:
     return jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.JWT_ALGORITHM])
 
 
-# --------------------------------------------------------------------------- #
-# API keys - only ever stored as a hash; the raw key is shown once.
-# --------------------------------------------------------------------------- #
 def generate_api_key(environment: str = "live") -> tuple[str, str, str]:
     """Return (full_key, prefix, sha256_hash).
 
@@ -119,11 +115,11 @@ def hash_api_key(full_key: str) -> str:
     return hashlib.sha256(full_key.encode("utf-8")).hexdigest()
 
 
-# --------------------------------------------------------------------------- #
-# Symmetric encryption for connector credentials at rest.
-# --------------------------------------------------------------------------- #
 def _fernet() -> Fernet:
-    # Derive a stable 32-byte Fernet key from SECRET_KEY.
+    """Symmetric cipher for connector credentials at rest.
+
+    Derives a stable 32-byte Fernet key from ``SECRET_KEY``.
+    """
     digest = hashlib.sha256(settings.SECRET_KEY.encode("utf-8")).digest()
     return Fernet(base64.urlsafe_b64encode(digest))
 

@@ -5,9 +5,11 @@ import { useRouter } from "next/navigation";
 
 import { auth } from "@/lib/api";
 
-// useLayoutEffect on the client (fires before the browser paints, so an
-// already-authenticated visitor is redirected before the auth form is ever shown),
-// falling back to useEffect during SSR where layout effects do not run.
+/**
+ * useLayoutEffect on the client (fires before the browser paints, so an
+ * already-authenticated visitor is redirected before the auth form is ever shown),
+ * falling back to useEffect during SSR where layout effects do not run.
+ */
 const useIsomorphicLayoutEffect =
   typeof window !== "undefined" ? React.useLayoutEffect : React.useEffect;
 

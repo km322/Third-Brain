@@ -23,7 +23,7 @@ class TestExtraction:
         assert entities["Acme Corporation"] == 2
 
     def test_sentence_initial_single_word_ignored(self) -> None:
-        # "The" / single capitalised sentence starts are not entities.
+        """A single capitalised sentence start such as ``The`` is not an entity."""
         assert extract_entities("The team shipped the release on time.") == []
 
     def test_leading_article_stripped(self) -> None:
@@ -110,8 +110,8 @@ class TestClassification:
         )
 
     def test_kind_is_stable_across_contexts(self) -> None:
-        # kind must be name-intrinsic: the (org, kind, normalized) unique index would
-        # otherwise fork one name into duplicate rows across documents.
+        """Kind must be name-intrinsic: the (org, kind, normalized) unique index would
+        otherwise fork one name into duplicate rows across documents."""
         a = _by_name("Anthropic shipped a model.")["Anthropic"]
         b = _by_name("We evaluated Anthropic against alternatives.")["Anthropic"]
         assert a == b
@@ -129,7 +129,7 @@ class TestNoiseRejection:
         assert extract_entities("Summary\nOverview\nNext Steps\nAccomplishments") == []
 
     def test_name_length_is_bounded(self) -> None:
-        # The name column is String(512); nothing sentence-length may reach it.
+        """The name column is String(512); nothing sentence-length may reach it."""
         text = " ".join(f"Word{i}" for i in range(40))
         assert all(len(e.name) <= 120 for e in extract_entities(text))
 

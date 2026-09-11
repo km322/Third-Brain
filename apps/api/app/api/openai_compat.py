@@ -43,14 +43,18 @@ from app.services.metering import record_audit, record_usage
 from app.services.permissions import build_retrieval_scope
 from app.services.vectorstore import SearchHit, get_vector_store
 
-# OpenAI accepts up to 2048 inputs per embeddings request; bound the count and per-item size
-# so one call can't materialize unbounded memory or fire a single enormous billable request.
 _MAX_EMBEDDING_INPUTS = 2048
+"""OpenAI accepts up to 2048 inputs per embeddings request; bound the count (and, with
+:data:`_MAX_EMBEDDING_INPUT_CHARS`, the per-item size) so one call can't materialize
+unbounded memory or fire a single enormous billable request."""
+
 _MAX_EMBEDDING_INPUT_CHARS = 100_000
-# Token-id array inputs (the pre-tokenized OpenAI form) must be bounded too, or a caller can
-# ship a single multi-million-element array that dwarfs the string cap. ~25k tokens is well
-# above any real embedding-model context window while still bounding the request.
+"""Per-item size cap for string inputs (see :data:`_MAX_EMBEDDING_INPUTS`)."""
+
 _MAX_EMBEDDING_INPUT_TOKENS = 25_000
+"""Token-id array inputs (the pre-tokenized OpenAI form) must be bounded too, or a caller can
+ship a single multi-million-element array that dwarfs the string cap. ~25k tokens is well
+above any real embedding-model context window while still bounding the request."""
 
 logger = get_logger(__name__)
 
@@ -73,10 +77,9 @@ def _sanitize_passage(text: str) -> str:
     return re.sub(r"<(/?)passage", r"&lt;\1passage", text or "", flags=re.IGNORECASE)
 
 
-# --------------------------------------------------------------------------- #
-# Request models (OpenAI-shaped, tolerant of extra fields).
-# --------------------------------------------------------------------------- #
 class _ChatMessageIn(BaseModel):
+    """One inbound chat message (OpenAI-shaped, tolerant of extra fields)."""
+
     model_config = ConfigDict(extra="allow")
 
     role: str
@@ -85,6 +88,13 @@ class _ChatMessageIn(BaseModel):
 
 
 class ChatCompletionRequest(BaseModel):
+    """``POST /v1/chat/completions`` body (OpenAI-shaped, tolerant of extra fields).
+
+    ``collection_ids`` and ``top_k`` are Third Brain extensions. ``top_k`` is capped at 50
+    to match the retrieval candidate ceiling; a larger value could silently return fewer
+    grounding passages than requested.
+    """
+
     model_config = ConfigDict(extra="allow", protected_namespaces=())
 
     model: str | None = None
@@ -92,26 +102,24 @@ class ChatCompletionRequest(BaseModel):
     stream: bool = False
     temperature: float = 0.2
     max_tokens: int | None = None
-    # Third Brain extensions:
     collection_ids: list[str] | None = None
-    # Capped at 50 to match the retrieval candidate ceiling; a larger value could silently
-    # return fewer grounding passages than requested.
     top_k: int | None = Field(default=None, ge=1, le=50)
 
 
 class EmbeddingRequest(BaseModel):
+    """``POST /v1/embeddings`` body (OpenAI-shaped, tolerant of extra fields).
+
+    OpenAI accepts a string, a list of strings, a token-id array, or a list of token-id
+    arrays (what LangChain's OpenAIEmbeddings sends by default) as ``input``. Accept all four.
+    """
+
     model_config = ConfigDict(extra="allow", protected_namespaces=())
 
     model: str | None = None
-    # OpenAI accepts a string, a list of strings, a token-id array, or a list of token-id
-    # arrays (what LangChain's OpenAIEmbeddings sends by default). Accept all four.
     input: str | list[str] | list[int] | list[list[int]]
     encoding_format: str = "float"
 
 
-# --------------------------------------------------------------------------- #
-# Small utilities
-# --------------------------------------------------------------------------- #
 def _content_to_text(content: Any) -> str:
     """Coerce OpenAI message content (str or list of parts) to plain text."""
     if content is None:
@@ -164,13 +172,13 @@ def _normalize_embedding_inputs(
     """Coerce OpenAI's four accepted ``input`` shapes into a list of items to embed.
 
     Returns a list whose items are either strings or token-id arrays (``list[int]``).
-    Empty/whitespace-only string inputs are dropped.
+    Empty/whitespace-only string inputs are dropped. A bare token-id array (``list[int]``)
+    is a SINGLE input, not many; within a list input, any non-string item is a token-id array.
     """
     if isinstance(value, str):
         return [value] if value.strip() else []
     if not value:
         return []
-    # A bare token-id array (list[int]) is a SINGLE input, not many.
     if all(isinstance(item, int) for item in value):
         return [list(value)]  # type: ignore[list-item]
     items: list[Any] = []
@@ -179,7 +187,7 @@ def _normalize_embedding_inputs(
             if item.strip():
                 items.append(item)
         else:
-            items.append(item)  # a token-id array
+            items.append(item)
     return items
 
 
@@ -188,18 +196,21 @@ def _estimate_tokens(text: str) -> int:
 
 
 def _provider_hint(model: str) -> str:
-    # Models are served through the configured OpenAI-compatible endpoint.
+    """Derive the ``owned_by`` label for a model id.
+
+    Models are served through the configured OpenAI-compatible endpoint.
+    """
     if "/" in model:
         return model.split("/", 1)[0]
     return "openai"
 
 
-# The product-facing "virtual" model advertised in GET /v1/models and accepted by
-# /v1/chat/completions. It does not name a real provider model; it resolves to the org's
-# configured completion model so the documented ``model="third-brain"`` call returns real
-# answers once a key is set - instead of failing a provider model lookup and silently
-# falling back to the offline stub.
 VIRTUAL_COMPLETION_MODEL = "third-brain"
+"""The product-facing "virtual" model advertised in GET /v1/models and accepted by
+/v1/chat/completions. It does not name a real provider model; it resolves to the org's
+configured completion model so the documented ``model="third-brain"`` call returns real
+answers once a key is set - instead of failing a provider model lookup and silently
+falling back to the offline stub."""
 
 
 def _resolve_completion_model(requested: str | None) -> str | None:
@@ -211,9 +222,6 @@ def _resolve_completion_model(requested: str | None) -> str | None:
     return requested
 
 
-# --------------------------------------------------------------------------- #
-# Grounding - prefer app.services.rag.answer, fall back to an inline pipeline.
-# --------------------------------------------------------------------------- #
 def _citations(hits: list[SearchHit]) -> list[dict]:
     """Shape retrieval hits into the ``citations`` extension this surface returns."""
     return [
@@ -295,6 +303,9 @@ async def _grounded(
 ) -> tuple[str, list[dict], dict, bool]:
     """Produce a grounded answer for ``query``.
 
+    Prefers :func:`app.services.rag.answer` and falls back to the inline pipeline in
+    :func:`_inline_ground`.
+
     Returns ``(text, citations, usage, metered)``. ``metered`` is True when the answer came
     from ``rag.answer`` - which records its own EMBEDDING + COMPLETION usage, so ``usage`` is
     empty and the caller must NOT record it again; it is False for the inline fallback,
@@ -320,9 +331,6 @@ async def _grounded(
     return text, citations, usage, False
 
 
-# --------------------------------------------------------------------------- #
-# Usage recording
-# --------------------------------------------------------------------------- #
 async def _record_chat_usage(
     db: AsyncSession,
     ctx: AuthContext,
@@ -376,9 +384,6 @@ async def _record_chat_audit(
     )
 
 
-# --------------------------------------------------------------------------- #
-# OpenAI response payload builders
-# --------------------------------------------------------------------------- #
 def _chat_completion_payload(
     completion_id: str,
     created: int,
@@ -389,6 +394,10 @@ def _chat_completion_payload(
     tokens_out: int,
     finish_reason: str = "stop",
 ) -> dict:
+    """Build the OpenAI ``chat.completion`` response body.
+
+    ``citations`` is a Third Brain extension: the retrieval sources behind the answer.
+    """
     return {
         "id": completion_id,
         "object": "chat.completion",
@@ -406,7 +415,6 @@ def _chat_completion_payload(
             "completion_tokens": tokens_out,
             "total_tokens": tokens_in + tokens_out,
         },
-        # Third Brain extension: the retrieval sources behind the answer.
         "citations": citations,
     }
 
@@ -436,16 +444,21 @@ def _tokenize(text: str) -> list[str]:
     return re.findall(r"\s+|\S+", text or "")
 
 
-# --------------------------------------------------------------------------- #
-# Endpoints
-# --------------------------------------------------------------------------- #
 @router.post("/chat/completions")
 async def chat_completions(
     request: ChatCompletionRequest,
     ctx: AuthContext = Depends(require_scope("search")),
     db: AsyncSession = Depends(get_db),
 ):
-    """OpenAI-compatible chat completion, grounded in the org's knowledge base."""
+    """OpenAI-compatible chat completion, grounded in the org's knowledge base.
+
+    ``finish_reason`` reports "length" when the answer was cut off at the caller's
+    ``max_tokens``, matching OpenAI.
+
+    Metering: ``rag.answer`` already recorded usage, so this path only meters the inline
+    fallback - a single request is billed exactly once (it used to run RAG twice and
+    double-bill).
+    """
     await enforce_rate_limit(ctx)
 
     query = _last_user_message(request.messages)
@@ -480,11 +493,8 @@ async def chat_completions(
     model_name = usage.get("model") or request.model or settings.DEFAULT_COMPLETION_MODEL
     tokens_in = int(usage.get("tokens_in") or 0) or _estimate_tokens(query)
     tokens_out = int(usage.get("tokens_out") or 0) or _estimate_tokens(answer)
-    # Report "length" when the answer was cut off at the caller's max_tokens, matching OpenAI.
     finish_reason = "length" if request.max_tokens and tokens_out >= request.max_tokens else "stop"
 
-    # ``rag.answer`` already recorded usage; only meter here on the inline fallback so a
-    # single request is billed exactly once (this path used to run RAG twice and double-bill).
     if not metered:
         await _record_chat_usage(db, ctx, usage, latency_ms, query, answer)
     await _record_chat_audit(db, ctx, query, citations, streamed=False)
@@ -510,7 +520,19 @@ async def _stream_chat(
     collection_ids: list[uuid.UUID] | None,
     top_k: int,
 ) -> AsyncIterator[str]:
-    """Emit OpenAI-style SSE chunks for the grounded answer, ending with ``[DONE]``."""
+    """Emit OpenAI-style SSE chunks for the grounded answer, ending with ``[DONE]``.
+
+    The opening chunk carries the assistant role, one chunk per token follows, and the
+    terminal chunk has an empty delta, a ``finish_reason`` and the citations as an extension.
+
+    On failure, never leak internal exception text to API clients (matches the non-streaming
+    path's production error policy); the detail is in the server logs only.
+
+    The full answer is already generated here, so metering is persisted BEFORE streaming any
+    chunks: a client disconnect during the token stream must not roll back usage that was
+    already incurred. ``rag.answer`` already metered the grounded path, so only the inline
+    fallback is metered here - either way a request bills exactly once.
+    """
     started = time.perf_counter()
     completion_id = f"chatcmpl-{uuid.uuid4().hex}"
     created = int(time.time())
@@ -528,8 +550,6 @@ async def _stream_chat(
             request.max_tokens,
         )
     except Exception:  # pragma: no cover - defensive
-        # Never leak internal exception text to API clients (matches the non-streaming path's
-        # production error policy); the detail is in the server logs only.
         logger.exception("Streaming grounding failed")
         answer, citations, usage, metered = (
             "The request could not be completed due to an internal error.",
@@ -540,10 +560,6 @@ async def _stream_chat(
 
     model_name = usage.get("model") or request.model or settings.DEFAULT_COMPLETION_MODEL
 
-    # The full answer is already generated here, so persist metering BEFORE streaming any
-    # chunks: a client disconnect during the token stream must not roll back usage that was
-    # already incurred. ``rag.answer`` already metered the grounded path, so only meter the
-    # inline fallback here - either way a request bills exactly once.
     latency_ms = int((time.perf_counter() - started) * 1000)
     try:
         if not metered:
@@ -553,11 +569,9 @@ async def _stream_chat(
     except Exception as exc:  # pragma: no cover
         logger.warning("Failed to record streaming chat usage: %s", exc)
 
-    # Opening chunk carries the assistant role.
     yield _sse_chunk(completion_id, created, model_name, {"role": "assistant"}, None)
     for token in _tokenize(answer):
         yield _sse_chunk(completion_id, created, model_name, {"content": token}, None)
-    # Terminal chunk: empty delta, finish_reason, and citations as an extension.
     yield _sse_chunk(completion_id, created, model_name, {}, "stop", extra={"citations": citations})
     yield "data: [DONE]\n\n"
 
@@ -568,7 +582,17 @@ async def embeddings(
     ctx: AuthContext = Depends(require_scope("search")),
     db: AsyncSession = Depends(get_db),
 ):
-    """OpenAI-compatible embeddings via the org's default embedding connector."""
+    """OpenAI-compatible embeddings via the org's default embedding connector.
+
+    Inputs are bounded by count, by per-string length, and - for pre-tokenized token-id
+    arrays - by element count, before anything reaches the provider.
+
+    An input shape the resolved provider cannot accept (e.g. pre-tokenized token-id arrays
+    sent to Gemini) is the caller's error, not a provider failure: it is reported as a 400 in
+    the standard OpenAI error envelope. ``embed_texts`` fails loudly on any provider rejection
+    (e.g. an unknown model name); the ``/v1`` error handler shapes that string into OpenAI's
+    error envelope, and a 502 maps to OpenAI's ``api_error`` type rather than an opaque 500.
+    """
     await enforce_rate_limit(ctx)
 
     if request.encoding_format not in ("float", "base64"):
@@ -595,7 +619,6 @@ async def embeddings(
                     detail=f"An input exceeds the {_MAX_EMBEDDING_INPUT_CHARS}-character limit",
                 )
         elif isinstance(item, list) and len(item) > _MAX_EMBEDDING_INPUT_TOKENS:
-            # Pre-tokenized (token-id array) input: bound its element count too.
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"An input exceeds the {_MAX_EMBEDDING_INPUT_TOKENS}-token limit",
@@ -612,14 +635,8 @@ async def embeddings(
             provider=emb.provider,
         )
     except ValueError as exc:
-        # An input shape the resolved provider cannot accept (e.g. pre-tokenized token-id
-        # arrays sent to Gemini) is the caller's error, not a provider failure: report it
-        # as a 400 in the standard OpenAI error envelope.
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     except RuntimeError as exc:
-        # embed_texts fails loudly on any provider rejection (e.g. an unknown model name). The
-        # /v1 error handler shapes this string into OpenAI's error envelope; a 502 maps to
-        # OpenAI's ``api_error`` type rather than an opaque 500.
         logger.warning("Embeddings provider error: %s", exc)
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
@@ -649,8 +666,11 @@ async def embeddings(
     await db.commit()
 
     def _encode(vector: list[float]) -> Any:
+        """Encode one vector in the requested format.
+
+        OpenAI's base64 format is little-endian float32, base64-encoded.
+        """
         if request.encoding_format == "base64":
-            # OpenAI's base64 format is little-endian float32, base64-encoded.
             return base64.b64encode(struct.pack(f"<{len(vector)}f", *vector)).decode("ascii")
         return vector
 
@@ -673,11 +693,13 @@ async def list_models(
     ctx: AuthContext = Depends(require_scope("search")),
     db: AsyncSession = Depends(get_db),
 ):
-    """List the models available/allowed for the caller's organization."""
+    """List the models available/allowed for the caller's organization.
+
+    The catalog maps id -> owned_by and covers the product-facing grounded model, the
+    platform default completion/embedding models, and the org's enabled connectors.
+    """
     await enforce_rate_limit(ctx)
 
-    # id -> owned_by. The product-facing grounded model, the platform default
-    # completion/embedding models, and the org's enabled connectors.
     catalog: dict[str, str] = {VIRTUAL_COMPLETION_MODEL: "third-brain"}
     for model in (settings.DEFAULT_COMPLETION_MODEL, settings.EMBEDDING_MODEL):
         catalog.setdefault(model, _provider_hint(model))

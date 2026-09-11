@@ -1,10 +1,16 @@
 /** Device-code authorization against POST /api/v1/device-auth (+ /token polling). */
 
+/**
+ * A device-authorization flow that ended without an API key.
+ *
+ * ``reason`` is one of "denied", "expired" or "protocol", so a caller can tell an
+ * ordinary user decision apart from a server that spoke the flow wrongly.
+ */
 export class DeviceAuthError extends Error {
   constructor(message, reason) {
     super(message);
     this.name = "DeviceAuthError";
-    this.reason = reason; // "denied" | "expired" | "protocol"
+    this.reason = reason;
   }
 }
 
@@ -25,7 +31,13 @@ export async function startDeviceAuth(url, clientName, { fetchImpl = fetch } = {
   return grant;
 }
 
-/** One poll: POST /api/v1/device-auth/token -> {status, api_key?, retry_after_seconds?}. */
+/**
+ * One poll: POST /api/v1/device-auth/token -> {status, api_key?, retry_after_seconds?}.
+ *
+ * The token endpoint shares the server's unauthenticated rate limiter, so a steady poll
+ * can be throttled mid-flow; an HTTP 429 is therefore reported as "slow down", not
+ * failure.
+ */
 export async function pollDeviceToken(url, deviceCode, { fetchImpl = fetch } = {}) {
   const resp = await fetchImpl(`${url}/api/v1/device-auth/token`, {
     method: "POST",
@@ -33,8 +45,6 @@ export async function pollDeviceToken(url, deviceCode, { fetchImpl = fetch } = {
     body: JSON.stringify({ device_code: deviceCode }),
   });
   if (resp.status === 429) {
-    // The token endpoint shares the server's unauthenticated rate limiter, so a
-    // steady poll can be throttled mid-flow; treat it as "slow down", not failure.
     const retryAfter = Number(resp.headers && resp.headers.get?.("retry-after"));
     return {
       status: "slow_down",

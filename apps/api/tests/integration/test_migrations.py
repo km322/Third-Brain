@@ -33,7 +33,12 @@ def _version_rows(engine) -> list[str]:
 
 
 def test_migration_roundtrip(integration_infra, alembic_config_factory, monkeypatch) -> None:
-    """Sync by design: the Alembic command API drives a synchronous psycopg engine."""
+    """Sync by design: the Alembic command API drives a synchronous psycopg engine.
+
+    ``CREATE DATABASE`` cannot run inside a transaction, hence the AUTOCOMMIT admin engine.
+    ``alembic/env.py`` resolves its URL from app settings, so settings are pointed at the
+    scratch database too (monkeypatch restores the real test URL afterwards).
+    """
     import app.models  # noqa: F401 - registers every table on Base.metadata
     from alembic import command
     from app.core.config import settings
@@ -42,7 +47,6 @@ def test_migration_roundtrip(integration_infra, alembic_config_factory, monkeypa
     admin_url = make_url(settings.alembic_database_uri)
     scratch_db = f"tb_migration_roundtrip_{uuid.uuid4().hex[:8]}"
 
-    # CREATE DATABASE cannot run inside a transaction, hence the AUTOCOMMIT engine.
     admin_engine = create_engine(admin_url, poolclass=NullPool, isolation_level="AUTOCOMMIT")
     try:
         with admin_engine.connect() as conn:
@@ -55,8 +59,6 @@ def test_migration_roundtrip(integration_infra, alembic_config_factory, monkeypa
 
     scratch_engine = create_engine(admin_url.set(database=scratch_db), poolclass=NullPool)
     try:
-        # alembic/env.py resolves its URL from app settings, so point settings at the
-        # scratch DB too (monkeypatch restores the real test URL afterwards).
         scratch_async_url = admin_url.set(drivername="postgresql+asyncpg", database=scratch_db)
         monkeypatch.setattr(
             settings, "DATABASE_URL", scratch_async_url.render_as_string(hide_password=False)

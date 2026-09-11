@@ -62,14 +62,18 @@ from benchmarks.dataset import BenchmarkDataset, DocumentSpec
 
 logger = get_logger(__name__)
 
-# Dataset string values -> the real domain enums. Kept as explicit tables so an unknown
-# value fails loudly (KeyError) instead of silently mislabelling a collection's reach.
 _VISIBILITY: dict[str, Visibility] = {
     "private": Visibility.PRIVATE,
     "team": Visibility.TEAM,
     "org": Visibility.ORG,
     "public": Visibility.PUBLIC,
 }
+"""Dataset string values -> the real domain enums.
+
+This table and the ``_DEFAULT_PERMISSION`` / ``_ORG_ROLE`` / ``_GRANT_PERMISSION`` tables
+below are kept explicit so an unknown value fails loudly (KeyError) instead of silently
+mislabelling a collection's reach.
+"""
 _DEFAULT_PERMISSION: dict[str, PermissionLevel] = {
     "none": PermissionLevel.NONE,
     "viewer": PermissionLevel.VIEWER,
@@ -335,7 +339,11 @@ async def _execute(
     *,
     with_answers: bool,
 ) -> BenchmarkRun:
-    """Run every (query, config) pair against the materialized org and collect the results."""
+    """Run every (query, config) pair against the materialized org and collect the results.
+
+    Each pair is committed here because retrieval and answering only flush their usage
+    records; the caller owns the commit.
+    """
     id_to_dataset = {db_id: doc_id for doc_id, db_id in handles.doc_map.items()}
     runs: list[QueryRun] = []
 
@@ -360,7 +368,6 @@ async def _execute(
                 )
                 citations = [str(hit.chunk_id) for hit in cited]
 
-            # Retrieval + answer only flush usage records; the caller owns the commit.
             await db.commit()
 
             runs.append(

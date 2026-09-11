@@ -38,9 +38,9 @@ from app.services.web_search import WebResult
 logger = get_logger(__name__)
 tracer = get_tracer(__name__)
 
-# How much of the model's context window to spend on retrieved passages. Conservative
-# so it fits comfortably alongside the system + question in a small default model.
 _CONTEXT_TOKEN_BUDGET = 6000
+"""How much of the model's context window to spend on retrieved passages. Conservative
+so it fits comfortably alongside the system + question in a small default model."""
 
 _SYSTEM_PROMPT = (
     "You are Third Brain, a precise knowledge assistant. Answer the user's question "
@@ -94,6 +94,8 @@ def _assemble(
     the internal ones. Each passage is delimiter-wrapped and sanitized so a malicious
     document/result cannot break out of its block and inject instructions. Prior
     conversation turns (``history``) are inserted before the final question.
+
+    At least one passage is always included; beyond that the budget is respected.
     """
     selected: list[SearchHit] = []
     blocks: list[str] = []
@@ -104,7 +106,6 @@ def _assemble(
         body = _sanitize_passage(hit.content.strip())
         block = f'<passage id="{n}" title="{title}">\n{body}\n</passage>'
         cost = _estimate_tokens(block)
-        # Always include at least one passage; otherwise respect the budget.
         if selected and used + cost > _CONTEXT_TOKEN_BUDGET:
             break
         selected.append(hit)
@@ -153,6 +154,10 @@ async def answer(
     ``history`` (prior conversation turns) makes follow-ups resolve against context and is
     folded into the retrieval query; ``web_results`` add external grounding passages.
 
+    The answer goes through the ORG's configured completion connector (same as embeddings
+    resolve theirs), not the platform default - otherwise a bring-your-own-LLM org's
+    key/model is silently ignored and the global key (or the offline stub) is used instead.
+
     Returns:
         ``(answer_text, cited_hits)`` where ``cited_hits`` are the internal passages
         included in the prompt, in the same order as their ``[n]`` citation numbers.
@@ -169,9 +174,6 @@ async def answer(
         cited, messages = _assemble(query, hits, history=history, web_results=web_results)
         span.set_attribute("app.context_chunks", len(cited))
 
-        # Answer through the ORG's configured completion connector (same as embeddings resolve
-        # theirs), not the platform default - otherwise a bring-your-own-LLM org's key/model is
-        # silently ignored and the global key (or the offline stub) is used instead.
         comp = await resolver.resolve(db, ctx.org_id, ConnectorPurpose.COMPLETION)
         result = await complete(
             messages,
@@ -240,11 +242,17 @@ async def stream_answer(
     aborting every stream). Cost is charged only for a billable provider - the offline stub,
     including the mid-stream error fallback, is free. Flush-only; the caller commits after
     consuming the generator.
+
+    An async generator's span can't use the ``start_as_current_span`` context manager (its
+    detach would fire in whatever task resumes the generator). Instead the span is started,
+    attached manually so retrieval and the chat span nest under it, and both ended and
+    detached explicitly in the outer ``finally``.
+
+    Streaming goes through the org's configured completion connector, exactly as
+    :func:`answer` does. ``aclosing`` guarantees the inner generator's ``finally`` (which
+    populates ``meta_out`` with the real latency/ttft) runs on a mid-stream disconnect
+    BEFORE the metering below.
     """
-    # An async generator's span can't use the start_as_current_span context manager (its
-    # detach would fire in whatever task resumes the generator). Instead the span is started,
-    # attached manually so retrieval and the chat span nest under it, and both ended and
-    # detached explicitly in the outer finally.
     span = tracer.start_span("rag.stream_answer")
     _ctx_token = otel_context.attach(trace.set_span_in_context(span))
     try:
@@ -261,13 +269,10 @@ async def stream_answer(
         if citations_out is not None:
             citations_out.extend(cited)
 
-        # Stream through the org's configured completion connector (see :func:`answer`).
         comp = await resolver.resolve(db, ctx.org_id, ConnectorPurpose.COMPLETION)
         parts: list[str] = []
         meta_out: dict[str, Any] = {}
         try:
-            # aclosing guarantees the inner generator's finally (which populates meta_out with
-            # the real latency/ttft) runs on a mid-stream disconnect BEFORE the metering below.
             async with contextlib.aclosing(
                 stream_complete(
                     messages,

@@ -40,13 +40,16 @@ from app.services import auth_service
 DEFAULT_ORG_NAME = "My Company"
 DEFAULT_OWNER_NAME = "Admin"
 API_KEY_NAME = "Bootstrap admin key"
-# Matches the RegisterRequest/LoginRequest password policy (min 8, max 128). The upper
-# bound matters: the login route rejects >128 chars with a 422, so a longer password would
-# create an admin that can never sign in.
 MIN_PASSWORD_LENGTH = 8
 MAX_PASSWORD_LENGTH = 128
-# Bytes of entropy for a generated password; token_urlsafe(24) yields a 32-char secret.
+"""Matches the RegisterRequest/LoginRequest password policy (min 8, max 128).
+
+The upper bound matters: the login route rejects >128 chars with a 422, so a longer
+password would create an admin that can never sign in.
+"""
+
 _GENERATED_PASSWORD_BYTES = 24
+"""Bytes of entropy for a generated password; token_urlsafe(24) yields a 32-char secret."""
 
 _EMAIL_ADAPTER: TypeAdapter[str] = TypeAdapter(EmailStr)
 _TRUTHY = {"1", "true", "yes", "on"}
@@ -58,19 +61,28 @@ class BootstrapError(Exception):
 
 @dataclass(frozen=True)
 class BootstrapConfig:
+    """Validated bootstrap inputs.
+
+    A ``password`` of ``None`` means "generate a strong random one".
+    """
+
     email: str
-    password: str | None  # ``None`` -> generate a strong random one
+    password: str | None
     org_name: str
     with_api_key: bool
 
 
 @dataclass
 class BootstrapResult:
+    """Outcome of a bootstrap run.
+
+    ``password`` is only set when a password was generated (so it can be shown once); an
+    operator-supplied password is never echoed back.
+    """
+
     email: str
     org_name: str
     created: bool
-    # Only set when a password was generated (so it can be shown once); never echoes an
-    # operator-supplied password back.
     password: str | None = None
     api_key: str | None = None
     sign_in_url: str | None = None
@@ -234,6 +246,12 @@ def _print_credentials(result: BootstrapResult, out: Callable[[str], None]) -> N
 
 
 def main(argv: list[str] | None = None) -> int:
+    """CLI entrypoint. Returns the process exit code (2 = bad config, 1 = failed run).
+
+    An unexpected failure prints only the exception type, never ``str(exc)``: a SQLAlchemy
+    error renders the failing INSERT and its bound parameters (email, bcrypt hash), which
+    must not leak.
+    """
     try:
         config = resolve_config(sys.argv[1:] if argv is None else argv, os.environ)
     except BootstrapError as exc:
@@ -242,8 +260,6 @@ def main(argv: list[str] | None = None) -> int:
     try:
         asyncio.run(execute(config))
     except Exception as exc:  # pragma: no cover - surfaced to the operator, never logged
-        # Print only the exception type, never str(exc): a SQLAlchemy error renders the
-        # failing INSERT and its bound parameters (email, bcrypt hash), which must not leak.
         print(
             f"error: bootstrap failed ({type(exc).__name__}). "
             "Check the database is reachable and migrated, then retry.",

@@ -38,13 +38,17 @@ export function isHttpUrl(value) {
   }
 }
 
-/** Best-effort: open the approval page in the default browser. Never throws. */
+/**
+ * Best-effort: open the approval page in the default browser. Never throws.
+ *
+ * Only ever hands an http(s) URL to the OS opener: a server-supplied verification URI
+ * could otherwise be a file:// path or a custom scheme that launches a local app or
+ * handler. A failed launch is swallowed because the URL is always printed as well.
+ */
 export function openBrowser(
   url,
   { platform = process.platform, spawnImpl = spawn } = {},
 ) {
-  // Only ever hand an http(s) URL to the OS opener: a server-supplied verification URI could
-  // otherwise be a file:// path or a custom scheme that launches a local app or handler.
   if (!isHttpUrl(url)) {
     return;
   }
@@ -58,14 +62,16 @@ export function openBrowser(
     const child = spawnImpl(command, args, { stdio: "ignore", detached: true });
     child.on("error", () => {});
     child.unref();
-  } catch {
-    // The URL is always printed as well, so a failed launch is harmless.
-  }
+  } catch {}
 }
 
+/**
+ * Ask the operator for the server URL on stdin.
+ *
+ * Prompting only makes sense with a human at the terminal. In a non-interactive context
+ * (CI, a pipe) reading stdin would block forever, so that fails with guidance instead.
+ */
 async function promptForUrl() {
-  // Prompting only makes sense with a human at the terminal. In a non-interactive
-  // context (CI, a pipe) reading stdin would block forever, so fail with guidance.
   if (!process.stdin.isTTY) {
     throw new Error(
       "No server URL provided. Pass --url <server> (stdin is not a terminal).",
@@ -79,8 +85,12 @@ async function promptForUrl() {
   }
 }
 
+/**
+ * Run the device-code flow: start a grant, show the user code and approval page, and poll
+ * until it is approved. The server caps ``client_name`` at 255 chars, so the
+ * hostname-derived name is truncated well under it for very long hostnames.
+ */
 async function deviceFlow(url, log) {
-  // The server caps client_name at 255 chars; keep well under it for very long hostnames.
   const clientName = `third-brain-mcp on ${os.hostname()}`.slice(0, 200);
   const grant = await startDeviceAuth(url, clientName);
   const approvalUrl = grant.verification_uri_complete || grant.verification_uri;
@@ -103,6 +113,15 @@ async function deviceFlow(url, log) {
   });
 }
 
+/**
+ * The ``connect`` command: preflight the server, obtain a key, verify it and save it.
+ *
+ * When the device flow ran, the org (and acting member) the key bound to is shown
+ * prominently, so a wrong-org approval - e.g. an admin from another org approving a
+ * leaked user code - is hard to miss. That line is printed even if the org name is
+ * missing, so the binding is never confirmed silently. The saved-credentials line only
+ * claims permissions 600 off Windows, where chmod is a no-op.
+ */
 export async function runConnect(args, { log = console.log } = {}) {
   const opts = parseConnectArgs(args);
   const url = normalizeUrl(opts.url || (await promptForUrl()));
@@ -123,10 +142,6 @@ export async function runConnect(args, { log = console.log } = {}) {
   const toolCount = (descriptor.tools || []).length;
   log(`API key verified: ${toolCount} tools available.`);
   if (approval) {
-    // Show which org/member the key bound to, prominently, so a wrong-org approval (e.g. an
-    // admin from another org approving a leaked user code) is hard to miss. Printed whenever
-    // the device flow ran - even if the org name is missing - so the binding is never
-    // confirmed silently.
     const org = approval.org_name || "(unknown - verify in the dashboard)";
     const who = approval.acts_as_email ? ` as ${approval.acts_as_email}` : "";
     log("");
@@ -139,7 +154,6 @@ export async function runConnect(args, { log = console.log } = {}) {
   if (scopeLimited) {
     log("Note: this key is scope-limited; some actions may be unavailable.");
   }
-  // chmod is a no-op on Windows, so only claim the permission where it is enforced.
   const perms = process.platform === "win32" ? "" : " (permissions 600)";
   log(`Saved credentials to ${CONFIG_PATH}${perms}.`);
   log("");

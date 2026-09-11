@@ -14,13 +14,19 @@ import {
  * table.
  */
 test.describe("knowledge bases", () => {
+  /**
+   * A brand-new collection starts empty; the added document then appears as a row in the
+   * collection's document table.
+   *
+   * The document-count stat is asserted on its actual value, not merely that a
+   * "Documents" label exists somewhere on the page.
+   */
   test("create a collection and add a text document that appears", async ({ page }) => {
     await signUp(page);
 
     const collectionName = `Handbook ${unique()}`;
     await createCollection(page, collectionName);
 
-    // A brand-new collection starts empty.
     await expect(page.getByText(/no documents yet/i)).toBeVisible();
 
     const docTitle = `Remote Work Policy ${unique()}`;
@@ -31,12 +37,9 @@ test.describe("knowledge bases", () => {
         "location and are reimbursed for home office equipment up to a set annual limit.",
     });
 
-    // The new document appears as a row in the collection's document table.
     const row = documentRow(page, docTitle);
     await expect(row).toBeVisible({ timeout: 30_000 });
 
-    // The document-count stat reflects the addition - assert the actual value, not just
-    // that a "Documents" label exists somewhere on the page.
     await expect
       .poll(
         async () =>

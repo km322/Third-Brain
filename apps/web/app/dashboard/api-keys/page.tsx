@@ -41,7 +41,7 @@ import { useAuth } from "@/lib/auth-context";
 import type { ApiKey, Membership } from "@/lib/types";
 import { cn, formatDate } from "@/lib/utils";
 
-// Coarse scopes the backend accepts (see app/schemas/api_key.ALLOWED_SCOPES).
+/** Coarse scopes the backend accepts (see app/schemas/api_key.ALLOWED_SCOPES). */
 const SCOPES: { value: string; label: string; hint: string }[] = [
   { value: "read", label: "read", hint: "Read collections & documents" },
   { value: "write", label: "write", hint: "Create & edit content" },
@@ -258,7 +258,6 @@ export default function ApiKeysPage() {
         }}
       />
 
-      {/* One-time secret reveal */}
       <Dialog open={secret !== null} onOpenChange={(o) => !o && setSecret(null)}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
@@ -292,7 +291,6 @@ export default function ApiKeysPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Revoke confirm */}
       <Dialog open={revoking !== null} onOpenChange={(o) => !o && setRevoking(null)}>
         <DialogContent className="max-w-md">
           <DialogHeader>
@@ -321,7 +319,6 @@ export default function ApiKeysPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Delete confirm */}
       <Dialog open={deleting !== null} onOpenChange={(o) => !o && setDeleting(null)}>
         <DialogContent className="max-w-md">
           <DialogHeader>
@@ -353,6 +350,10 @@ export default function ApiKeysPage() {
   );
 }
 
+/**
+ * Create-key dialog. The org member list it loads is only for the optional "acts as user"
+ * impersonation binding.
+ */
 function CreateKeyDialog({
   open,
   onOpenChange,
@@ -378,7 +379,6 @@ function CreateKeyDialog({
     }
   }, [open]);
 
-  // For the optional "acts as user" impersonation binding.
   const membersQuery = useQuery<Membership[]>({
     queryKey: ["org-members"],
     queryFn: () => api.get<Membership[]>("/orgs/members"),

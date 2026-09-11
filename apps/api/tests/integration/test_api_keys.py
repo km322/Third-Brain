@@ -32,6 +32,11 @@ async def test_api_key_records_last_used(client, db_session, api) -> None:
 async def test_key_minted_once_then_authenticates_and_is_revocable(
     client, db_session, token_headers, api
 ) -> None:
+    """The secret exists only in the mint response: the nested key record never carries it and
+    the listing endpoint returns metadata without any secret material. The raw secret does
+    authenticate against a data endpoint, but managing keys stays a human-admin-session
+    privilege that an API key cannot exercise - and once revoked the same secret stops
+    working."""
     org, owner, _ = await factories.create_org_with_owner(db_session)
     admin_headers = token_headers(owner.id, org.id)
 
@@ -44,27 +49,22 @@ async def test_key_minted_once_then_authenticates_and_is_revocable(
     body = created.json()
     secret = body["secret"]
     assert secret.startswith("tb_")
-    # The nested key record never carries the secret.
     assert "secret" not in body["api_key"]
     key_id = body["api_key"]["id"]
 
-    # The listing endpoint returns the key metadata without any secret material.
     listing = await client.get(f"{api}/api-keys", headers=admin_headers)
     assert listing.status_code == 200, listing.text
     row = next(k for k in listing.json() if k["id"] == key_id)
     assert "secret" not in row and "hashed_key" not in row
     assert row["key_prefix"] == secret[:12]
 
-    # The raw secret authenticates against a data endpoint.
     key_headers = factories.api_key_headers(secret)
     search = await client.post(f"{api}/search", headers=key_headers, json={"query": "hello"})
     assert search.status_code == 200, search.text
 
-    # Managing keys requires a human admin session - an API key cannot.
     forbidden = await client.get(f"{api}/api-keys", headers=key_headers)
     assert forbidden.status_code == 403, forbidden.text
 
-    # Revoke, and the same secret stops working.
     revoked = await client.post(f"{api}/api-keys/{key_id}/revoke", headers=admin_headers)
     assert revoked.status_code == 200, revoked.text
     assert revoked.json()["revoked"] is True

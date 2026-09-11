@@ -54,8 +54,8 @@ def _spy_verify(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, str]]:
 
 
 def test_unknown_email_still_verifies_password(monkeypatch: pytest.MonkeyPatch) -> None:
-    # The core timing-equalization guarantee: a login for an email that does not exist
-    # must still perform a bcrypt verify so it is indistinguishable from a real account.
+    """The core timing-equalization guarantee: a login for an email that does not exist must
+    still perform a bcrypt verify so it is indistinguishable from a real account."""
     calls = _spy_verify(monkeypatch)
     _patch_lookup(monkeypatch, None)
 
@@ -68,7 +68,7 @@ def test_unknown_email_still_verifies_password(monkeypatch: pytest.MonkeyPatch) 
 
 
 def test_user_without_password_still_verifies_password(monkeypatch: pytest.MonkeyPatch) -> None:
-    # A user row with no stored hash (e.g. SSO-only) must take the same dummy-verify path.
+    """A user row with no stored hash (e.g. SSO-only) must take the same dummy-verify path."""
     calls = _spy_verify(monkeypatch)
     user = _user(password="unused")
     user.hashed_password = None
@@ -92,13 +92,13 @@ def test_valid_credentials_return_the_user(monkeypatch: pytest.MonkeyPatch) -> N
 
 
 def test_wrong_password_raises_generic_401(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Same status and message as the unknown-email case, so the two are indistinguishable."""
     user = _user(password="s3cret")
     _patch_lookup(monkeypatch, user)
 
     with pytest.raises(HTTPException) as exc:
         asyncio.run(auth_service.authenticate_user(None, "person@example.com", "wrong"))
 
-    # Same status and message as the unknown-email case so the two are indistinguishable.
     assert exc.value.status_code == status.HTTP_401_UNAUTHORIZED
     assert exc.value.detail == _GENERIC_401
 

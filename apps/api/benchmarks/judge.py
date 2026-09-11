@@ -38,9 +38,9 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
-# Concurrency cap for the LLM judge so a large query set never opens an unbounded number
-# of provider connections at once.
 _JUDGE_CONCURRENCY = 4
+"""Concurrency cap for the LLM judge so a large query set never opens an unbounded number
+of provider connections at once."""
 
 _JUDGE_SYSTEM = (
     "You are a strict evaluation judge for a retrieval-augmented answer. Score two "

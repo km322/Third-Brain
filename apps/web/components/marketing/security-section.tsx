@@ -41,12 +41,15 @@ const CONTROLS: Control[] = [
   },
 ];
 
+/**
+ * Two-column security section: the governance narrative on the left, the controls
+ * themselves listed as a ledger on the right.
+ */
 export function SecuritySection() {
   return (
     <section id="security" className="scroll-mt-20 py-28 sm:py-32 lg:py-40">
       <div className="container">
         <div className="mx-auto grid max-w-5xl gap-16 lg:grid-cols-2">
-          {/* Left: narrative */}
           <div>
             <h2 className="text-balance text-4xl font-semibold leading-[1.08] tracking-[-0.025em] sm:text-5xl">
               Governed by default.
@@ -64,7 +67,6 @@ export function SecuritySection() {
             </p>
           </div>
 
-          {/* Right: the controls as a ledger */}
           <div className="divide-y divide-border/60">
             {CONTROLS.map((control) => (
               <div key={control.title} className="py-4 first:pt-0 last:pb-0">

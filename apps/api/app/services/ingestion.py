@@ -71,20 +71,21 @@ from app.services.storage import build_storage_key, get_storage
 logger = get_logger(__name__)
 tracer = get_tracer(__name__)
 
-# Number of chunks embedded per provider call. Keeps request payloads bounded.
 EMBED_BATCH_SIZE = 96
+"""Number of chunks embedded per provider call. Keeps request payloads bounded."""
 
-# Upper bound on embedding batches in flight at once. Overlapping batches hide per-call
-# latency on a large document without flooding the provider or tripping its rate limits;
-# kept small so a burst of ingestions across documents does not multiply into a stampede.
 EMBED_CONCURRENCY = 4
+"""Upper bound on embedding batches in flight at once. Overlapping batches hide per-call
+latency on a large document without flooding the provider or tripping its rate limits; kept
+small so a burst of ingestions across documents does not multiply into a stampede."""
 
-# A document that has sat in PROCESSING longer than this has almost certainly been stranded
-# by a crash (the inline-fallback path has no queue redelivery), so a reaper flips it to
-# FAILED. Comfortably above the worker ``job_timeout`` (600s) so a slow-but-live job is never
-# reaped out from under itself. PENDING is deliberately NOT reaped here: a queued-but-not-yet-
-# started document is normal under a backlog and only means "waiting for a worker", not "crashed".
 STUCK_DOCUMENT_TIMEOUT_SECONDS = 30 * 60
+"""A document that has sat in PROCESSING longer than this has almost certainly been stranded
+by a crash (the inline-fallback path has no queue redelivery), so a reaper flips it to
+FAILED. Comfortably above the worker ``job_timeout`` (600s) so a slow-but-live job is never
+reaped out from under itself. PENDING is deliberately NOT reaped here: a
+queued-but-not-yet-started document is normal under a backlog and only means "waiting for a
+worker", not "crashed"."""
 
 
 async def reap_stuck_documents(
@@ -116,19 +117,19 @@ async def reap_stuck_documents(
     return reaped
 
 
-# Images larger than this are not sent to the vision model (providers cap per-image
-# payloads around 5MB); they still index with a metadata summary + capability link.
 _MAX_VISION_IMAGE_BYTES = 4_500_000
+"""Images larger than this are not sent to the vision model (providers cap per-image payloads
+around 5MB); they still index with a metadata summary + capability link."""
 
-# Magic-byte signatures for the raster formats we caption. The upload mime type is
-# client-supplied, so bytes that don't match are never sent to a provider. WEBP is
-# handled separately in ``sniffed_image_mime``: its RIFF prefix alone also matches
-# non-image containers (WAV, AVI), so the format tag at offset 8 must be checked too.
 _IMAGE_SIGNATURES: tuple[tuple[str, bytes], ...] = (
     ("image/png", b"\x89PNG\r\n"),
     ("image/jpeg", b"\xff\xd8\xff"),
     ("image/gif", b"GIF8"),
 )
+"""Magic-byte signatures for the raster formats we caption. The upload mime type is
+client-supplied, so bytes that don't match are never sent to a provider. WEBP is handled
+separately in :func:`sniffed_image_mime`: its RIFF prefix alone also matches non-image
+containers (WAV, AVI), so the format tag at offset 8 must be checked too."""
 
 _VISION_PROMPT = (
     "Describe this image for a searchable company knowledge base. Include: a concise "
@@ -180,8 +181,19 @@ async def _describe_image(db: AsyncSession, doc: Document) -> str:
     provider (through the LLM facade, so connectors/platform keys/offline fallback all
     apply), stamps a capability token into ``doc.meta`` and returns the composed
     summary. Degrades to a metadata-only summary - never fails ingestion - when no
-    vision-capable provider is live, the bytes don't look like an image, or the image
-    is too large to send.
+    vision-capable provider is live or the image is too large to send.
+
+    The capability token is stamped by wholesale reassignment of ``doc.meta``, which is what
+    marks the JSON column dirty (an in-place mutation doesn't). Caption usage is committed on
+    its own session: the provider was really billed, so the record must survive a later
+    failure (e.g. embedding) rolling back the ingest transaction.
+
+    Bytes that declare ``image/*`` but are not a raster image we can caption take the plain
+    extraction path instead. NEVER index a placeholder there: the real bytes would then reach
+    the public capability URL without ever passing the secret/DLP gate (the only text scanned
+    is the summary we compose). Extracting for real means SVG/text-ish payloads index their
+    markup, and anything undecodable raises, failing the document loudly as it did before
+    images were supported.
     """
     data = await get_storage().load(doc.storage_key)
     sniffed = sniffed_image_mime(data)
@@ -192,7 +204,6 @@ async def _describe_image(db: AsyncSession, doc: Document) -> str:
         token = meta.get("file_token")
         if not token:
             token = secrets.token_urlsafe(32)
-            # Wholesale reassignment marks the JSON column dirty (in-place mutation doesn't).
             doc.meta = {**meta, "file_token": token}
         url = _image_file_url(token)
 
@@ -221,8 +232,6 @@ async def _describe_image(db: AsyncSession, doc: Document) -> str:
         if is_billable_provider(result.provider) and result.text.strip():
             caption = result.text
             usage_ctx = AuthContext(org_id=doc.org_id, org_role=OrgRole.ADMIN)
-            # Committed on its own session: the provider was really billed, so the record must
-            # survive a later failure (e.g. embedding) rolling back the ingest transaction.
             async with SessionLocal() as usage_db:
                 await record_usage(
                     usage_db,
@@ -246,12 +255,6 @@ async def _describe_image(db: AsyncSession, doc: Document) -> str:
             )
 
     if sniffed is None:
-        # Declared image/* but the bytes are not a raster image we can caption. NEVER index a
-        # placeholder here: the real bytes would then reach the public capability URL without
-        # ever passing the secret/DLP gate (the only text scanned is the summary we compose).
-        # Extract the content for real instead - SVG/text-ish payloads index their markup, and
-        # anything undecodable raises, failing the document loudly as it did before images
-        # were supported.
         text_content = await asyncio.to_thread(
             extract_text,
             data,
@@ -276,13 +279,14 @@ async def _load_text(db: AsyncSession, doc: Document) -> str:
     Extraction is CPU-bound (PDF/DOCX parsing, large decodes) and can run for many
     seconds, so it is offloaded to a worker thread rather than blocking the event loop and
     stalling every other request/heartbeat on the process.
+
+    Format sniffing uses the stored object's basename (the real ingested filename with its
+    true extension), not the user-facing title, so it never trusts an arbitrary title like
+    "Q3 report.pdf" on a plain-text document.
     """
     if not doc.storage_key:
         raise ValueError("Document has no stored content to ingest")
     data = await get_storage().load(doc.storage_key)
-    # Use the stored object's basename (the real ingested filename with its true extension),
-    # not the user-facing title, so extension sniffing never trusts an arbitrary title like
-    # "Q3 report.pdf" on a plain-text document.
     filename = doc.storage_key.rsplit("/", 1)[-1] or doc.source_uri
     return await asyncio.to_thread(
         extract_text,
@@ -303,9 +307,11 @@ async def embed_in_batches(
 
     Batches run with bounded concurrency (``EMBED_CONCURRENCY``) so a large document's
     calls overlap instead of running strictly one at a time, while a semaphore keeps the
-    provider from being overwhelmed. Results are reassembled in input order, so each
-    returned vector still lines up with its originating chunk. ``latency_ms`` aggregates
-    the provider time across all batches.
+    provider from being overwhelmed. Results are reassembled in input order - ``gather``
+    preserves the order of the supplied awaitables regardless of completion order, so
+    extending in sequence keeps vectors aligned to their input chunks - and each returned
+    vector still lines up with its originating chunk. ``latency_ms`` aggregates the provider
+    time across all batches.
     """
     batches = [
         texts[start : start + EMBED_BATCH_SIZE] for start in range(0, len(texts), EMBED_BATCH_SIZE)
@@ -318,8 +324,6 @@ async def embed_in_batches(
                 batch, model=model, api_key=api_key, api_base=api_base, provider=provider
             )
 
-    # gather preserves the order of the supplied awaitables regardless of completion
-    # order, so extending in sequence keeps vectors aligned to their input chunks.
     results = await asyncio.gather(*(_embed_batch(batch) for batch in batches))
 
     vectors: list[list[float]] = []
@@ -354,6 +358,54 @@ async def ingest_document(db: AsyncSession, doc_id: uuid.UUID) -> str:
     exactly what the ``reprocess`` endpoint relies on. Returns the document's final
     status value (``"indexed"``, ``"quarantined"``, ``"failed"``, or ``"missing"`` when
     the row is gone).
+
+    Worker/inline contexts carry no auth binding, so log lines are attributed to the org
+    here. The document is flipped to PROCESSING and committed up front so the UI reflects
+    work in flight immediately.
+
+    Concurrent ingestions of the SAME document (a double-clicked reprocess, a redelivered job
+    racing the original) are serialized on a transaction-scoped advisory lock held until this
+    transaction commits, so two runs cannot both delete-then-insert and leave the document
+    with two full sets of chunks. A redelivered/stale job may hold an out-of-date view of the
+    row (identity-map cache from before an approve committed), so the row is refreshed under
+    the lock and the scan decision sees the current meta/checksum/status rather than
+    clobbering a fresh approval stamp.
+
+    Quarantine gate: content that appears to contain secrets never reaches chunking/embedding
+    (and any previously indexed chunks are left untouched) until a human approves it.
+    Approval is keyed to the checksum, so unchanged content re-ingests normally after
+    approval while any content change invalidates the approval and re-quarantines. Approval
+    is checked FIRST so an already-approved, unchanged document skips the scan entirely -
+    there is no point re-scanning content a human has explicitly cleared. Scanning is
+    CPU-bound (regex over the whole document), so it is offloaded off the event loop like
+    ``chunk_text``; a clean rescan clears any stale scan payload/approval stamp.
+
+    DLP / PII classification runs after the secret gate (a secret-quarantined doc has already
+    returned). ``label`` (default) tags ``sensitivity`` and indexes; ``quarantine`` parks for
+    review, honouring the SAME checksum-keyed approval as secrets so an approved doc indexes;
+    ``warn`` records findings without labelling. A clean rescan clears any prior
+    label/findings.
+
+    The embedding connector is resolved only once the document is cleared to be indexed: a
+    quarantined document returns above without ever needing it, so the resolve is not wasted
+    on content that will not be embedded. Embedding goes through the org's default embedding
+    connector (or the platform default when it has none) - the SAME path retrieval uses for
+    the query - so index and query vectors always come from one provider/model and cosine
+    search stays meaningful. Any prior chunks are replaced (reprocess) before the new set is
+    inserted. Extracting no text is surfaced as a FAILURE the user sees rather than a
+    successful 0-chunk index, which would hide real failures (e.g. a scanned/image-only PDF
+    with no text layer, or an extractor that produced nothing). A conforming provider returns
+    exactly one vector per input; a mismatch means part of the document would be silently
+    dropped from the index, so it raises. The provider cost of ingestion is attributed to the
+    owning org for analytics.
+
+    Entity enrichment (feature: NER) is non-fatal: a hiccup there must never fail an
+    otherwise-indexed document, so it commits separately and swallows errors.
+
+    On cancellation (a worker timeout or graceful shutdown) PROCESSING has already been
+    committed, so the document is flipped out of it (best effort) before re-raising. That
+    surfaces the failure immediately; a hard kill that skips the handler is still caught
+    later by :func:`reap_stuck_documents`, but only after ``STUCK_DOCUMENT_TIMEOUT_SECONDS``.
     """
     started = time.monotonic()
     doc = await db.get(Document, doc_id)
@@ -361,13 +413,11 @@ async def ingest_document(db: AsyncSession, doc_id: uuid.UUID) -> str:
         logger.warning("ingest_document: document %s not found", doc_id)
         return "missing"
 
-    # Worker/inline contexts carry no auth binding, so attribute log lines to the org here.
     structlog.contextvars.bind_contextvars(org_id=str(doc.org_id))
     span = trace.get_current_span()
     if span.is_recording():
         span.set_attribute("document_id", str(doc.id))
 
-    # Mark as processing so the UI reflects work in flight immediately.
     doc.status = DocumentStatus.PROCESSING
     doc.error = None
     await db.commit()
@@ -378,17 +428,9 @@ async def ingest_document(db: AsyncSession, doc_id: uuid.UUID) -> str:
     )
 
     try:
-        # Serialize concurrent ingestions of the SAME document (double-clicked reprocess,
-        # a redelivered job racing the original) on a transaction-scoped advisory lock, so
-        # two runs cannot both delete-then-insert and leave the document with two full sets
-        # of chunks. The lock is held until this transaction commits below.
         await db.execute(
             text("SELECT pg_advisory_xact_lock(hashtext(:k))").bindparams(k=str(doc.id))
         )
-        # A redelivered/stale job may hold an out-of-date view of the row (identity-map
-        # cache from before an approve committed). Refresh it under the lock so the scan
-        # decision below sees the current meta/checksum/status rather than clobbering a
-        # fresh approval stamp.
         await db.refresh(doc)
 
         with tracer.start_as_current_span("ingest.load_extract"):
@@ -397,17 +439,8 @@ async def ingest_document(db: AsyncSession, doc_id: uuid.UUID) -> str:
             else:
                 content = await _load_text(db, doc)
 
-        # Quarantine gate: content that appears to contain secrets never reaches
-        # chunking/embedding (and any previously indexed chunks are left untouched)
-        # until a human approves it. Approval is keyed to the checksum, so unchanged
-        # content re-ingests normally after approval while any content change
-        # invalidates the approval and re-quarantines. Approval is checked FIRST so an
-        # already-approved, unchanged document skips the scan entirely - there is no
-        # point re-scanning content a human has explicitly cleared.
         if settings.SECRET_SCAN_ENABLED and not is_approved(doc.meta, doc.checksum):
             with tracer.start_as_current_span("ingest.secret_scan"):
-                # Scanning is CPU-bound (regex over the whole document); offload it so a
-                # large document does not stall the event loop, matching ``chunk_text``.
                 report = await asyncio.to_thread(scan_text, content)
             if report.flagged:
                 detectors, occurrences = summarize_findings(report)
@@ -440,13 +473,8 @@ async def ingest_document(db: AsyncSession, doc_id: uuid.UUID) -> str:
                 )
                 return DocumentStatus.QUARANTINED.value
             if SCAN_META_KEY in doc.meta:
-                # A clean rescan clears any stale scan payload/approval stamp.
                 doc.meta = {k: v for k, v in doc.meta.items() if k != SCAN_META_KEY}
 
-        # DLP / PII classification. Runs after the secret gate (a secret-quarantined doc has
-        # already returned). ``label`` (default) tags ``sensitivity`` and indexes; ``quarantine``
-        # parks for review, honouring the SAME checksum-keyed approval as secrets so an
-        # approved doc indexes; ``warn`` records findings without labelling.
         if settings.DLP_ENABLED:
             with tracer.start_as_current_span("ingest.dlp_scan"):
                 dlp_report = await asyncio.to_thread(dlp_scan_text, content)
@@ -486,18 +514,11 @@ async def ingest_document(db: AsyncSession, doc_id: uuid.UUID) -> str:
                     meta={"sensitivity": dlp_report.sensitivity.value, "action": action},
                 )
             else:
-                # A clean rescan clears any prior label/findings.
                 if doc.sensitivity != SensitivityLevel.NONE:
                     doc.sensitivity = SensitivityLevel.NONE
                 if DLP_META_KEY in doc.meta:
                     doc.meta = {k: v for k, v in doc.meta.items() if k != DLP_META_KEY}
 
-        # Resolve the embedding connector only now that the document is cleared to be
-        # indexed: a quarantined document returns above without ever needing it, so the
-        # resolve is not wasted on content that will not be embedded. Embed through the
-        # org's default embedding connector (or the platform default when it has none) -
-        # the SAME path retrieval uses for the query - so index and query vectors always
-        # come from one provider/model and cosine search stays meaningful.
         collection = await db.get(Collection, doc.collection_id)
         res = await resolver.resolve(db, doc.org_id, ConnectorPurpose.EMBEDDING)
         embedding_model = res.model or (collection.embedding_model if collection else None)
@@ -506,13 +527,9 @@ async def ingest_document(db: AsyncSession, doc_id: uuid.UUID) -> str:
             chunks = await asyncio.to_thread(chunk_text, content, model=embedding_model)
             chunk_span.set_attribute("chunk_count", len(chunks))
 
-        # Replace any prior chunks (reprocess) before inserting the new set.
         await db.execute(delete(DocumentChunk).where(DocumentChunk.document_id == doc.id))
 
         if not chunks:
-            # No text was extracted. Reporting this as a successful 0-chunk index hides
-            # real failures (e.g. a scanned/image-only PDF with no text layer, or an
-            # extractor that produced nothing), so surface it as a failure the user sees.
             raise ValueError("No extractable text found in the document")
 
         with tracer.start_as_current_span("ingest.embed") as embed_span:
@@ -527,8 +544,6 @@ async def ingest_document(db: AsyncSession, doc_id: uuid.UUID) -> str:
             embed_span.set_attribute("embed_provider", provider)
             embed_span.set_attribute("embed_model", used_model)
 
-        # A conforming provider returns exactly one vector per input; a mismatch means
-        # part of the document would be silently dropped from the index.
         if len(vectors) != len(chunks):
             raise ValueError(
                 f"Embedding provider returned {len(vectors)} vectors for {len(chunks)} chunks"
@@ -554,7 +569,6 @@ async def ingest_document(db: AsyncSession, doc_id: uuid.UUID) -> str:
             doc.indexed_at = datetime.now(UTC)
             doc.error = None
 
-            # Attribute the provider cost of ingestion to the owning org for analytics.
             ctx = AuthContext(org_id=doc.org_id, org_role=OrgRole.ADMIN)
             await record_usage(
                 db,
@@ -575,8 +589,6 @@ async def ingest_document(db: AsyncSession, doc_id: uuid.UUID) -> str:
 
             await db.commit()
 
-        # Entity enrichment (feature: NER). Non-fatal: a hiccup here must never fail an
-        # otherwise-indexed document, so it commits separately and swallows errors.
         if settings.ENTITY_EXTRACTION_ENABLED:
             try:
                 with tracer.start_as_current_span("ingest.entities"):
@@ -595,10 +607,6 @@ async def ingest_document(db: AsyncSession, doc_id: uuid.UUID) -> str:
         )
         return DocumentStatus.INDEXED.value
     except asyncio.CancelledError:
-        # A worker timeout or graceful shutdown cancelled the job. PROCESSING was already
-        # committed up front, so flip the document out of it (best effort) before re-raising.
-        # This surfaces the failure immediately; a hard kill that skips this handler is still
-        # caught later by reap_stuck_documents, but only after STUCK_DOCUMENT_TIMEOUT_SECONDS.
         await _mark_failed(db, doc_id, "Ingestion was interrupted (timeout or shutdown).")
         raise
     except Exception as exc:
@@ -632,10 +640,30 @@ async def index_content(
 
     The source bytes are written to storage and ``storage_key``/``checksum`` updated so a
     later ``reprocess`` re-ingests THIS content rather than reverting to stale bytes.
+
+    An advisory lock serializes this against the ingestion worker and any concurrent save on
+    the same document: both do delete-then-insert over the chunk set, which interleaves into
+    duplicated or clobbered chunks without it. The lock is released at the caller's
+    commit/rollback. Chunking is CPU-bound, so it runs off the event loop and a large write
+    does not stall every other request on this process.
+
+    Embedding happens FIRST (batched, so a large document doesn't blow the provider's
+    per-request input cap) - before the new source blob is persisted. If embedding fails the
+    caller rolls the transaction back; writing storage first would leave the blob ahead of
+    the DB, so a later reprocess would silently index the content of an update that reported
+    failure. Once embedding has succeeded the source is persisted, so reprocess and future
+    writes share one source of truth, consistent with the chunks about to be written. That
+    overwrite replaces the blob with plain-text bytes, so the document's stored
+    representation is normalized to match: keeping a stale mime_type/source_type (e.g. a
+    PDF/DOCX/URL doc updated inline) would make a later reprocess run the wrong extractor
+    over text bytes and fail, and ``text/plain`` is authoritative in ``extract_text``
+    regardless of the storage-key extension.
+
+    The entity index is kept in step with the rewritten content, mirroring the worker ingest
+    path (feature: NER). Best-effort on a savepoint: an extraction hiccup must never fail the
+    save, and rolling back only the savepoint leaves the caller's transaction (chunks, blob
+    bookkeeping, usage) intact.
     """
-    # Serialize against the ingestion worker and any concurrent save on this document:
-    # both do delete-then-insert over the chunk set, which interleaves into duplicated or
-    # clobbered chunks without the lock. Released at the caller's commit/rollback.
     await db.execute(
         text("SELECT pg_advisory_xact_lock(hashtext(:k))").bindparams(k=str(document.id))
     )
@@ -643,8 +671,6 @@ async def index_content(
     res = await resolver.resolve(db, ctx.org_id, ConnectorPurpose.EMBEDDING)
     embedding_model = res.model or (collection.embedding_model if collection else None)
 
-    # Chunking is CPU-bound; run it off the event loop so a large write does not stall
-    # every other request on this process.
     chunks = await asyncio.to_thread(chunk_text, content, model=embedding_model)
     if not chunks:
         raise ValueError("Content produced no indexable text")
@@ -655,18 +681,12 @@ async def index_content(
     document.status = DocumentStatus.PROCESSING
     await db.flush()
 
-    # Embed FIRST (batched, so a large document doesn't blow the provider's per-request input
-    # cap) - before persisting the new source blob. If embedding fails the caller rolls the
-    # transaction back; writing storage first would leave the blob ahead of the DB, so a later
-    # reprocess would silently index the content of an update that reported failure.
     vectors, total_tokens, provider, used_model, latency_ms = await embed_in_batches(
         [c.content for c in chunks], embedding_model, res.api_key, res.api_base, res.provider
     )
     if len(vectors) != len(chunks):  # pragma: no cover - provider contract guard
         raise ValueError("Embedding provider returned a mismatched number of vectors")
 
-    # Embedding succeeded: now persist the source so reprocess and future writes share one
-    # source of truth, consistent with the chunks about to be written.
     data = content.encode("utf-8")
     key = document.storage_key or build_storage_key(
         ctx.org_id, document.id, f"{document.title}.txt"
@@ -674,10 +694,6 @@ async def index_content(
     await get_storage().save(key, data, "text/plain")
     document.storage_key = key
     document.checksum = hashlib.sha256(data).hexdigest()
-    # This overwrite replaced the blob with plain-text bytes, so normalize the document's
-    # stored representation to match. Keeping a stale mime_type/source_type (e.g. a PDF/DOCX/URL
-    # doc updated inline) would make a later reprocess run the wrong extractor over text bytes
-    # and fail; text/plain is authoritative in extract_text regardless of the storage-key ext.
     document.mime_type = "text/plain"
     document.source_type = SourceType.TEXT
 
@@ -717,10 +733,6 @@ async def index_content(
         meta={"document_id": str(document.id), "via": via},
     )
 
-    # Keep the entity index in step with the rewritten content, mirroring the worker
-    # ingest path (feature: NER). Best-effort on a savepoint: an extraction hiccup must
-    # never fail the save, and rolling back only the savepoint leaves the caller's
-    # transaction (chunks, blob bookkeeping, usage) intact.
     if settings.ENTITY_EXTRACTION_ENABLED:
         try:
             async with db.begin_nested():

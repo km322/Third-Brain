@@ -30,8 +30,6 @@ from loadtests.seed_corpus import (
     self_check_embeddings,
 )
 
-# Single-token, multi-token, repeated-token (accumulation + case folding), empty and
-# whitespace-only, plus real generated chunk text.
 _SAMPLE_TEXTS = [
     "single",
     "two tokens",
@@ -42,6 +40,8 @@ _SAMPLE_TEXTS = [
     chunk_content(0),
     chunk_content(123_457),
 ]
+"""Single-token, multi-token, repeated-token (accumulation + case folding), empty and
+whitespace-only, plus real generated chunk text."""
 
 
 class TestFastEmbeddingMatchesProvider:
@@ -58,9 +58,9 @@ class TestFastEmbeddingMatchesProvider:
             assert fast_embedding(text, dim) == _fake_embedding(text, dim)
 
     def test_memo_stays_dim_correct_when_warmed(self) -> None:
-        # The per-token memo caches dim-independent hash offsets, so embedding the same token
-        # at a second dim after the memo is warm must still match the reference - a regression
-        # guard against caching post-modulo indices.
+        """The per-token memo caches dim-independent hash offsets, so embedding the same token
+        at a second dim after the memo is warm must still match the reference - a regression
+        guard against caching post-modulo indices."""
         token = "sharedtoken"
         assert fast_embedding(token, 8) == _fake_embedding(token, 8)
         assert fast_embedding(token, 4096) == _fake_embedding(token, 4096)
@@ -77,7 +77,7 @@ class TestFastEmbeddingMatchesProvider:
         assert all(math.isfinite(v) for v in vec)
 
     def test_self_check_passes_at_production_dim(self) -> None:
-        # The seeder aborts at startup if this diverges; it must hold for the real dim.
+        """The seeder aborts at startup if this diverges; it must hold for the real dim."""
         self_check_embeddings(settings.EMBEDDING_DIM)
 
 

@@ -130,9 +130,13 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException) 
 async def validation_exception_handler(
     request: Request, exc: RequestValidationError
 ) -> JSONResponse:
+    """Render a request-validation failure in the envelope the caller expects.
+
+    On the OpenAI-compatible surface the failure is mapped to 400 (OpenAI never returns
+    422) in the OpenAI shape; everywhere else it stays a 422 in the Third Brain envelope.
+    """
     request_id = _request_id(request)
     if _is_openai_path(request):
-        # Map validation failures to 400 (OpenAI never returns 422) in the OpenAI shape.
         return _openai_error_response(
             status_code=HTTPStatus.BAD_REQUEST,
             message="Invalid request: " + "; ".join(_summarize_validation(exc)),
@@ -161,6 +165,11 @@ def _summarize_validation(exc: RequestValidationError) -> list[str]:
 
 
 async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    """Log the traceback under the request id and return a 500 the client can correlate.
+
+    ``detail`` never leaks exception internals to clients in a deployed env (staging or
+    production); only development echoes the exception type and message.
+    """
     request_id = _request_id(request)
     logger.exception(
         "Unhandled error on %s %s [request_id=%s]",
@@ -168,7 +177,6 @@ async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONR
         scrub_capability_path(request.url.path),
         request_id,
     )
-    # Never leak exception internals to clients in a deployed env (staging or production).
     detail = "Internal server error" if settings.is_deployed else f"{type(exc).__name__}: {exc}"
     if _is_openai_path(request):
         return _openai_error_response(

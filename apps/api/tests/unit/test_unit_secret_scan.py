@@ -5,6 +5,8 @@ detector with a realistic fake secret, negatives for prose/docs/placeholders, ex
 redaction semantics (the full secret must never appear anywhere), line numbers,
 ordering, the 1000-match truncation cap, and the report_to_meta / is_approved /
 mark_approved approval round-trip keyed to the document checksum.
+
+The credential constants below are realistic-shaped but fake.
 """
 
 from __future__ import annotations
@@ -22,7 +24,6 @@ from app.services.secret_scan import (
     scan_text,
 )
 
-# Realistic-shaped but fake credentials.
 AWS_KEY = "AKIAIOSFODNN7EXAMPLE"
 GITHUB_TOKEN = "ghp_A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8"
 GITHUB_PAT = (
@@ -45,12 +46,12 @@ JWT_TOKEN = (
     ".eyJzdWIiOiIxMjM0NTY3ODkwIn0"
     ".dozjgNryP4J3jVmNHl0w5N7flQADFXY"
 )
-# The canonical jwt.io sample verbatim; appears across API docs, must not flag.
 JWT_IO_EXAMPLE = (
     "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9"
     ".eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ"
     ".SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c"
 )
+"""The canonical jwt.io sample verbatim; appears across API docs, must not flag."""
 AZURE_ACCOUNT_KEY = (
     "Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw=="
 )
@@ -96,10 +97,9 @@ def _meta_dump(report: ScanReport) -> str:
     return json.dumps(report_to_meta(report, checksum="cs", flagged_at="2026-07-09T00:00:00Z"))
 
 
-# --------------------------------------------------------------------------- #
-# One positive case per detector
-# --------------------------------------------------------------------------- #
 class TestDetectors:
+    """One positive case per detector."""
+
     def test_aws_access_key_id(self) -> None:
         report = scan_text(f"The AWS key id {AWS_KEY} was pasted into a doc.")
         finding = _finding(report, "aws-access-key-id")
@@ -238,10 +238,9 @@ class TestDetectors:
         assert _finding(scan_text(token), "jwt").severity == "medium"
 
 
-# --------------------------------------------------------------------------- #
-# Negatives: prose, docs, placeholders, code
-# --------------------------------------------------------------------------- #
 class TestNegatives:
+    """Negatives: prose, docs, placeholders, code."""
+
     def test_plain_prose_is_clean(self) -> None:
         text = (
             "Third Brain ingests your company's knowledge so every tool can search it.\n"
@@ -340,10 +339,9 @@ class TestNegatives:
         assert scan_text("   \n\t ").flagged is False
 
 
-# --------------------------------------------------------------------------- #
-# Redaction: the full secret never appears anywhere
-# --------------------------------------------------------------------------- #
 class TestRedaction:
+    """Redaction: the full secret never appears anywhere."""
+
     def test_full_secret_never_in_samples_or_meta(self) -> None:
         for secret in ALL_SECRETS:
             report = scan_text(f"value {secret} end")
@@ -359,17 +357,16 @@ class TestRedaction:
         assert sample.redacted == AWS_KEY[:4] + "…" + AWS_KEY[-2:]
 
     def test_short_secret_is_fully_masked(self) -> None:
-        # An 8-char URL password must be masked with no partial characters at all.
+        """An 8-char URL password must be masked with no partial characters at all."""
         report = scan_text("postgres://app:q7Zw2Xy9@db.internal/app")
         sample = _finding(report, "url-credentials").samples[0]
         assert sample.redacted == "····"
         assert "q7Zw2Xy9" not in _meta_dump(report)
 
 
-# --------------------------------------------------------------------------- #
-# Aggregation: line numbers, sample cap, ordering, truncation
-# --------------------------------------------------------------------------- #
 class TestAggregation:
+    """Aggregation: line numbers, sample cap, ordering, truncation."""
+
     def test_line_numbers_are_one_based(self) -> None:
         text = f"intro\n\n{AWS_KEY}\nmiddle\nend {AWS_KEY}"
         finding = _finding(scan_text(text), "aws-access-key-id")
@@ -410,8 +407,9 @@ class TestAggregation:
         assert meta["truncated"] is True
 
     def test_per_detector_cap_still_runs_later_detectors(self) -> None:
-        # Over 1000 AWS-key matches must not starve the private-key detector that runs
-        # later in the table; every detector always gets a chance to fire.
+        """Over 1000 AWS-key matches must not starve the private-key detector that runs
+        later in the table; every detector always gets a chance to fire.
+        """
         text = "\n".join([AWS_KEY] * 1005) + "\n" + PRIVATE_KEY_BLOCK
         report = scan_text(text)
         assert report.truncated is True
@@ -430,14 +428,16 @@ class TestAggregation:
         assert ScanReport(findings=[finding], truncated=False).flagged is True
 
 
-# --------------------------------------------------------------------------- #
-# Meta payload + approval round-trip
-# --------------------------------------------------------------------------- #
 class TestMetaHelpers:
+    """Meta payload + approval round-trip."""
+
     def test_scan_meta_key_value(self) -> None:
         assert SCAN_META_KEY == "secret_scan"
 
     def test_report_to_meta_shape(self) -> None:
+        """The meta payload has the documented shape, and is JSON-serializable as stored on
+        the Document row.
+        """
         report = scan_text(f"key {AWS_KEY}")
         meta = report_to_meta(report, checksum="sha256:abc", flagged_at="2026-07-09T12:00:00Z")
         assert set(meta) == {"flagged_at", "checksum", "truncated", "findings"}
@@ -447,13 +447,18 @@ class TestMetaHelpers:
         entry = meta["findings"][0]
         assert set(entry) == {"detector", "label", "severity", "occurrences", "samples"}
         assert set(entry["samples"][0]) == {"redacted", "line"}
-        json.dumps(meta)  # JSON-serializable as stored on the Document row
+        json.dumps(meta)
 
     def test_report_to_meta_allows_none_checksum(self) -> None:
         meta = report_to_meta(scan_text(AWS_KEY), checksum=None, flagged_at="t")
         assert meta["checksum"] is None
 
     def test_approval_round_trip_keyed_to_checksum(self) -> None:
+        """An approval only holds for the checksum it was granted against.
+
+        A different checksum means the content changed, which sends the document back for
+        re-review; a missing checksum never counts as approved.
+        """
         report = scan_text(f"leak {AWS_KEY}")
         doc_meta = {SCAN_META_KEY: report_to_meta(report, checksum="c1", flagged_at="t1")}
         assert is_approved(doc_meta, "c1") is False
@@ -461,11 +466,14 @@ class TestMetaHelpers:
         approved = mark_approved(doc_meta, checksum="c1", user_id="u1", at="t2")
         assert approved is not doc_meta
         assert is_approved(approved, "c1") is True
-        assert is_approved(approved, "c2") is False  # content changed -> re-review
+        assert is_approved(approved, "c2") is False
         assert is_approved(approved, None) is False
         assert is_approved(approved, "") is False
 
     def test_mark_approved_preserves_findings_and_other_keys(self) -> None:
+        """Stamping an approval keeps the findings and neighbouring keys, and copies rather
+        than mutating: the input dict is never touched.
+        """
         report = scan_text(f"leak {AWS_KEY}")
         doc_meta = {
             SCAN_META_KEY: report_to_meta(report, checksum="c1", flagged_at="t1"),
@@ -476,7 +484,6 @@ class TestMetaHelpers:
         assert approved[SCAN_META_KEY]["findings"] == doc_meta[SCAN_META_KEY]["findings"]
         assert approved[SCAN_META_KEY]["flagged_at"] == "t1"
         assert approved[SCAN_META_KEY]["approved"] == {"checksum": "c1", "by": "u1", "at": "t2"}
-        # The input dict is never mutated.
         assert "approved" not in doc_meta[SCAN_META_KEY]
 
     def test_mark_approved_from_empty_meta(self) -> None:

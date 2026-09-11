@@ -15,6 +15,11 @@ API uses. Nothing here bypasses authorization:
   :func:`app.services.permissions.require_permission`, and additionally require the
   API key to carry an ``ingest``/``write`` scope.
 
+Auto-routing (``add_knowledge`` with no explicit collection): an LLM classifier files the
+capture into the caller's best-matching editable collection; a shared "Decisions" collection
+is the fallback home when nothing fits (created on first use). The ``_CLASSIFY_*`` and
+``_DECISIONS_*`` module constants below tune that path.
+
 Every query is org-scoped through the resolved :class:`AuthContext`. Ingestion (chunk →
 embed → persist) is done inline via the shared LLM + vector primitives so the module is
 self-contained and runs fully offline (the LLM facade falls back to a deterministic
@@ -86,9 +91,6 @@ logger = get_logger(__name__)
 _SNIPPET_CHARS = 600
 _MAX_TOP_K = 50
 
-# Auto-routing (add_knowledge with no explicit collection): an LLM classifier files the capture
-# into the caller's best-matching editable collection; a shared "Decisions" collection is the
-# fallback home when nothing fits (created on first use).
 _CLASSIFY_CONTENT_CHARS = 1200
 _MAX_CLASSIFY_CANDIDATES = 25
 _DECISIONS_SLUG = "decisions"
@@ -104,9 +106,6 @@ class ToolError(Exception):
     """
 
 
-# --------------------------------------------------------------------------- #
-# Tool schema definitions (advertised via MCP ``tools/list``)
-# --------------------------------------------------------------------------- #
 TOOL_DEFINITIONS: list[dict[str, Any]] = [
     {
         "name": "search_knowledge",
@@ -234,13 +233,11 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
         },
     },
 ]
+"""Tool schema definitions, advertised via MCP ``tools/list``."""
 
 TOOL_NAMES = frozenset(t["name"] for t in TOOL_DEFINITIONS)
 
 
-# --------------------------------------------------------------------------- #
-# Small helpers
-# --------------------------------------------------------------------------- #
 def _iso(dt: datetime | None) -> str | None:
     return dt.isoformat() if dt else None
 
@@ -292,7 +289,10 @@ def _require_read_scope(ctx: AuthContext) -> None:
 
 
 async def _resolve_collection(db: AsyncSession, ctx: AuthContext, ref: str) -> Collection:
-    """Resolve a collection by UUID, slug, or name within the caller's org."""
+    """Resolve a collection by UUID, slug, or name within the caller's org.
+
+    An exact slug match wins if several names collide.
+    """
     ref = ref.strip()
     try:
         cid = uuid.UUID(ref)
@@ -318,16 +318,12 @@ async def _resolve_collection(db: AsyncSession, ctx: AuthContext, ref: str) -> C
     )
     if not rows:
         raise ToolError(f"Collection not found: {ref!r}")
-    # Prefer an exact slug match if several names collide.
     for c in rows:
         if c.slug == ref:
             return c
     return rows[0]
 
 
-# --------------------------------------------------------------------------- #
-# Ingestion (chunk -> embed -> persist), shared by add/update
-# --------------------------------------------------------------------------- #
 async def _index_document(
     db: AsyncSession,
     ctx: AuthContext,
@@ -339,6 +335,8 @@ async def _index_document(
     """Chunk + embed + index ``content`` via the shared :func:`ingestion.index_content`
     spine (same chunking, same embedding space as REST writes), translating its
     ``ValueError`` contract into MCP ``ToolError``. Records usage tagged ``via=mcp``.
+
+    Shared by ``add_knowledge`` and ``update_knowledge``.
     """
     try:
         return await index_content(db, ctx, document, content, replace=replace, via="mcp")
@@ -364,6 +362,9 @@ async def _quarantine_new_document(
     approval re-ingests THIS content through the worker; only the chunks (and ``indexed_at``)
     are withheld. Raw content never appears in the response, the meta payload, the audit
     trail, or logs - redacted samples only. The caller (the MCP server) commits.
+
+    The collection's ``document_count`` is bumped with an atomic increment so concurrent
+    writes to the same collection cannot lose updates.
     """
     data = content.encode("utf-8")
     checksum = hashlib.sha256(data).hexdigest()
@@ -394,7 +395,6 @@ async def _quarantine_new_document(
     await get_storage().save(key, data, "text/plain")
     document.storage_key = key
 
-    # Atomic increment so concurrent writes to the same collection cannot lose updates.
     collection.document_count = Collection.document_count + 1
 
     if report is not None:
@@ -456,12 +456,23 @@ async def _quarantine_new_document(
     }
 
 
-# --------------------------------------------------------------------------- #
-# Tool implementations
-# --------------------------------------------------------------------------- #
 async def _search_knowledge(
     db: AsyncSession, ctx: AuthContext, arguments: dict[str, Any]
 ) -> dict[str, Any]:
+    """Run the ``search_knowledge`` tool: ranked snippets from the caller's visible universe.
+
+    An optional ``collection`` reference (id/slug/name) is resolved within the caller's org.
+    Whether the caller may actually see that collection is enforced by the retrieval scope: a
+    collection the caller cannot view is dropped, so it simply yields no hits (parity with
+    REST ``/search``), never a chunk the caller is not entitled to.
+
+    Retrieval delegates to the shared spine: it resolves the caller's visibility scope once,
+    embeds the query through the org's connector with a Redis cache (metered as EMBEDDING on
+    a miss), and fuses vector + keyword hits - identical to REST ``/search``. Because
+    ``retrieve`` already meters the embedding, the search itself is recorded as a single
+    SEARCH unit (no provider cost) so an Ask is never double-billed - the same split REST
+    ``/search`` uses.
+    """
     _require_search_scope(ctx)
     query = _require_str(arguments, "query")
 
@@ -475,17 +486,10 @@ async def _search_knowledge(
     collection_ids: list[uuid.UUID] | None = None
     collection_ref = arguments.get("collection")
     if isinstance(collection_ref, str) and collection_ref.strip():
-        # Resolve the reference (id/slug/name) within the caller's org. Whether the caller
-        # may actually see the collection is enforced by the retrieval scope below: a
-        # collection the caller cannot view is dropped, so it simply yields no hits (parity
-        # with REST ``/search``), never a chunk the caller is not entitled to.
         collection = await _resolve_collection(db, ctx, collection_ref)
         collection_ids = [collection.id]
 
     started = time.perf_counter()
-    # Delegate to the shared retrieval spine: it resolves the caller's visibility scope
-    # once, embeds the query through the org's connector with a Redis cache (metered as
-    # EMBEDDING on a miss), and fuses vector + keyword hits - identical to REST ``/search``.
     hits = await retrieve(db, ctx, query, top_k=top_k, collection_ids=collection_ids)
     duration_ms = round((time.perf_counter() - started) * 1000)
 
@@ -501,9 +505,6 @@ async def _search_knowledge(
         for h in hits
     ]
 
-    # ``retrieve`` already meters the embedding as EMBEDDING usage; record the search as a
-    # single SEARCH unit (no provider cost) so an Ask is never double-billed - same split
-    # REST ``/search`` uses.
     await record_usage(
         db,
         ctx,
@@ -532,6 +533,11 @@ async def _search_knowledge(
 async def _get_document(
     db: AsyncSession, ctx: AuthContext, arguments: dict[str, Any]
 ) -> dict[str, Any]:
+    """Run the ``get_document`` tool: a document's full indexed text plus metadata.
+
+    A quarantined document's chunks (left over from a previously indexed version) are
+    withheld until it is approved, matching the search-side INDEXED-only guard.
+    """
     _require_read_scope(ctx)
     document_id = _parse_uuid(_require_str(arguments, "document_id"), "document_id")
 
@@ -545,8 +551,6 @@ async def _get_document(
 
     content = ""
     if document.status != DocumentStatus.QUARANTINED:
-        # A quarantined document's chunks (left over from a previously indexed version)
-        # are withheld until it is approved, matching the search-side INDEXED-only guard.
         chunks = (
             (
                 await db.execute(
@@ -650,6 +654,12 @@ def _grade_collection(
 async def _list_collections(
     db: AsyncSession, ctx: AuthContext, arguments: dict[str, Any]
 ) -> dict[str, Any]:
+    """Run the ``list_collections`` tool: every collection the caller can see, with their level.
+
+    Every collection is graded in one pass: the caller's team set and grants are resolved a
+    single time up front and reused for each collection, instead of an O(N) permission query
+    per collection. Admins are MANAGER everywhere, so their team/grant lookups are skipped.
+    """
     _require_read_scope(ctx)
     collections = (
         (
@@ -661,9 +671,6 @@ async def _list_collections(
         .all()
     )
 
-    # Grade every collection in one pass. Resolve the caller's team set and grants a single
-    # time up front and reuse them for each collection, instead of an O(N) permission query
-    # per collection. Admins are MANAGER everywhere, so their team/grant lookups are skipped.
     team_ids: set[uuid.UUID] = set()
     grant_levels: dict[uuid.UUID, PermissionLevel] = {}
     if not ctx.is_admin:
@@ -689,9 +696,6 @@ async def _list_collections(
     return {"count": len(visible), "collections": visible}
 
 
-# --------------------------------------------------------------------------- #
-# Auto-routing: file a capture into the caller's best-matching editable collection
-# --------------------------------------------------------------------------- #
 async def _editable_collections(db: AsyncSession, ctx: AuthContext) -> list[Collection]:
     """Every collection in the caller's org they can write to (EDITOR+), graded in one pass.
 
@@ -743,11 +747,15 @@ async def _classify_collection(
     Returns the chosen collection, or ``None`` when the model abstains, its reply can't be
     parsed, or no completion provider is configured (the offline stub) - the caller then
     falls back to a deterministic heuristic. Never raises: routing must not break a capture.
+
+    The prompt is bounded: past ``_MAX_CLASSIFY_CANDIDATES`` only the most-populated
+    collections are offered as candidates. ``max_tokens`` is deliberately generous because on
+    the Claude 5 family it caps default-on thinking PLUS the visible answer, so a tiny cap
+    yields an empty reply (thinking eats it all).
     """
     if not candidates:
         return None
     if len(candidates) > _MAX_CLASSIFY_CANDIDATES:
-        # Bound the prompt: offer only the most-populated collections as candidates.
         candidates = sorted(candidates, key=lambda c: c.document_count, reverse=True)[
             :_MAX_CLASSIFY_CANDIDATES
         ]
@@ -780,11 +788,9 @@ async def _classify_collection(
             api_base=comp.api_base,
             provider=comp.provider,
             temperature=0.0,
-            # On the Claude 5 family ``max_tokens`` caps default-on thinking PLUS the
-            # visible answer; a tiny cap yields an empty reply (thinking eats it all).
             max_tokens=1024,
         )
-    except Exception as exc:  # never let routing break a capture
+    except Exception as exc:
         logger.warning("auto_route_classify_failed", error=type(exc).__name__)
         return None
     if is_billable_provider(result.provider):
@@ -811,6 +817,9 @@ async def _get_or_create_decisions_collection(db: AsyncSession, ctx: AuthContext
     org-writable so any teammate's agent can add to and read the decisions log. Creation
     mirrors REST's ``POST /collections``: it requires a user-bound caller with an org role
     of editor or higher, and is recorded in the audit log.
+
+    Two agents can race the first capture in an org; the slug is unique per org, so the loser
+    falls back to the winner's row instead of failing the capture.
     """
     lookup = select(Collection).where(
         Collection.org_id == ctx.org_id, Collection.slug == _DECISIONS_SLUG
@@ -833,8 +842,6 @@ async def _get_or_create_decisions_collection(db: AsyncSession, ctx: AuthContext
         default_permission=PermissionLevel.EDITOR,
     )
     try:
-        # Two agents can race the first capture in an org; the slug is unique per org, so
-        # the loser falls back to the winner's row instead of failing the capture.
         async with db.begin_nested():
             db.add(collection)
             await db.flush()
@@ -863,6 +870,10 @@ async def _auto_route_collection(
     collection is created (or reused) as the home. ``allow_classifier=False`` keeps content
     that failed a secret/DLP scan out of the completion provider's prompt: routing then
     stays fully deterministic.
+
+    An org may already have a 'decisions' collection this caller cannot write to; that
+    surfaces a clear error instead of a permission failure naming a collection they never
+    chose.
     """
     editable = await _editable_collections(db, ctx)
     if len(editable) == 1:
@@ -872,13 +883,11 @@ async def _auto_route_collection(
             chosen = await _classify_collection(db, ctx, title, content, editable)
             if chosen is not None:
                 return chosen
-        for c in editable:  # deterministic fallback: an existing decisions log, if any
+        for c in editable:
             if c.slug == _DECISIONS_SLUG or c.name.strip().lower() == _DECISIONS_NAME.lower():
                 return c
         return max(editable, key=lambda c: c.document_count)
     collection = await _get_or_create_decisions_collection(db, ctx)
-    # An org may already have a 'decisions' collection this caller cannot write to; surface
-    # a clear error instead of a permission failure naming a collection they never chose.
     if not permission_at_least(
         await effective_permission(db, ctx, ResourceType.COLLECTION, collection.id),
         PermissionLevel.EDITOR,
@@ -893,6 +902,25 @@ async def _auto_route_collection(
 async def _add_knowledge(
     db: AsyncSession, ctx: AuthContext, arguments: dict[str, Any]
 ) -> dict[str, Any]:
+    """Run the ``add_knowledge`` tool: capture new content as an indexed document.
+
+    Scanning happens BEFORE routing: auto-routing may send a content excerpt to the
+    completion provider, and content the scanner would quarantine must never leave the box.
+    Scanning is CPU-bound, so it is offloaded off the event loop like the ingestion worker
+    and ``chunk_text`` do.
+
+    The collection is optional: when a proactively-capturing agent omits it, the document is
+    routed to its best-matching editable collection automatically.
+
+    Two gates then mirror the ingestion worker's. The secret-scan quarantine gate persists
+    flagged content for review but never chunks, embeds, or makes it searchable. The DLP/PII
+    pass quarantines when the deployment's action is 'quarantine', otherwise labels the
+    document's sensitivity ('warn' records the finding without labelling); MCP previously
+    skipped this entirely.
+
+    The collection's ``document_count`` is bumped with an atomic increment so concurrent
+    writes to the same collection cannot lose updates.
+    """
     _require_write_scope(ctx)
     title = _require_str(arguments, "title")
     content = _require_str(arguments, "content")
@@ -908,10 +936,6 @@ async def _add_knowledge(
     ):
         raise ToolError("'collection' must be a non-empty string (an id, slug, or name)")
 
-    # Scan BEFORE routing: auto-routing may send a content excerpt to the completion
-    # provider, and content the scanner would quarantine must never leave the box. Scanning
-    # is CPU-bound, so offload it off the event loop like the ingestion worker and
-    # ``chunk_text`` do.
     scan_report: ScanReport | None = None
     if settings.SECRET_SCAN_ENABLED:
         scan_report = await asyncio.to_thread(scan_text, content)
@@ -920,8 +944,6 @@ async def _add_knowledge(
         dlp_report = await asyncio.to_thread(dlp_scan_text, content)
     flagged = bool(scan_report and scan_report.flagged) or bool(dlp_report and dlp_report.flagged)
 
-    # The collection is optional: when a proactively-capturing agent omits it, route the
-    # document to its best-matching editable collection automatically.
     auto_routed = collection_ref is None
     if auto_routed:
         collection = await _auto_route_collection(
@@ -933,14 +955,9 @@ async def _add_knowledge(
         db, ctx, ResourceType.COLLECTION, collection.id, PermissionLevel.EDITOR
     )
 
-    # Quarantine gate (mirrors the worker's): flagged content is persisted for review
-    # but never chunked, embedded, or made searchable.
     if scan_report is not None and scan_report.flagged:
         return await _quarantine_new_document(db, ctx, collection, title, content, scan_report)
 
-    # DLP/PII pass (parity with the ingestion worker's second gate): quarantine when the
-    # deployment's action is 'quarantine', otherwise label the document's sensitivity
-    # ('warn' records the finding without labelling). MCP previously skipped this entirely.
     dlp_sensitivity = None
     dlp_meta: dict | None = None
     if dlp_report is not None and dlp_report.flagged:
@@ -977,7 +994,6 @@ async def _add_knowledge(
     started = time.perf_counter()
     chunk_count = await _index_document(db, ctx, document, content)
     duration_ms = round((time.perf_counter() - started) * 1000)
-    # Atomic increment so concurrent writes to the same collection cannot lose updates.
     collection.document_count = Collection.document_count + 1
 
     await record_audit(
@@ -1010,6 +1026,19 @@ async def _add_knowledge(
 async def _update_knowledge(
     db: AsyncSession, ctx: AuthContext, arguments: dict[str, Any]
 ) -> dict[str, Any]:
+    """Run the ``update_knowledge`` tool: replace a document's content and re-index it.
+
+    Scanning happens BEFORE any mutation: a flagged update is rejected outright (the MCP flow
+    has no human in the loop to review it) and the stored document stays untouched. Scanning
+    is CPU-bound, so it is offloaded off the event loop like the ingestion worker does.
+
+    The DLP/PII pass is parity with ``add_knowledge`` + the worker. No human is in the MCP
+    loop, so under a 'quarantine' policy a flagged update is rejected outright; otherwise the
+    document's sensitivity is re-labelled to match the NEW content (cleared when clean).
+
+    Replacing the content invalidates any prior verification (parity with the REST answer
+    edit path): a "verified" badge must not survive a content rewrite.
+    """
     _require_write_scope(ctx)
     document_id = _parse_uuid(_require_str(arguments, "document_id"), "document_id")
     content = _require_str(arguments, "content")
@@ -1022,9 +1051,6 @@ async def _update_knowledge(
 
     await require_permission(db, ctx, ResourceType.DOCUMENT, document.id, PermissionLevel.EDITOR)
 
-    # Scan BEFORE any mutation: a flagged update is rejected outright (the MCP flow has
-    # no human in the loop to review it) and the stored document stays untouched. Scanning
-    # is CPU-bound, so offload it off the event loop like the ingestion worker does.
     if settings.SECRET_SCAN_ENABLED:
         report = await asyncio.to_thread(scan_text, content)
         if report.flagged:
@@ -1035,9 +1061,6 @@ async def _update_knowledge(
                 "upload it via the dashboard where it can be reviewed and approved."
             )
 
-    # DLP/PII pass (parity with add_knowledge + the worker). No human is in the MCP loop, so
-    # under a 'quarantine' policy a flagged update is rejected outright; otherwise the new
-    # content's sensitivity is (re)labelled below.
     dlp_report = await asyncio.to_thread(dlp_scan_text, content) if settings.DLP_ENABLED else None
     if (
         dlp_report is not None
@@ -1054,7 +1077,6 @@ async def _update_knowledge(
     chunk_count = await _index_document(db, ctx, document, content, replace=True)
     duration_ms = round((time.perf_counter() - started) * 1000)
 
-    # Re-label the document's sensitivity to match the NEW content (clear it when clean).
     if dlp_report is not None and dlp_report.flagged:
         if settings.DLP_DEFAULT_ACTION != "warn":
             document.sensitivity = dlp_report.sensitivity
@@ -1064,8 +1086,6 @@ async def _update_knowledge(
         if document.meta and DLP_META_KEY in document.meta:
             document.meta = {k: v for k, v in document.meta.items() if k != DLP_META_KEY}
 
-    # Replacing the content invalidates any prior verification (parity with the REST answer
-    # edit path): a "verified" badge must not survive a content rewrite.
     document.verification_status = VerificationStatus.UNVERIFIED
     document.verified_by_id = None
     document.verified_at = None

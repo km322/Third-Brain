@@ -1,3 +1,11 @@
+/**
+ * Tests for the "connect" command.
+ *
+ * HOME is pointed at an empty temp dir BEFORE connect.js is loaded: config.js resolves
+ * ~/.third-brain at import time, and runConnect below must never overwrite this
+ * machine's real credentials. Hence the dynamic import.
+ */
+
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import fs from "node:fs";
@@ -6,17 +14,16 @@ import path from "node:path";
 
 import { API_KEY, startFakeServer } from "./helpers.js";
 
-// Point HOME at an empty temp dir BEFORE loading connect.js: config.js resolves
-// ~/.third-brain at import time, and runConnect below must never overwrite this
-// machine's real credentials. Hence the dynamic import.
 const home = fs.mkdtempSync(path.join(os.tmpdir(), "tb-mcp-home-"));
 process.env.HOME = home;
 process.env.USERPROFILE = home;
 
 const { isHttpUrl, openBrowser, runConnect } = await import("../lib/connect.js");
 
-// Pinned literally (not via the shared constant) so a wording change or deletion
-// in lib/notice.js fails this suite instead of silently passing through.
+/**
+ * Pinned literally (not via the shared constant) so a wording change or deletion in
+ * lib/notice.js fails this suite instead of silently passing through.
+ */
 const NOTICE_LINES = [
   "Heads-up: agents connected through this MCP server can write to your organization's",
   "knowledge base - as they work they may capture decisions and answers into shared",
@@ -32,6 +39,7 @@ test("isHttpUrl accepts http(s) and rejects other schemes", () => {
   assert.equal(isHttpUrl(""), false);
 });
 
+/** A non-http(s) URI (custom scheme / local file) is never handed to the opener. */
 test("openBrowser launches only http(s) URLs via the OS opener", () => {
   const calls = [];
   const spawnImpl = (cmd, args) => {
@@ -43,7 +51,6 @@ test("openBrowser launches only http(s) URLs via the OS opener", () => {
   assert.equal(calls.length, 1);
   assert.deepEqual(calls[0], { cmd: "open", args: ["https://brain.acme.com/activate"] });
 
-  // A non-http(s) URI (custom scheme / local file) is never handed to the opener.
   openBrowser("file:///etc/passwd", { platform: "darwin", spawnImpl });
   openBrowser("x-apple.systempreferences:evil", { platform: "linux", spawnImpl });
   assert.equal(calls.length, 1);

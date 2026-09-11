@@ -13,5 +13,5 @@ class EntityRead(BaseModel):
     id: uuid.UUID
     kind: EntityKind
     name: str
-    # Number of documents the caller can see that mention this entity.
     document_count: int
+    """Number of documents the caller can see that mention this entity."""

@@ -31,19 +31,32 @@ class MembershipStatus(str, Enum):
 
 
 class Visibility(str, Enum):
-    """Default reach of a collection/document, before explicit ACL grants."""
+    """Default reach of a collection/document, before explicit ACL grants.
 
-    PRIVATE = "private"  # only the owner + explicit grants + org admins
-    TEAM = "team"  # members of the owning team
-    ORG = "org"  # everyone in the organization
-    PUBLIC = "public"  # anyone with an org API key (unauthenticated read)
+    * ``private`` - only the owner + explicit grants + org admins
+    * ``team`` - members of the owning team
+    * ``org`` - everyone in the organization
+    * ``public`` - anyone with an org API key (unauthenticated read)
+    """
+
+    PRIVATE = "private"
+    TEAM = "team"
+    ORG = "org"
+    PUBLIC = "public"
 
 
 class PermissionLevel(str, Enum):
+    """What a principal may do with a resource.
+
+    * ``viewer`` - can read/search
+    * ``editor`` - can add/update content
+    * ``manager`` - can manage grants + delete
+    """
+
     NONE = "none"
-    VIEWER = "viewer"  # can read/search
-    EDITOR = "editor"  # can add/update content
-    MANAGER = "manager"  # can manage grants + delete
+    VIEWER = "viewer"
+    EDITOR = "editor"
+    MANAGER = "manager"
 
 
 class PrincipalType(str, Enum):
@@ -77,13 +90,14 @@ class ConnectorType(str, Enum):
 
     ``openai``/``azure_openai``/``ollama``/``custom`` all speak the OpenAI-compatible
     REST shape; ``anthropic`` and ``google`` use their native wire APIs (see
-    :mod:`app.services.llm.providers`).
+    :mod:`app.services.llm.providers`). ``custom`` is any other OpenAI-compatible endpoint
+    (base URL + key).
     """
 
     OPENAI = "openai"
     AZURE_OPENAI = "azure_openai"
     OLLAMA = "ollama"
-    CUSTOM = "custom"  # any other OpenAI-compatible endpoint (base URL + key)
+    CUSTOM = "custom"
     ANTHROPIC = "anthropic"
     GOOGLE = "google"
 
@@ -137,9 +151,12 @@ class AuditAction(str, Enum):
 
 
 class DataSourceKind(str, Enum):
-    """A knowledge data-source connector (distinct from the LLM-endpoint ``ConnectorType``)."""
+    """A knowledge data-source connector (distinct from the LLM-endpoint ``ConnectorType``).
 
-    LOCAL_FOLDER = "local_folder"  # reference connector: a folder tree + sidecar ACLs
+    ``local_folder`` is the reference connector: a folder tree + sidecar ACLs.
+    """
+
+    LOCAL_FOLDER = "local_folder"
     GOOGLE_DRIVE = "google_drive"
     SLACK = "slack"
     GITHUB = "github"
@@ -162,11 +179,14 @@ class ExternalPrincipalKind(str, Enum):
 
 
 class VerificationStatus(str, Enum):
-    """Trust state of a document/answer (verified/fresh content)."""
+    """Trust state of a document/answer (verified/fresh content).
+
+    ``stale`` means it was verified, but is past its review-by date.
+    """
 
     UNVERIFIED = "unverified"
     VERIFIED = "verified"
-    STALE = "stale"  # was verified, but past its review-by date
+    STALE = "stale"
 
 
 class SensitivityLevel(str, Enum):
@@ -223,13 +243,13 @@ class DeviceAuthStatus(str, Enum):
     CONSUMED = "consumed"
 
 
-# Ordering used by the permission engine to compute the "maximum" grant.
 PERMISSION_ORDER: dict[PermissionLevel, int] = {
     PermissionLevel.NONE: 0,
     PermissionLevel.VIEWER: 1,
     PermissionLevel.EDITOR: 2,
     PermissionLevel.MANAGER: 3,
 }
+"""Ordering used by the permission engine to compute the "maximum" grant."""
 
 
 def permission_at_least(have: PermissionLevel, need: PermissionLevel) -> bool:

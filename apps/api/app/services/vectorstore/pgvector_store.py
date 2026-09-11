@@ -11,13 +11,13 @@ from app.models.enums import DocumentStatus
 from app.services.permissions import RetrievalScope
 from app.services.vectorstore.base import SearchHit
 
-# The HNSW index returns its nearest candidates BEFORE the permission/org predicate is
-# applied as a post-filter. With the default ``ef_search`` (40) and a single index shared
-# by every org, a small tenant's rows can be crowded out of the candidate set by a large
-# tenant's, so a filtered search silently returns far fewer than ``top_k`` (often zero).
-# We widen ``ef_search`` per query and enable pgvector 0.8's iterative scan so the index
-# keeps fetching candidates until enough survive the filter.
 _MIN_EF_SEARCH = 100
+"""The HNSW index returns its nearest candidates BEFORE the permission/org predicate is
+applied as a post-filter. With the default ``ef_search`` (40) and a single index shared
+by every org, a small tenant's rows can be crowded out of the candidate set by a large
+tenant's, so a filtered search silently returns far fewer than ``top_k`` (often zero).
+We widen ``ef_search`` per query and enable pgvector 0.8's iterative scan so the index
+keeps fetching candidates until enough survive the filter."""
 
 
 class PgVectorStore:
@@ -34,12 +34,21 @@ class PgVectorStore:
         query_embedding: list[float],
         top_k: int,
     ) -> list[SearchHit]:
+        """Cosine ANN search for the ``top_k`` nearest chunks the ``scope`` permits.
+
+        ``set_config(..., is_local=true)`` is scoped to the surrounding transaction, so it
+        only affects this search and never leaks into unrelated statements on the pooled
+        connection. (``SET LOCAL`` cannot take a bind parameter; ``set_config`` can.) Both
+        settings go out in a single round-trip.
+
+        Only QUARANTINED documents are excluded: chunks exist solely from a prior
+        successful index, so this hides leftover chunks of a now-quarantined document while
+        still surfacing content that is mid-reprocess (PENDING/PROCESSING) or left indexed
+        after a failed reprocess - matching the pre-quarantine behaviour, which had no
+        status predicate at all.
+        """
         if scope.is_empty:
             return []
-        # set_config(..., is_local=true) is scoped to the surrounding transaction, so it
-        # only affects this search and never leaks into unrelated statements on the pooled
-        # connection. (SET LOCAL cannot take a bind parameter; set_config can.) Both settings
-        # go out in a single round-trip.
         ef_search = max(_MIN_EF_SEARCH, top_k * 2)
         await db.execute(
             text(
@@ -60,11 +69,6 @@ class PgVectorStore:
                 Document.title,
             )
             .join(Document, Document.id == DocumentChunk.document_id)
-            # Exclude only QUARANTINED documents: chunks exist solely from a prior
-            # successful index, so this hides leftover chunks of a now-quarantined
-            # document while still surfacing content that is mid-reprocess (PENDING/
-            # PROCESSING) or left indexed after a failed reprocess - matching the
-            # pre-quarantine behaviour, which had no status predicate at all.
             .where(
                 DocumentChunk.embedding.is_not(None),
                 Document.status != DocumentStatus.QUARANTINED,
@@ -95,6 +99,10 @@ class PgVectorStore:
         query: str,
         top_k: int,
     ) -> list[SearchHit]:
+        """Postgres full-text search for the ``top_k`` best chunks the ``scope`` permits.
+
+        Applies the same non-quarantined guard as :meth:`similarity_search`.
+        """
         if scope.is_empty or not query.strip():
             return []
         tsv = func.to_tsvector("english", DocumentChunk.content)
@@ -112,7 +120,6 @@ class PgVectorStore:
                 Document.title,
             )
             .join(Document, Document.id == DocumentChunk.document_id)
-            # Same non-quarantined guard as similarity_search (see above).
             .where(tsv.op("@@")(tsq), Document.status != DocumentStatus.QUARANTINED)
             .order_by(rank.desc())
             .limit(top_k)

@@ -25,14 +25,14 @@ from app.core.security import (
 )
 
 
-# --------------------------------------------------------------------------- #
-# Passwords
-# --------------------------------------------------------------------------- #
 class TestPasswords:
+    """Password hashing and verification."""
+
     def test_hash_is_not_plaintext(self) -> None:
+        """The stored hash differs from the secret and carries the ``$2`` bcrypt marker."""
         hashed = hash_password("hunter2!")
         assert hashed != "hunter2!"
-        assert hashed.startswith("$2")  # bcrypt marker
+        assert hashed.startswith("$2")
 
     def test_verify_accepts_correct_and_rejects_wrong(self) -> None:
         hashed = hash_password("correct horse battery staple")
@@ -40,24 +40,23 @@ class TestPasswords:
         assert verify_password("wrong password", hashed) is False
 
     def test_hash_is_salted_so_two_hashes_differ(self) -> None:
+        """Two hashes of the same secret differ, yet both still verify against it."""
         a = hash_password("same-password")
         b = hash_password("same-password")
         assert a != b
-        # ...yet both still verify against the original secret.
         assert verify_password("same-password", a)
         assert verify_password("same-password", b)
 
 
-# --------------------------------------------------------------------------- #
-# API keys
-# --------------------------------------------------------------------------- #
 class TestApiKeys:
+    """API-key generation and hashing."""
+
     def test_generate_shape(self) -> None:
+        """The raw key, its 12-char prefix and its 64-char (sha256 hex) digest."""
         full, prefix, hashed = generate_api_key()
         assert full.startswith(f"{API_KEY_PREFIX}_live_")
         assert prefix == full[:12]
         assert len(prefix) == 12
-        # sha256 hex digest length.
         assert len(hashed) == 64
         assert all(c in "0123456789abcdef" for c in hashed)
 
@@ -67,7 +66,6 @@ class TestApiKeys:
 
     def test_hash_roundtrip_is_deterministic(self) -> None:
         full, _, hashed = generate_api_key()
-        # Re-hashing the raw key reproduces exactly the stored hash.
         assert hash_api_key(full) == hashed
 
     def test_distinct_keys_hash_differently(self) -> None:
@@ -77,10 +75,9 @@ class TestApiKeys:
         assert hash_a != hash_b
 
 
-# --------------------------------------------------------------------------- #
-# Connector-secret encryption
-# --------------------------------------------------------------------------- #
 class TestSecretEncryption:
+    """Symmetric encryption of connector secrets."""
+
     def test_roundtrip(self) -> None:
         plaintext = "sk-super-secret-connector-credential"
         ciphertext = encrypt_secret(plaintext)
@@ -88,8 +85,11 @@ class TestSecretEncryption:
         assert decrypt_secret(ciphertext) == plaintext
 
     def test_ciphertext_is_non_deterministic(self) -> None:
-        # Fernet embeds a random IV, so encrypting twice yields different ciphertext
-        # that both decrypt back to the same plaintext.
+        """Fernet embeds a random IV.
+
+        Encrypting twice therefore yields different ciphertexts, both of which decrypt
+        back to the same plaintext.
+        """
         a = encrypt_secret("value")
         b = encrypt_secret("value")
         assert a != b
@@ -103,10 +103,9 @@ class TestSecretEncryption:
             decrypt_secret(token[:-2] + ("AA" if not token.endswith("AA") else "BB"))
 
 
-# --------------------------------------------------------------------------- #
-# JWTs
-# --------------------------------------------------------------------------- #
 class TestJwt:
+    """JWT creation and decoding, including expiry and wrong-signature."""
+
     def test_access_token_carries_subject_type_and_extra(self) -> None:
         token = create_access_token("user-123", extra={"org": "org-abc"})
         payload = decode_token(token)
@@ -128,7 +127,7 @@ class TestJwt:
         assert access["type"] != refresh["type"]
 
     def test_expired_token_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        # Mint a token that expired a minute ago.
+        """A negative expiry mints a token that expired a minute ago."""
         monkeypatch.setattr(settings, "ACCESS_TOKEN_EXPIRE_MINUTES", -1)
         token = create_access_token("user-123")
         with pytest.raises(jwt.ExpiredSignatureError):

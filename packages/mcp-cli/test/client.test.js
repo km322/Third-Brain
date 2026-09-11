@@ -14,22 +14,23 @@ test("normalizeUrl accepts bare hosts and strips trailing slashes and /mcp", () 
   assert.throws(() => normalizeUrl("http://"), /Invalid URL/);
 });
 
+/**
+ * A remote http:// host would leak the API key in cleartext, so it is refused. A bare
+ * host is auto-upgraded to https, never refused. Loopback is exempt (local dev),
+ * including IPv6 loopback (URL.hostname yields "[::1]") and its expanded form, and
+ * THIRD_BRAIN_ALLOW_INSECURE_HTTP is the explicit opt-out for a trusted network.
+ */
 test("normalizeUrl refuses cleartext http to a remote host, but exempts loopback", () => {
-  // A remote http:// host would leak the API key in cleartext -> refuse.
   assert.throws(() => normalizeUrl("http://brain.acme.com"), /cleartext/);
   assert.throws(() => normalizeUrl("http://10.0.0.5:8000/mcp"), /cleartext/);
-  // A bare host is auto-upgraded to https, never refused.
   assert.equal(normalizeUrl("brain.acme.com"), "https://brain.acme.com");
-  // Loopback is exempt (local dev), including IPv6 loopback (URL.hostname yields "[::1]").
   assert.equal(normalizeUrl("http://127.0.0.1:8000"), "http://127.0.0.1:8000");
   assert.equal(normalizeUrl("http://localhost:8000/mcp"), "http://localhost:8000");
   assert.equal(normalizeUrl("http://[::1]:8000"), "http://[::1]:8000");
-  // The expanded IPv6-loopback form is recognized too (exempt, not refused).
   assert.equal(
     normalizeUrl("http://[0:0:0:0:0:0:0:1]:8000"),
     "http://[0:0:0:0:0:0:0:1]:8000",
   );
-  // Explicit opt-out for a trusted network.
   assert.equal(
     normalizeUrl("http://brain.internal", {
       env: { THIRD_BRAIN_ALLOW_INSECURE_HTTP: "1" },
@@ -58,11 +59,13 @@ test("fetchDescriptor rejects non-descriptor responses", async () => {
   );
 });
 
+/**
+ * tools/list is unauthenticated on the real server, so verifyKey must probe with an
+ * authenticated tools/call: a good key passes, a bad key gets -32001 -> rejected.
+ */
 test("verifyKey accepts a valid key (authenticated probe) and rejects a bad one", async () => {
   const server = await startFakeServer();
   try {
-    // tools/list is unauthenticated on the real server, so verifyKey must probe with an
-    // authenticated tools/call: a good key passes, a bad key gets -32001 -> rejected.
     const result = await verifyKey(server.url, API_KEY);
     assert.equal(result.scopeLimited, false);
     await assert.rejects(verifyKey(server.url, "tb_wrong"), /rejected/);
@@ -71,9 +74,11 @@ test("verifyKey accepts a valid key (authenticated probe) and rejects a bad one"
   }
 });
 
+/**
+ * A key that authenticates but hits a scope limit returns a tool result with
+ * isError:true; that still proves authentication, so verifyKey resolves scopeLimited.
+ */
 test("verifyKey flags a scope-limited key (tool result isError)", async () => {
-  // A key that authenticates but hits a scope limit returns a tool result with
-  // isError:true; that still proves authentication, so verifyKey resolves scopeLimited.
   const fakeFetch = async () => ({
     ok: true,
     status: 200,

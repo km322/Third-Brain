@@ -22,7 +22,13 @@ async def read_me(
     db: AsyncSession = Depends(get_db),
     ctx: AuthContext = Depends(get_session_context),
 ) -> CurrentUser:
-    """Return the caller, every organization they belong to and the active one."""
+    """Return the caller, every organization they belong to and the active one.
+
+    \f
+
+    When the active org is missing from the membership list the token's org is still
+    authoritative, so it is loaded directly rather than treated as a stale membership.
+    """
     memberships = (
         (
             await db.execute(
@@ -38,7 +44,6 @@ async def read_me(
     orgs = [m.organization for m in memberships]
     active = next((o for o in orgs if o.id == ctx.org_id), None)
     if active is None:
-        # The token's org is authoritative even if the membership list is stale.
         active = await db.get(Organization, ctx.org_id)
     if active is None:
         raise HTTPException(

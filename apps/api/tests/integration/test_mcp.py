@@ -41,6 +41,9 @@ async def test_initialize_and_tools_list(client, api) -> None:
 
 
 async def test_tools_call_search_and_write(client, db_session, api) -> None:
+    """A search-scoped key searches, and a write tool with an ingest-scoped key creates +
+    indexes a document.
+    """
     org, owner, _ = await factories.create_org_with_owner(db_session)
     collection = await factories.create_collection(
         db_session, org=org, owner=owner, visibility=Visibility.ORG
@@ -68,7 +71,6 @@ async def test_tools_call_search_and_write(client, db_session, api) -> None:
     assert result["isError"] is False
     assert result["structuredContent"]["count"] >= 1
 
-    # A write tool with an ingest-scoped key creates + indexes a document.
     written = await _rpc(
         client,
         method="tools/call",
@@ -330,7 +332,11 @@ async def test_mcp_write_survives_rest_reprocess(
     client, db_session, token_headers, api, ingest_now
 ) -> None:
     """MCP writes persist the source blob, so a later REST reprocess re-ingests the latest
-    content instead of silently reverting to a stale original (findings 17/34)."""
+    content instead of silently reverting to a stale original (findings 17/34).
+
+    The reprocess below re-ingests from the stored blob, which must by then hold the revised
+    content rather than the original.
+    """
     org, owner, _ = await factories.create_org_with_owner(db_session)
     collection = await factories.create_collection(
         db_session, org=org, owner=owner, visibility=Visibility.ORG
@@ -366,7 +372,6 @@ async def test_mcp_write_survives_rest_reprocess(
     )
     assert updated["result"]["structuredContent"]["updated"] is True
 
-    # Reprocess re-ingests from the stored blob, which must now hold the revised content.
     reprocessed = await client.post(
         f"{api}/documents/{doc_id}/reprocess", headers=token_headers(owner.id, org.id)
     )
@@ -383,6 +388,12 @@ async def test_mcp_write_survives_rest_reprocess(
 
 
 async def test_write_requires_ingest_scope(client, db_session, api) -> None:
+    """A key without the ingest scope cannot write via MCP.
+
+    The domain failure surfaces as a tool result with isError (not a transport error), and
+    the message is checked so the failure is specifically the missing ingest/write scope -
+    not some unrelated error, which a bare ``isError is True`` would also accept.
+    """
     org, owner, _ = await factories.create_org_with_owner(db_session)
     collection = await factories.create_collection(
         db_session, org=org, owner=owner, visibility=Visibility.ORG
@@ -391,7 +402,7 @@ async def test_write_requires_ingest_scope(client, db_session, api) -> None:
         db_session,
         org=org,
         scopes=["search"],
-        acts_as_user=owner,  # no ingest
+        acts_as_user=owner,
     )
     headers = factories.api_key_headers(secret)
 
@@ -404,9 +415,6 @@ async def test_write_requires_ingest_scope(client, db_session, api) -> None:
         },
         headers=headers,
     )
-    # Domain failure surfaces as a tool result with isError (not a transport error), and
-    # specifically because the key lacks the ingest/write scope - not some unrelated error,
-    # which a bare ``isError is True`` would also accept.
     assert written["result"]["isError"] is True
     message = " ".join(
         block.get("text", "") for block in written["result"].get("content", [])
@@ -416,7 +424,12 @@ async def test_write_requires_ingest_scope(client, db_session, api) -> None:
 
 async def test_search_requires_search_scope(client, db_session, api) -> None:
     """Parity with REST ``/search``/``/v1``: an API key lacking the 'search' scope cannot
-    search via MCP, while a wildcard key clears the same gate."""
+    search via MCP, while a wildcard key clears the same gate.
+
+    The domain failure surfaces as a tool result with isError (not a transport error), and
+    the message is checked so the failure is specifically the missing search scope, not some
+    unrelated error.
+    """
     org, owner, _ = await factories.create_org_with_owner(db_session)
     collection = await factories.create_collection(
         db_session, org=org, owner=owner, visibility=Visibility.ORG
@@ -434,7 +447,7 @@ async def test_search_requires_search_scope(client, db_session, api) -> None:
         db_session,
         org=org,
         scopes=["ingest"],
-        acts_as_user=owner,  # no search
+        acts_as_user=owner,
     )
     denied = await _rpc(
         client,
@@ -442,15 +455,12 @@ async def test_search_requires_search_scope(client, db_session, api) -> None:
         params={"name": "search_knowledge", "arguments": {"query": "sunlight energy"}},
         headers=factories.api_key_headers(no_search_secret),
     )
-    # Domain failure surfaces as a tool result with isError (not a transport error), and
-    # specifically because the key lacks the search scope, not some unrelated error.
     assert denied["result"]["isError"] is True
     message = " ".join(
         block.get("text", "") for block in denied["result"].get("content", [])
     ).lower()
     assert "search" in message or "scope" in message, denied["result"]
 
-    # A wildcard key clears the scope gate and searches successfully.
     _wkey, wildcard_secret = await factories.create_api_key(
         db_session, org=org, scopes=["*"], acts_as_user=owner
     )

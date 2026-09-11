@@ -39,22 +39,25 @@ from app.services.vectorstore import SearchHit, get_vector_store
 logger = get_logger(__name__)
 tracer = get_tracer(__name__)
 
-# Reciprocal Rank Fusion constant. 60 is the value from the original Cormack et al.
-# paper and works well without tuning.
 _RRF_K = 60
+"""Reciprocal Rank Fusion constant. 60 is the value from the original Cormack et al.
+paper and works well without tuning."""
 
 
 def _embedding_cache_key(
     provider: str, model: str, api_base: str | None, query: str, *, offline: bool
 ) -> str:
-    # The cache key is scoped by (provider, model, endpoint): two orgs whose connectors
-    # share a model name but point at different providers must never read each other's cached
-    # vectors, while orgs on the same platform endpoint still share the cache. The wire
-    # ``provider`` segment keeps e.g. an OpenAI-served and a Gemini-served vector for the
-    # same configured model name apart. The ``offline``/``live`` tag additionally keeps
-    # deterministic offline STUB vectors out of the live-vector cache (and vice versa), so a
-    # keyless/offline org and a real-provider org on the same (model, endpoint) cannot
-    # poison each other's embeddings.
+    """The Redis key a query's embedding is cached under.
+
+    The cache key is scoped by (provider, model, endpoint): two orgs whose connectors
+    share a model name but point at different providers must never read each other's cached
+    vectors, while orgs on the same platform endpoint still share the cache. The wire
+    ``provider`` segment keeps e.g. an OpenAI-served and a Gemini-served vector for the
+    same configured model name apart. The ``offline``/``live`` tag additionally keeps
+    deterministic offline STUB vectors out of the live-vector cache (and vice versa), so a
+    keyless/offline org and a real-provider org on the same (model, endpoint) cannot
+    poison each other's embeddings.
+    """
     kind = "offline" if offline else "live"
     digest = hashlib.sha256(query.encode("utf-8")).hexdigest()
     return f"emb:{kind}:{provider}:{model}:{api_base or 'default'}:{digest}"
@@ -69,6 +72,9 @@ async def _embed_query(db: AsyncSession, ctx: AuthContext, query: str) -> tuple[
     provider call is recorded as EMBEDDING usage (flush-only; the request commits). Redis
     failures degrade gracefully to a direct embed so search never hard-depends on the cache.
     Returns ``(vector, cache_hit)`` so ``retrieve`` can log the outcome.
+
+    Cost is charged only for a real provider call; the deterministic offline provider is
+    free.
     """
     with tracer.start_as_current_span("retrieval.embed_query") as span:
         res = await resolver.resolve(db, ctx.org_id, ConnectorPurpose.EMBEDDING)
@@ -99,7 +105,6 @@ async def _embed_query(db: AsyncSession, ctx: AuthContext, query: str) -> tuple[
         )
         vector = result.vectors[0]
 
-        # Real provider calls cost money; the deterministic offline provider does not.
         cost = (
             embedding_cost(result.model, result.tokens)
             if is_billable_provider(result.provider)
@@ -134,6 +139,9 @@ def _reciprocal_rank_fusion(ranked_lists: list[list[SearchHit]], top_k: int) -> 
     score in ``[0, 1]`` so downstream callers (and the UI's "N% match") see a comparable
     relevance number. Without normalization the raw RRF sum tops out near
     ``len(lists) / (_RRF_K + 1)`` (~0.03), which reads as "no match" everywhere.
+
+    The max attainable score is rank 0 in every provided list; dividing by it maps the top
+    possible relevance to 1.0 while preserving the fused ranking exactly.
     """
     fused_scores: dict[uuid.UUID, float] = {}
     hits_by_id: dict[uuid.UUID, SearchHit] = {}
@@ -144,8 +152,6 @@ def _reciprocal_rank_fusion(ranked_lists: list[list[SearchHit]], top_k: int) -> 
             )
             hits_by_id.setdefault(hit.chunk_id, hit)
 
-    # Max attainable score: rank 0 in every provided list. Dividing by it maps the top
-    # possible relevance to 1.0 while preserving the fused ranking exactly.
     max_attainable = len(ranked_lists) / (_RRF_K + 1) if ranked_lists else 1.0
     ordered = sorted(hits_by_id.values(), key=lambda h: fused_scores[h.chunk_id], reverse=True)
     for hit in ordered:
@@ -175,6 +181,16 @@ async def retrieve(
     Returns:
         A best-first list of :class:`SearchHit`, at most ``top_k`` long. Empty when the
         caller has access to nothing (or the requested collections are all invisible).
+
+    The visible-chunk predicate is resolved first: if the caller can see nothing there is
+    no point paying for an embedding.
+
+    In vector-only mode cosine similarity is surfaced as a [0, 1] relevance (distance can
+    exceed 1 for near-opposite vectors, which would otherwise render as a negative "%
+    match"). In hybrid mode each retriever is over-fetched so RRF has enough overlap to work
+    with and the result is then trimmed, and whatever retrievers returned hits (one or both)
+    are fused, so the surfaced score is always the normalized, comparable RRF relevance -
+    never a raw cosine similarity or ts_rank on one path and a fused score on another.
     """
     top_k = top_k or settings.RETRIEVAL_TOP_K
     started = time.perf_counter()
@@ -184,8 +200,6 @@ async def retrieve(
         span.set_attribute("app.hybrid", hybrid)
         span.set_attribute("app.collection_count", len(collection_ids) if collection_ids else 0)
 
-        # Resolve the visible-chunk predicate first: if the caller can see nothing there is
-        # no point paying for an embedding.
         with tracer.start_as_current_span("retrieval.scope"):
             scope = await build_retrieval_scope(db, ctx, collection_ids=collection_ids)
 
@@ -200,13 +214,9 @@ async def retrieve(
                 with tracer.start_as_current_span("retrieval.vector_search") as search_span:
                     hits = await store.similarity_search(db, scope, query_embedding, top_k)
                     search_span.set_attribute("app.result_count", len(hits))
-                # Surface cosine similarity as a [0, 1] relevance (distance can exceed 1 for
-                # near-opposite vectors, which would otherwise render as a negative "% match").
                 for hit in hits:
                     hit.score = max(0.0, min(1.0, hit.score))
             else:
-                # Over-fetch from each retriever so RRF has enough overlap to work with,
-                # then trim.
                 candidate_k = min(max(top_k * 3, top_k), 50)
                 with tracer.start_as_current_span("retrieval.vector_search") as search_span:
                     vector_hits = await store.similarity_search(
@@ -217,9 +227,6 @@ async def retrieve(
                     keyword_hits = await store.keyword_search(db, scope, query, candidate_k)
                     search_span.set_attribute("app.result_count", len(keyword_hits))
 
-                # Fuse whatever retrievers returned hits (one or both) so the surfaced score
-                # is always the normalized, comparable RRF relevance - never a raw cosine
-                # similarity or ts_rank on one path and a fused score on another.
                 present = [lst for lst in (vector_hits, keyword_hits) if lst]
                 hits = _reciprocal_rank_fusion(present, top_k) if present else []
 

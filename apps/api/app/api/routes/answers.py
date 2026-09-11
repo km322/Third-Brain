@@ -64,10 +64,12 @@ async def list_answers(
     ctx: AuthContext = Depends(require_read_scope()),
     db: AsyncSession = Depends(get_db),
 ) -> list[AnswerRead]:
-    """List answers visible to the caller, newest first."""
-    # The visibility decision is pushed into SQL, as it is for chunk retrieval: the
-    # previous shape loaded every answer in the org and graded each one in Python, which
-    # cost a permission resolution per row and grew without bound.
+    """List answers visible to the caller, newest first.
+
+    The visibility decision is pushed into SQL, as it is for chunk retrieval: the previous
+    shape loaded every answer in the org and graded each one in Python, which cost a
+    permission resolution per row and grew without bound.
+    """
     scope = await build_retrieval_scope(db, ctx)
     rows = (
         (
@@ -135,6 +137,10 @@ async def update_answer(
     ctx: AuthContext = Depends(require_write_scope()),
     db: AsyncSession = Depends(get_db),
 ) -> AnswerRead:
+    """Update an answer.
+
+    Editing content invalidates verification: it must be re-reviewed.
+    """
     answer = await _get_owned(db, ctx, answer_id)
     await _require_write(db, ctx, answer)
     if payload.question is not None:
@@ -143,7 +149,6 @@ async def update_answer(
         answer.answer = payload.answer
     if payload.visibility is not None:
         answer.visibility = payload.visibility
-    # Editing content invalidates verification: it must be re-reviewed.
     if payload.question is not None or payload.answer is not None:
         answer.verification_status = VerificationStatus.UNVERIFIED
         answer.verified_by_id = None

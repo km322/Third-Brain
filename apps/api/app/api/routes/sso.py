@@ -48,9 +48,6 @@ def _validate_config(protocol: SsoProtocol, config: dict) -> None:
         )
 
 
-# --------------------------------------------------------------------------- #
-# Admin: connection CRUD
-# --------------------------------------------------------------------------- #
 @router.get("/sso-connections", response_model=list[SsoConnectionRead])
 async def list_connections(
     ctx: AuthContext = Depends(require_role(OrgRole.ADMIN)),
@@ -150,9 +147,6 @@ async def delete_connection(
     return Message(detail="SSO connection removed")
 
 
-# --------------------------------------------------------------------------- #
-# Sign-in flow (unauthenticated)
-# --------------------------------------------------------------------------- #
 @router.get("/auth/sso/available", response_model=list[SsoConnectionPublic])
 async def available_connections(
     email: str | None = Query(default=None),
@@ -198,11 +192,15 @@ async def sso_start(
 
 
 async def _finish_login(db, request, conn, identity) -> Tokens:
+    """Federate a verified IdP identity to a user, audit the login and mint tokens.
+
+    A ``SsoError`` from provisioning becomes a 403: e.g. the asserted email belongs to an
+    existing account that is not a member of this org - refuse rather than mint a session
+    for an account this connection can't claim.
+    """
     try:
         user = await sso.provision_sso_user(db, conn, identity)
     except sso.SsoError as exc:
-        # e.g. the asserted email belongs to an existing account that is not a member of this
-        # org - refuse rather than mint a session for an account this connection can't claim.
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
     if user is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="SSO user unresolved")

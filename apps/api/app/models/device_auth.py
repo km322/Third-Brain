@@ -23,12 +23,15 @@ from app.models.enums import DeviceAuthStatus
 
 
 class DeviceAuthorization(UUIDPrimaryKeyMixin, TimestampMixin, Base):
-    """One CLI sign-in attempt awaiting (or past) an admin's browser approval."""
+    """One CLI sign-in attempt awaiting (or past) an admin's browser approval.
+
+    ``uq_device_auth_user_code_pending`` is partial because the human code only needs to be
+    unambiguous while an approval is pending; settled rows release it (non-native enums
+    persist member NAMES, hence 'PENDING').
+    """
 
     __tablename__ = "device_authorizations"
     __table_args__ = (
-        # The human code only needs to be unambiguous while an approval is pending;
-        # settled rows release it (non-native enums persist member NAMES, hence 'PENDING').
         Index(
             "uq_device_auth_user_code_pending",
             "user_code",
@@ -37,11 +40,11 @@ class DeviceAuthorization(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         ),
     )
 
-    # Null until approved: the start call is unauthenticated, so the org is only known
-    # once an admin approves and binds the request to their organization.
     org_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("organizations.id", ondelete="CASCADE"), index=True, nullable=True
     )
+    """Null until approved: the start call is unauthenticated, so the org is only known once
+    an admin approves and binds the request to their organization."""
     client_name: Mapped[str] = mapped_column(String(255), nullable=False)
     user_code: Mapped[str] = mapped_column(String(16), index=True, nullable=False)
     device_code_prefix: Mapped[str] = mapped_column(String(16), index=True, nullable=False)
@@ -62,9 +65,9 @@ class DeviceAuthorization(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     api_key_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("api_keys.id", ondelete="SET NULL"), nullable=True
     )
-    # Fernet-encrypted plaintext of the minted API key, held only between approval and
-    # the one-shot redemption on /device-auth/token (nulled when consumed or expired).
     encrypted_secret: Mapped[str | None] = mapped_column(String(8192), nullable=True)
+    """Fernet-encrypted plaintext of the minted API key, held only between approval and the
+    one-shot redemption on /device-auth/token (nulled when consumed or expired)."""
 
     def __repr__(self) -> str:  # pragma: no cover
         return f"<DeviceAuthorization {self.user_code} {self.status}>"

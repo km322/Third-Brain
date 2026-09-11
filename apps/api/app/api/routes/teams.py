@@ -46,13 +46,10 @@ router = APIRouter(prefix="/teams", tags=["teams"])
 
 logger = get_logger(__name__)
 
-# The maximum number of levels (root inclusive) a team tree may reach.
 MAX_TEAM_DEPTH = 6
+"""The maximum number of levels (root inclusive) a team tree may reach."""
 
 
-# --------------------------------------------------------------------------- #
-# Helpers
-# --------------------------------------------------------------------------- #
 def _slugify(value: str) -> str:
     slug = re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-")
     return slug or "team"
@@ -208,8 +205,12 @@ async def can_admin_team(db: AsyncSession, ctx: AuthContext, team_id: uuid.UUID)
 
 
 async def _require_can_admin(db: AsyncSession, ctx: AuthContext, team_id: uuid.UUID) -> None:
+    """403 unless the caller may manage ``team_id`` (see :func:`can_admin_team`).
+
+    A denial is logged with the team only - org_id/user_id are already bound on the log
+    context by auth.
+    """
     if not await can_admin_team(db, ctx, team_id):
-        # org_id/user_id are already bound on the log context by auth.
         logger.warning("permission_denied", check="team_admin", team_id=str(team_id))
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -266,9 +267,6 @@ async def _to_detail(db: AsyncSession, ctx: AuthContext, team: Team) -> TeamDeta
     )
 
 
-# --------------------------------------------------------------------------- #
-# Routes
-# --------------------------------------------------------------------------- #
 @router.get("", response_model=list[TeamRead])
 async def list_teams(
     ctx: AuthContext = Depends(get_auth_context),
@@ -295,11 +293,14 @@ async def create_team(
     When ``parent_team_id`` is set the caller must additionally be able to manage the parent
     (:func:`can_admin_team`), and the resulting tree must stay within ``MAX_TEAM_DEPTH``. The
     creator is enrolled as the team's first ``lead``.
+
+    \f
+
+    Nested creation first serializes against concurrent re-parents in this org (the same lock
+    ``update_team`` takes) so the depth check validates against a stable tree - otherwise a
+    create and a re-parent can interleave and together exceed ``MAX_TEAM_DEPTH``.
     """
     if payload.parent_team_id is not None:
-        # Serialize against concurrent re-parents in this org (same lock update_team takes) so
-        # the depth check below validates against a stable tree - otherwise a create and a
-        # re-parent can interleave and together exceed MAX_TEAM_DEPTH.
         await db.execute(
             text("SELECT pg_advisory_xact_lock(hashtext(:k))"),
             {"k": f"team-reparent:{ctx.org_id}"},
@@ -355,6 +356,22 @@ async def update_team(
     Re-parenting validates same-org membership, rejects a cycle (the new parent may not be
     the team itself or any of its descendants) and keeps the moved subtree within
     ``MAX_TEAM_DEPTH``. Sending ``parent_team_id: null`` re-parents the team to the root.
+
+    An unchanged ``parent_team_id`` is not an actual move, so the destination-admin / cycle
+    / depth checks are skipped for it - a sub-team lead who is not an admin of the parent
+    can still rename/edit their own team.
+
+    \f
+
+    Treating an unchanged parent as a no-op matters because the dashboard always sends the
+    current parent on a rename, so requiring destination-admin there would block a sub-team
+    lead from editing their own team.
+
+    A real move first serializes concurrent re-parents in this org so the cycle/depth guard
+    validates against a stable tree. Without it two moves could interleave between reading
+    the tree and committing and together form a cycle. The transaction-scoped advisory lock
+    auto-releases at commit. Grafting under a parent inherits its downward-flowing grants, so
+    the caller must also manage the destination - not just the team being moved.
     """
     team = await _get_team(db, ctx, team_id)
     await _require_can_admin(db, ctx, team.id)
@@ -367,24 +384,15 @@ async def update_team(
     if "parent_team_id" in payload.model_fields_set:
         new_parent_id = payload.parent_team_id
         if new_parent_id == team.parent_team_id:
-            # No actual move (the dashboard always sends the current parent on a rename).
-            # Skip the destination-admin / cycle / depth checks so a sub-team lead who is not
-            # an admin of the parent can still rename/edit their own team.
             pass
         elif new_parent_id is None:
             team.parent_team_id = None
         else:
-            # Serialize concurrent re-parents in this org so the cycle/depth guard below
-            # validates against a stable tree. Without it two moves could interleave between
-            # reading the tree and committing and together form a cycle. The transaction-scoped
-            # advisory lock auto-releases at commit.
             await db.execute(
                 text("SELECT pg_advisory_xact_lock(hashtext(:k))"),
                 {"k": f"team-reparent:{ctx.org_id}"},
             )
             parent = await _validate_parent(db, ctx, new_parent_id)
-            # Grafting under a parent inherits its downward-flowing grants, so the caller must
-            # also manage the destination - not just the team being moved.
             await _require_can_admin(db, ctx, parent.id)
             parent_of, children_of = await _load_tree(db, ctx)
             if parent.id == team.id or parent.id in _descendants(team.id, children_of):
@@ -415,16 +423,19 @@ async def delete_team(
     """Delete a team. Requires team-admin rights.
 
     Direct sub-teams are re-parented to the root (their ``parent_team_id`` becomes ``null``)
-    - also guaranteed by the ``ON DELETE SET NULL`` FK - rather than cascade-deleted, so a
-    team's sub-groups survive its removal. ``TeamMember`` rows cascade via FK; grants where
-    the team is the ACL principal have no FK, so purge them explicitly to avoid stranded ACL
-    rows.
+    rather than cascade-deleted, so a team's sub-groups survive its removal.
+
+    \f
+
+    The detach is
+    issued explicitly - the ``ON DELETE SET NULL`` FK also guarantees it - so the intent is
+    clear and independent of the database's behavior. ``TeamMember`` rows cascade via FK;
+    grants where the team is the ACL principal have no FK, so purge them explicitly to avoid
+    stranded ACL rows.
     """
     team = await _get_team(db, ctx, team_id)
     await _require_can_admin(db, ctx, team.id)
 
-    # Detach sub-teams to the root explicitly, so the intent is clear and independent of the
-    # database's ON DELETE SET NULL behavior.
     await db.execute(
         update(Team)
         .where(Team.org_id == ctx.org_id, Team.parent_team_id == team.id)
@@ -452,12 +463,12 @@ async def add_team_member(
     """Add an organization member to a team (idempotent). Requires team-admin rights.
 
     Team membership confers the team's grants, so this is gated by :func:`can_admin_team`
-    rather than being self-service. ``role`` defaults to ``member``.
+    rather than being self-service. ``role`` defaults to ``member``. The user must belong to
+    this organization.
     """
     team = await _get_team(db, ctx, team_id)
     await _require_can_admin(db, ctx, team.id)
 
-    # The user must belong to this organization.
     membership = (
         await db.execute(
             select(Membership).where(
@@ -493,7 +504,14 @@ async def set_team_member_role(
     ctx: AuthContext = Depends(get_auth_context),
     db: AsyncSession = Depends(get_db),
 ) -> TeamDetail:
-    """Set a member's role within a team (``lead``/``member``). Requires team-admin rights."""
+    """Set a member's role within a team (``lead``/``member``). Requires team-admin rights.
+
+    \f
+
+    Demoting the last lead is refused. That guard is serialized on a per-team advisory lock so
+    two concurrent demotes/removals can't each observe ">1 lead" and together strip the team
+    of every lead.
+    """
     team = await _get_team(db, ctx, team_id)
     await _require_can_admin(db, ctx, team.id)
 
@@ -505,8 +523,6 @@ async def set_team_member_role(
     if member is None:
         raise HTTPException(status_code=404, detail="User is not a member of this team")
     if member.role == TeamRole.LEAD and payload.role != TeamRole.LEAD and not ctx.is_admin:
-        # Serialize the last-lead guard so two concurrent demotes/removals can't each observe
-        # ">1 lead" and together strip the team of every lead.
         await db.execute(
             text("SELECT pg_advisory_xact_lock(hashtext(:k))"),
             {"k": f"team-leads:{team_id}"},
@@ -527,7 +543,16 @@ async def remove_team_member(
     ctx: AuthContext = Depends(get_auth_context),
     db: AsyncSession = Depends(get_db),
 ) -> Response:
-    """Remove a user from a team. Requires team-admin rights (see ``add_team_member``)."""
+    """Remove a user from a team. Requires team-admin rights (see ``add_team_member``).
+
+    Removing the last lead is refused.
+
+    \f
+
+    That guard runs under the same per-team advisory lock :func:`set_team_member_role`
+    takes, so concurrent demote/remove requests can't both slip past it and leave the team
+    lead-less.
+    """
     team = await _get_team(db, ctx, team_id)
     await _require_can_admin(db, ctx, team.id)
     member = (
@@ -538,8 +563,6 @@ async def remove_team_member(
     if member is None:
         raise HTTPException(status_code=404, detail="User is not a member of this team")
     if member.role == TeamRole.LEAD and not ctx.is_admin:
-        # Serialize the last-lead guard (see set_team_member_role) so concurrent
-        # demote/remove requests can't both slip past it and leave the team lead-less.
         await db.execute(
             text("SELECT pg_advisory_xact_lock(hashtext(:k))"),
             {"k": f"team-leads:{team_id}"},

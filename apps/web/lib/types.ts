@@ -1,5 +1,12 @@
-// Shared TypeScript types mirroring the backend API contracts (app/models + app/schemas).
-// Keep in sync with apps/api/app/models/enums.py.
+/**
+ * Shared TypeScript types mirroring the backend API contracts (app/models + app/schemas).
+ * Keep in sync with apps/api/app/models/enums.py.
+ *
+ * The file opens with the core org, collection and document contracts and closes with the
+ * knowledge-platform feature types (which mirror apps/api/app/schemas + enums): data-source
+ * connectors, verified answers, feedback / knowledge gaps, DLP / oversharing, conversations
+ * / web grounding, entities and enterprise identity.
+ */
 
 export type OrgRole = "owner" | "admin" | "editor" | "viewer";
 export type MembershipStatus = "active" | "invited" | "suspended";
@@ -253,10 +260,10 @@ export interface SearchResult {
   insight_id?: string | null;
 }
 
-// Knowledge graph. Nodes are documents (permission-scoped: only documents the
-// caller may view appear, and edges only ever connect two visible documents).
-// Edges are undirected and de-duplicated (each pair emitted once with the
-// lexicographically smaller id as `source`).
+/**
+ * A knowledge-graph node: a document. Permission-scoped, so only documents the caller may
+ * view appear.
+ */
 export interface GraphNode {
   id: string;
   title: string;
@@ -268,6 +275,11 @@ export interface GraphNode {
   degree: number;
 }
 
+/**
+ * A knowledge-graph edge. Edges only ever connect two visible documents, and are
+ * undirected and de-duplicated (each pair emitted once with the lexicographically smaller
+ * id as `source`).
+ */
 export interface GraphEdge {
   source: string;
   target: string;
@@ -350,9 +362,6 @@ export interface CurrentUser {
   role: OrgRole;
 }
 
-// ---------------------------------------------------------------------------
-// Knowledge-platform feature types (mirror apps/api/app/schemas + enums).
-// ---------------------------------------------------------------------------
 export type VerificationStatus = "unverified" | "verified" | "stale";
 export type SensitivityLevel = "none" | "pii" | "confidential";
 export type DataSourceKind =
@@ -364,7 +373,6 @@ export type EntityKind = "person" | "org" | "product" | "project" | "location" |
 export type SsoProtocol = "oidc" | "saml";
 export type InviteStatus = "pending" | "accepted" | "revoked" | "expired";
 
-// -- Data-source connectors --
 export interface DataSource {
   id: string;
   name: string;
@@ -409,7 +417,6 @@ export interface Identity {
   created_at: string;
 }
 
-// -- Verified answers --
 export interface Answer {
   id: string;
   question: string;
@@ -430,7 +437,6 @@ export interface AnswerMatch {
   verification_status: VerificationStatus;
 }
 
-// -- Feedback / knowledge gaps --
 export interface KnowledgeGapReport {
   window_days: number;
   total_queries: number;
@@ -443,7 +449,6 @@ export interface KnowledgeGapReport {
   top_gaps: string[];
 }
 
-// -- DLP / oversharing --
 export interface OversharingItem {
   document_id: string;
   title: string;
@@ -459,7 +464,6 @@ export interface OversharingReport {
   total_oversharing: number;
 }
 
-// -- Conversations / web grounding --
 export interface WebSource {
   title: string;
   url: string;
@@ -488,7 +492,6 @@ export interface ConversationDetail extends Conversation {
   messages: ConversationMessage[];
 }
 
-// -- Entities --
 export interface Entity {
   id: string;
   kind: EntityKind;
@@ -496,7 +499,6 @@ export interface Entity {
   document_count: number;
 }
 
-// -- Enterprise identity --
 export interface SsoConnection {
   id: string;
   protocol: SsoProtocol;

@@ -40,6 +40,12 @@ function CapturedDoc({
  * Landing hero: the "The documentation writes itself." headline set in ink over
  * plain background, with the primary/secondary CTAs and a capture-moment mock
  * framed like hardware photography - hairline edge, one neutral shadow.
+ *
+ * That product preview mock is the page's one proof element: an agent capturing a
+ * decision as it works, and where it lands. It reads left to right as the agent
+ * session column (the work happening) beside the captured column (what landed in
+ * the brain), with the figure caption left-aligned to the frame edge and a
+ * works-with caption line closing the section.
  */
 export function Hero() {
   return (
@@ -76,11 +82,8 @@ export function Hero() {
           </p>
         </div>
 
-        {/* Product preview mock - the page's one proof element: an agent
-            capturing a decision as it works, and where it lands. */}
         <div className="mx-auto mt-20 max-w-4xl animate-fade-up lg:mt-24">
           <div className="overflow-hidden rounded-2xl border border-border bg-card shadow-[0_1px_1px_rgba(0,0,0,0.03),0_12px_32px_-8px_rgba(0,0,0,0.08)] ring-1 ring-black/[0.04] dark:shadow-none dark:ring-white/[0.08]">
-            {/* Window chrome */}
             <div className="flex items-center gap-2 border-b border-border/60 bg-muted/30 px-4 py-3">
               <span className="h-2.5 w-2.5 rounded-full bg-foreground/[0.12]" />
               <span className="h-2.5 w-2.5 rounded-full bg-foreground/[0.12]" />
@@ -91,7 +94,6 @@ export function Hero() {
             </div>
 
             <div className="grid gap-0 sm:grid-cols-5">
-              {/* Agent session column - the work happening. */}
               <div className="space-y-4 border-b border-border/60 p-5 sm:col-span-3 sm:border-b-0 sm:border-r">
                 <div className="flex items-center gap-2 rounded-lg bg-muted/50 px-3 py-2 text-sm text-muted-foreground">
                   <Bot className="h-4 w-4 text-muted-foreground" />
@@ -110,7 +112,6 @@ export function Hero() {
                 </div>
               </div>
 
-              {/* Captured column - what landed in the brain. */}
               <div className="space-y-2 bg-muted/20 p-5 sm:col-span-2">
                 <p className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
                   Captured
@@ -128,7 +129,6 @@ export function Hero() {
             </div>
           </div>
 
-          {/* Figure caption - left-aligned to the frame edge. */}
           <p className="mt-4 flex items-baseline gap-2 text-sm text-muted-foreground">
             <span className="shrink-0 font-mono text-xs text-muted-foreground/70">
               Fig. 1
@@ -138,7 +138,6 @@ export function Hero() {
           </p>
         </div>
 
-        {/* Works-with caption line. */}
         <p className="mt-10 text-center text-[13px] text-muted-foreground">
           Works with Anthropic Claude · Google Gemini · any OpenAI-compatible model ·
           Claude, Claude Code &amp; Cursor via MCP

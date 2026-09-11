@@ -37,8 +37,10 @@ import { useCurrentUser } from "@/lib/hooks";
 import type { ApiKey, DeviceAuthPending, Membership } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
-// Scopes an admin may grant to a terminal-initiated key (the backend refuses
-// manage/* here - see app/schemas/device_auth.DEVICE_GRANTABLE_SCOPES).
+/**
+ * Scopes an admin may grant to a terminal-initiated key (the backend refuses
+ * `manage/*` here - see app/schemas/device_auth.DEVICE_GRANTABLE_SCOPES).
+ */
 const SCOPES: { value: string; label: string; hint: string }[] = [
   { value: "read", label: "read", hint: "Read collections & documents" },
   { value: "write", label: "write", hint: "Create & edit content" },
@@ -87,6 +89,18 @@ function CenteredNote({
   );
 }
 
+/**
+ * Device-code approval screen: resolve the code from the deep link (or ask for it), then
+ * hand the pending request to {@link ApprovalForm}.
+ *
+ * The approval requires a signed-in admin, so a visitor without a session is bounced to
+ * login with this deep link preserved. Two failure modes are deliberately kept apart from
+ * the "Code not found" screen, because both can happen while the code is perfectly valid:
+ * a failed identity fetch (non-401 - a network blip, a 500) must never fall through to it,
+ * and neither must a failed lookup. The backend 404s for an unknown, expired or already
+ * handled code; anything else is transient and deserves a retry, not a claim that the code
+ * is bad.
+ */
 function ActivateInner() {
   const router = useRouter();
   const params = useSearchParams();
@@ -96,7 +110,6 @@ function ActivateInner() {
   const [code, setCode] = React.useState<string | null>(initialCode || null);
   const [decision, setDecision] = React.useState<"approved" | "denied" | null>(null);
 
-  // The approval requires a signed-in admin; bounce to login preserving this deep link.
   const [authed, setAuthed] = React.useState(false);
   React.useEffect(() => {
     if (auth.isAuthenticated) {
@@ -125,8 +138,6 @@ function ActivateInner() {
     );
   }
 
-  // A failed identity fetch (non-401: network blip, 500) must never fall through to
-  // the "Code not found" screen below - the code may be perfectly valid.
   if (meQuery.isError) {
     return (
       <CenteredNote
@@ -243,8 +254,6 @@ function ActivateInner() {
     );
   }
 
-  // The backend 404s for an unknown/expired/handled code; anything else (500, network)
-  // is transient and deserves a retry, not a claim that the code is bad.
   if (
     pendingQuery.isError &&
     !(pendingQuery.error instanceof ApiError && pendingQuery.error.status === 404)
@@ -297,6 +306,12 @@ function ActivateInner() {
   );
 }
 
+/**
+ * Review a pending device request and either issue a key for it or deny it.
+ *
+ * The scope selection starts from what the terminal actually asked for (narrowed to the
+ * grantable set), falling back to the defaults when the request carries nothing usable.
+ */
 function ApprovalForm({
   code,
   pending,
@@ -309,8 +324,6 @@ function ApprovalForm({
   onDecided: (d: "approved" | "denied") => void;
 }) {
   const [name, setName] = React.useState(`CLI - ${pending.client_name}`);
-  // Propose what the terminal actually asked for (narrowed to the grantable set),
-  // falling back to the defaults when the request carries nothing usable.
   const [scopes, setScopes] = React.useState<string[]>(() => {
     const requested = pending.requested_scopes.filter((s) =>
       SCOPES.some((o) => o.value === s),

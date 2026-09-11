@@ -3,6 +3,8 @@
 Keeps the HTTP layer thin: routes validate input and commit; these helpers own the
 domain rules (slugging, uniqueness, password checks, token minting). Nothing here
 commits - the calling request owns the transaction boundary.
+
+Grouped, in order: slugs, tokens, lookups, mutations.
 """
 
 from __future__ import annotations
@@ -31,9 +33,6 @@ from app.schemas.auth import Tokens
 _NON_SLUG = re.compile(r"[^a-z0-9]+")
 
 
-# --------------------------------------------------------------------------- #
-# Slugs
-# --------------------------------------------------------------------------- #
 def slugify(value: str) -> str:
     """Turn an arbitrary name into a URL-safe slug (ascii, lowercase, hyphenated)."""
     normalized = unicodedata.normalize("NFKD", value).encode("ascii", "ignore").decode("ascii")
@@ -57,9 +56,6 @@ async def unique_org_slug(db: AsyncSession, name: str) -> str:
     return candidate
 
 
-# --------------------------------------------------------------------------- #
-# Tokens
-# --------------------------------------------------------------------------- #
 def make_tokens(user_id: uuid.UUID, org_id: uuid.UUID, token_version: int) -> Tokens:
     """Mint an access token bound to ``org_id`` plus a user-scoped refresh token.
 
@@ -95,9 +91,6 @@ async def bump_token_version(db: AsyncSession, user_id: uuid.UUID) -> int:
     ).scalar_one()
 
 
-# --------------------------------------------------------------------------- #
-# Lookups
-# --------------------------------------------------------------------------- #
 async def get_user_by_email(db: AsyncSession, email: str) -> User | None:
     """Case-insensitive lookup of a user by email address."""
     return (
@@ -140,9 +133,6 @@ async def default_org_membership(db: AsyncSession, user_id: uuid.UUID) -> Member
     )
 
 
-# --------------------------------------------------------------------------- #
-# Mutations
-# --------------------------------------------------------------------------- #
 async def create_org_with_owner(
     db: AsyncSession, name: str, owner: User
 ) -> tuple[Organization, Membership]:
@@ -193,11 +183,12 @@ async def register_user(
     return user, org
 
 
-# Precomputed bcrypt hash of a throwaway password. Authenticating an unknown email
-# (or a user with no stored password) still verifies against this hash so the bcrypt
-# cost is paid every time; without it the 401 comes back measurably faster for
-# non-existent accounts and leaks which emails are registered.
 _DUMMY_PASSWORD_HASH = hash_password("dummy-password-for-timing-equalization")
+"""Precomputed bcrypt hash of a throwaway password.
+
+Authenticating an unknown email (or a user with no stored password) still verifies against
+this hash so the bcrypt cost is paid every time; without it the 401 comes back measurably
+faster for non-existent accounts and leaks which emails are registered."""
 
 
 async def authenticate_user(db: AsyncSession, email: str, password: str) -> User:

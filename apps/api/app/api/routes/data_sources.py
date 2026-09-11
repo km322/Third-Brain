@@ -138,6 +138,10 @@ async def update_data_source(
     ctx: AuthContext = Depends(require_role(OrgRole.ADMIN)),
     db: AsyncSession = Depends(get_db),
 ) -> DataSourceRead:
+    """Update a data source.
+
+    The resulting config/secret is re-validated so an update can't leave the source unusable.
+    """
     source = await _get_owned(db, ctx, source_id)
     fields_set = payload.model_fields_set
 
@@ -154,7 +158,6 @@ async def update_data_source(
     if "secret" in fields_set:
         source.encrypted_secret = encrypt_secret(payload.secret) if payload.secret else None
 
-    # Re-validate the resulting config/secret so an update can't leave it unusable.
     _validate_config(
         source.kind,
         source.config,
@@ -179,6 +182,10 @@ async def delete_data_source(
     ctx: AuthContext = Depends(require_role(OrgRole.ADMIN)),
     db: AsyncSession = Depends(get_db),
 ) -> None:
+    """Delete a data source.
+
+    Documents (and their chunks/principals) plus source-scoped grants cascade via FKs.
+    """
     source = await _get_owned(db, ctx, source_id)
     await record_audit(
         db,
@@ -188,7 +195,6 @@ async def delete_data_source(
         resource_id=source.id,
         meta={"name": source.name},
     )
-    # Documents (and their chunks/principals) plus source-scoped grants cascade via FKs.
     await db.delete(source)
     await db.commit()
 

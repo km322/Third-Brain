@@ -9,6 +9,14 @@ Two things are exercised here and NOTHING touches a database:
   statement to SQL text (never executing it) with ``literal_binds`` against the
   PostgreSQL dialect, so the exact org/collection/document UUIDs are visible in the
   emitted predicate.
+
+A third group covers nested-team expansion - :func:`user_team_ids` and the retrieval scope
+it feeds. Those exercise the REAL async functions against an in-memory stub of the sliver
+of the ``AsyncSession`` API they touch. Nothing hits a database: the stub answers each
+query by the mapped entity it selects (unambiguous - every query in the flow targets a
+distinct entity), returning exactly the rows the real query would. The point under test is
+the single engine change: a user's effective team set is their DIRECT teams PLUS every
+ANCESTOR (grants flow strictly down), and both the route path and retrieval inherit it.
 """
 
 from __future__ import annotations
@@ -47,15 +55,14 @@ ALL_LEVELS = [
 ]
 
 
-# --------------------------------------------------------------------------- #
-# PERMISSION_ORDER + ordering helpers
-# --------------------------------------------------------------------------- #
 class TestPermissionOrder:
+    """:data:`PERMISSION_ORDER` and the ordering helpers built on it."""
+
     def test_order_covers_every_level_and_is_strictly_increasing(self) -> None:
+        """Every level is ranked, and the ranks strictly increase in declared order."""
         assert set(PERMISSION_ORDER) == set(ALL_LEVELS)
         ranks = [PERMISSION_ORDER[level] for level in ALL_LEVELS]
         assert ranks == [0, 1, 2, 3]
-        # Strictly increasing in declared order.
         assert all(a < b for a, b in zip(ranks, ranks[1:], strict=False))
 
     def test_none_is_the_floor(self) -> None:
@@ -111,9 +118,6 @@ class TestMaxPermission:
                 assert max_permission(a, b) == max_permission(b, a)
 
 
-# --------------------------------------------------------------------------- #
-# RetrievalScope.apply - compiled SQL predicate (never executed)
-# --------------------------------------------------------------------------- #
 def _sql(scope: RetrievalScope) -> str:
     """Compile ``scope.apply(select(DocumentChunk.id))`` to PostgreSQL SQL text.
 
@@ -136,12 +140,14 @@ class TestRetrievalScopeIsEmpty:
         assert RetrievalScope(org_id=oid, extra_document_ids={uuid.uuid4()}).is_empty is False
 
     def test_denied_only_is_still_empty(self) -> None:
-        # Denials without any allow set grant nothing.
+        """Denials without any allow set grant nothing."""
         scope = RetrievalScope(org_id=uuid.uuid4(), denied_document_ids={uuid.uuid4()})
         assert scope.is_empty is True
 
 
 class TestRetrievalScopeApply:
+    """The compiled SQL predicate :meth:`RetrievalScope.apply` builds (never executed)."""
+
     def test_org_predicate_is_always_present(self) -> None:
         oid = uuid.uuid4()
         for scope in (
@@ -161,16 +167,23 @@ class TestRetrievalScopeApply:
         assert "IS NULL" not in sql
 
     def test_all_access_with_denials_only_excludes(self) -> None:
+        """Denials still apply under ``all_access``, with no positive membership filter.
+
+        ``all_access`` short-circuits the membership predicate, so only the exclusion
+        survives.
+        """
         did = uuid.uuid4()
         sql = _sql(RetrievalScope(org_id=uuid.uuid4(), all_access=True, denied_document_ids={did}))
         assert "document_chunks.document_id NOT IN" in sql
         assert str(did) in sql
-        # No positive membership filter when all_access short-circuits.
         assert "collection_id IN" not in sql
 
     def test_all_access_ignores_collection_and_extra(self) -> None:
-        # all_access takes precedence: any collection/extra sets must be bypassed so an
-        # admin is never accidentally narrowed.
+        """``all_access`` takes precedence.
+
+        Any collection/extra sets must be bypassed so an admin is never accidentally
+        narrowed.
+        """
         cid = uuid.uuid4()
         did = uuid.uuid4()
         sql = _sql(
@@ -231,40 +244,32 @@ class TestRetrievalScopeApply:
         assert str(did) in sql
 
     def test_no_access_compiles_to_impossible_predicate(self) -> None:
-        # Not admin, no collections, no extra docs -> the caller can see nothing, which
-        # MUST compile to a predicate that matches no rows.
+        """Not admin, no collections, no extra docs -> the caller can see nothing.
+
+        That MUST compile to a predicate which matches no rows, and it is still scoped to
+        the org.
+        """
         sql = _sql(RetrievalScope(org_id=uuid.uuid4()))
         assert "document_chunks.id IS NULL" in sql
-        # And still scoped to the org.
         assert "document_chunks.org_id = " in sql
 
     def test_apply_returns_a_new_statement_and_keeps_base_columns(self) -> None:
+        """A WHERE clause is added to a new statement; the original is left untouched."""
         scope = RetrievalScope(org_id=uuid.uuid4(), all_access=True)
         base = select(DocumentChunk.id)
         applied = scope.apply(base)
-        # A WHERE clause was added.
         assert applied.whereclause is not None
-        assert base.whereclause is None  # original left untouched
+        assert base.whereclause is None
         assert "SELECT document_chunks.id" in str(applied)
 
 
 @pytest.mark.parametrize("bad", ["", "nope"])
 def test_permission_order_lookup_only_accepts_known_levels(bad: str) -> None:
-    # Guards against silent widening if a raw string sneaks into the ordering helpers.
+    """Guard against silent widening if a raw string sneaks into the ordering helpers."""
     with pytest.raises((KeyError, TypeError)):
         permission_at_least(bad, PermissionLevel.NONE)  # type: ignore[arg-type]
 
 
-# --------------------------------------------------------------------------- #
-# Nested-team expansion - user_team_ids and the retrieval scope it feeds.
-#
-# These exercise the REAL async functions against an in-memory stub of the sliver of the
-# ``AsyncSession`` API they touch. Nothing hits a database: the stub answers each query by
-# the mapped entity it selects (unambiguous - every query in the flow targets a distinct
-# entity), returning exactly the rows the real query would. The point under test is the
-# single engine change: a user's effective team set is their DIRECT teams PLUS every
-# ANCESTOR (grants flow strictly down), and both the route path and retrieval inherit it.
-# --------------------------------------------------------------------------- #
 class _Result:
     """The narrow slice of a SQLAlchemy ``Result`` the permission engine consumes."""
 
@@ -276,7 +281,7 @@ class _Result:
         return self
 
     def all(self) -> list:
-        # ``.scalars().all()`` yields scalar values; a bare ``.all()`` yields row tuples.
+        """``.scalars().all()`` yields scalar values; a bare ``.all()`` yields row tuples."""
         return list(self._scalar_values) if self._scalar_values else list(self._rows)
 
 
@@ -319,8 +324,12 @@ class _StubSession:
 
 
 def _ctx(org_id: uuid.UUID, user_id: uuid.UUID) -> AuthContext:
-    # A non-admin so build_retrieval_scope does not short-circuit to all_access; user is a
-    # duck-typed stand-in exposing only the ``.id`` the ``user_id`` property reads.
+    """An :class:`AuthContext` for a non-admin member of ``org_id``.
+
+    Non-admin so :func:`build_retrieval_scope` does not short-circuit to ``all_access``;
+    ``user`` is a duck-typed stand-in exposing only the ``.id`` the ``user_id`` property
+    reads.
+    """
     return AuthContext(
         org_id=org_id, org_role=OrgRole.VIEWER, user=types.SimpleNamespace(id=user_id)
     )
@@ -328,6 +337,7 @@ def _ctx(org_id: uuid.UUID, user_id: uuid.UUID) -> AuthContext:
 
 class TestUserTeamIdsAncestorExpansion:
     def test_direct_membership_expands_to_all_ancestors(self) -> None:
+        """The whole chain leaf -> mid -> root is included."""
         org, user = uuid.uuid4(), uuid.uuid4()
         root, mid, leaf = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
         db = _StubSession(
@@ -335,10 +345,10 @@ class TestUserTeamIdsAncestorExpansion:
             parent_of={leaf: mid, mid: root, root: None},
         )
         result = asyncio.run(user_team_ids(db, _ctx(org, user)))
-        # The whole chain leaf -> mid -> root is included.
         assert result == {leaf, mid, root}
 
     def test_upward_only_a_parent_member_never_inherits_a_child_team(self) -> None:
+        """Grants flow DOWN: a parent-team member gains nothing from the sub-team."""
         org, user = uuid.uuid4(), uuid.uuid4()
         parent, child = uuid.uuid4(), uuid.uuid4()
         db = _StubSession(
@@ -346,7 +356,6 @@ class TestUserTeamIdsAncestorExpansion:
             parent_of={child: parent, parent: None},
         )
         result = asyncio.run(user_team_ids(db, _ctx(org, user)))
-        # Grants flow DOWN: a parent-team member gains nothing from the sub-team.
         assert result == {parent}
         assert child not in result
 
@@ -362,10 +371,10 @@ class TestUserTeamIdsAncestorExpansion:
         assert asyncio.run(user_team_ids(db, ctx)) == set()
 
     def test_two_node_cycle_terminates(self) -> None:
+        """A malformed A <-> B cycle must terminate (the result set is the visited guard)."""
         org, user = uuid.uuid4(), uuid.uuid4()
         a, b = uuid.uuid4(), uuid.uuid4()
         db = _StubSession(direct_team_ids=[a], parent_of={a: b, b: a})
-        # A malformed A <-> B cycle must terminate (the result set is the visited guard).
         result = asyncio.run(user_team_ids(db, _ctx(org, user)))
         assert result == {a, b}
 
@@ -415,11 +424,18 @@ class TestUserTeamIdsIsOrgScoped:
 
 class TestRetrievalScopeInheritsAncestorTeams:
     def test_sub_team_member_scope_includes_ancestor_collections_and_grants(self) -> None:
+        """A sub-team member inherits the ancestor team's collections and grants.
+
+        ``c_team`` is a TEAM-visibility collection owned by the ANCESTOR team and is
+        therefore reachable, because the sub-team member inherits the ancestor; ``c_hidden``
+        is owned by an UNRELATED team and is not. ``c_grant`` is PRIVATE and reachable only
+        via an explicit grant to the ANCESTOR team. So the ancestor team confers BOTH the
+        TEAM-visibility collection and the team grant, while a TEAM collection owned by an
+        unrelated team stays out - expansion is upward-only, not sideways.
+        """
         org, user = uuid.uuid4(), uuid.uuid4()
         ancestor, leaf, unrelated = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
 
-        # A TEAM-visibility collection owned by the ANCESTOR team is reachable because the
-        # sub-team member inherits the ancestor; one owned by an UNRELATED team is not.
         c_team = Collection(
             id=uuid.uuid4(),
             org_id=org,
@@ -436,7 +452,6 @@ class TestRetrievalScopeInheritsAncestorTeams:
             visibility=Visibility.TEAM,
             default_permission=PermissionLevel.VIEWER,
         )
-        # A PRIVATE collection reachable only via an explicit grant to the ANCESTOR team.
         c_grant = Collection(
             id=uuid.uuid4(),
             org_id=org,
@@ -462,10 +477,8 @@ class TestRetrievalScopeInheritsAncestorTeams:
         )
         scope = asyncio.run(build_retrieval_scope(db, _ctx(org, user)))
 
-        # Ancestor team confers BOTH the TEAM-visibility collection and the team grant.
         assert c_team.id in scope.collection_ids
         assert c_grant.id in scope.collection_ids
-        # A TEAM collection owned by an unrelated team stays out (upward-only, not sideways).
         assert c_hidden.id not in scope.collection_ids
 
         sql = _sql(scope)

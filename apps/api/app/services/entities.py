@@ -18,6 +18,10 @@ list), never of surrounding context. The ``entities`` unique index is
 ``(org_id, kind, normalized)``, so a name classified differently in two documents would
 otherwise surface as duplicate rows; :func:`sync_document_entities` additionally pins an
 existing entity's kind so even the LLM path cannot fork one name into several rows.
+
+The module reads top to bottom: tokenisation and segmentation patterns, the trim and
+generic-noun lexicons, the gazetteer, the heuristic extractor, then the optional LLM
+extractor and the document-sync writer.
 """
 
 from __future__ import annotations
@@ -45,35 +49,33 @@ from app.services.metering import record_usage
 
 logger = get_logger(__name__)
 
-# --------------------------------------------------------------------------- #
-# Tokenisation + segmentation
-# --------------------------------------------------------------------------- #
-# Dots/hyphens/apostrophes stay INSIDE a token so "Next.js", "third-brain.ai" and
-# "Parkinson's" survive; segmentation below has already removed sentence punctuation.
-# ``[^\W_]`` is "word character except underscore", so accented Latin, Cyrillic, Greek and
-# CJK all tokenise correctly instead of being split apart or dropped.
 _TOKEN_RE = re.compile(r"[^\W_][\w&.'\-]*", re.UNICODE)
+r"""Dots/hyphens/apostrophes stay INSIDE a token so "Next.js", "third-brain.ai" and
+"Parkinson's" survive; segmentation below has already removed sentence punctuation.
+``[^\W_]`` is "word character except underscore", so accented Latin, Cyrillic, Greek and
+CJK all tokenise correctly instead of being split apart or dropped."""
 
-# Markup that prefixes a line without being part of any entity.
 _LINE_PREFIX_RE = re.compile(r"^\s*(?:#{1,6}\s+|[-*+]\s+|\d+[.)]\s+|>\s?)+")
+"""Markup that prefixes a line without being part of any entity."""
 
-# Hard boundaries WITHIN a line. A proper noun never spans one of these, so splitting
-# here is what stops a heading or form label gluing onto the next capitalised word
-# ("Founder Profile" + "What is your title" -> "Founder Profile What").
 _SEGMENT_SPLIT_RE = re.compile(
-    # The lookbehind anchors the alternation to the START of a punctuation run: without it
-    # a line of N consecutive commas costs O(N^2) backtracking (a 20k-char run blocked the
-    # ingest worker's event loop for seconds).
-    r"(?:(?<![.!?;:|,])[.!?;:|,]+(?:\s+|$))"  # sentence/clause terminators, table cells
-    r"|(?:\s+[-–—]{1,2}\s+)"  # dashed asides
-    r"|[()\[\]{}<>\"“”]"  # brackets/quotes (kills "[ TO ANSWER ]" bleed)
-    r"|\s{2,}"  # column gutters in fixed-width text
+    r"(?:(?<![.!?;:|,])[.!?;:|,]+(?:\s+|$))"
+    r"|(?:\s+[-–—]{1,2}\s+)"
+    r"|[()\[\]{}<>\"“”]"
+    r"|\s{2,}"
 )
+"""Hard boundaries WITHIN a line. A proper noun never spans one of these, so splitting
+here is what stops a heading or form label gluing onto the next capitalised word
+("Founder Profile" + "What is your title" -> "Founder Profile What").
+
+The alternation covers, in order: sentence/clause terminators and table cells, dashed
+asides, brackets/quotes (which kills "[ TO ANSWER ]" bleed), and the column gutters of
+fixed-width text. The lookbehind anchors the first alternative to the START of a
+punctuation run: without it a line of N consecutive commas costs O(N^2) backtracking (a
+20k-char run blocked the ingest worker's event loop for seconds)."""
 
 _CONNECTORS = {"of", "the", "and", "for", "&", "de", "van", "der", "la", "le"}
 
-# Trimmed from BOTH ends of a run: sentence-initial capitals and form/question words that
-# get capitalised and would otherwise fuse onto a real name.
 _ARTICLES = {"the", "a", "an"}
 _QUESTION_WORDS = {
     "what",
@@ -249,7 +251,6 @@ _DAYS_MONTHS = {
     "november",
     "december",
 }
-# A run made only of these is never an entity, and they are stripped from either end.
 _TRIM_TOKENS = (
     _ARTICLES
     | _QUESTION_WORDS
@@ -258,7 +259,10 @@ _TRIM_TOKENS = (
     | _SENTENCE_ADVERBS
     | _DAYS_MONTHS
 )
-# Generic nouns that are frequently capitalised in headings but index as noise.
+"""Trimmed from BOTH ends of a run: sentence-initial capitals and form/question words
+that get capitalised and would otherwise fuse onto a real name. A run made only of these
+is never an entity."""
+
 _GENERIC_NOUNS = {
     "team",
     "teams",
@@ -352,7 +356,6 @@ _GENERIC_NOUNS = {
     "requirements",
     "goals",
     "objectives",
-    # Role/title words - "Staff Engineer", "Product Designer" are jobs, not entities.
     "designer",
     "developer",
     "architect",
@@ -401,6 +404,9 @@ _GENERIC_NOUNS = {
     "backups",
     "backup",
 }
+"""Generic nouns that are frequently capitalised in headings but index as noise. The tail
+of the set is role/title words - "Staff Engineer", "Product Designer" are jobs, not
+entities."""
 
 _ORG_SUFFIXES = {
     "inc",
@@ -436,7 +442,6 @@ _ORG_SUFFIXES = {
     "school",
 }
 _PROJECT_KEYWORDS = {"project", "initiative", "program", "programme", "operation", "epic"}
-# A trailing place word makes the whole phrase a location ("Market Street", "Hyde Park").
 _PLACE_WORDS = {
     "street",
     "avenue",
@@ -464,13 +469,10 @@ _PLACE_WORDS = {
     "harbor",
     "harbour",
 }
+"""A trailing place word makes the whole phrase a location ("Market Street", "Hyde
+Park")."""
 
 
-# --------------------------------------------------------------------------- #
-# Gazetteer - name -> kind. Matched case-insensitively as a longest n-gram, so a
-# single-token name ("Anthropic", "pgvector") is admitted with high confidence while a
-# bare capitalised word at a sentence start is not.
-# --------------------------------------------------------------------------- #
 def _g(kind: EntityKind, names: str) -> dict[str, tuple[str, EntityKind]]:
     out: dict[str, tuple[str, EntityKind]] = {}
     for raw in names.split(","):
@@ -539,10 +541,13 @@ _GAZETTEER: dict[str, tuple[str, EntityKind]] = {
         "New Zealand,Singapore City,Nigeria,Kenya,South Africa,Europe,Asia,Africa",
     ),
 }
-# Longest gazetteer entry in tokens, so the scanner knows how far to look ahead.
-_GAZETTEER_MAX_TOKENS = max(len(k.split()) for k in _GAZETTEER)
+"""Name -> kind. Matched case-insensitively as a longest n-gram, so a single-token name
+("Anthropic", "pgvector") is admitted with high confidence while a bare capitalised word
+at a sentence start is not."""
 
-# First names give PERSON a real signal instead of "any two capitalised words".
+_GAZETTEER_MAX_TOKENS = max(len(k.split()) for k in _GAZETTEER)
+"""Longest gazetteer entry in tokens, so the scanner knows how far to look ahead."""
+
 _FIRST_NAMES = {
     name.strip().lower()
     for name in [
@@ -827,16 +832,18 @@ _FIRST_NAMES = {
         "Beth",
     ]
 }
+"""First names give PERSON a real signal instead of "any two capitalised words"."""
 
 _MAX_ENTITIES = 50
 _MAX_NAME_TOKENS = 6
 _MAX_NAME_CHARS = 120
 
-# Multi-cap acronyms worth indexing on their own; anything else all-caps is noise.
 _ACRONYM_RE = re.compile(r"^[A-Z]{2,6}$")
-# Internal capitalisation ("FastAPI", "TypeScript", "PyTorch", "TanStack") is strong
-# evidence of a product/brand name even without a gazetteer hit.
+"""Multi-cap acronyms worth indexing on their own; anything else all-caps is noise."""
+
 _INTERNAL_CAPS_RE = re.compile(r"^[A-Z][a-z0-9]+[A-Z][A-Za-z0-9]*$")
+"""Internal capitalisation ("FastAPI", "TypeScript", "PyTorch", "TanStack") is strong
+evidence of a product/brand name even without a gazetteer hit."""
 
 
 @dataclass(frozen=True)
@@ -882,14 +889,17 @@ def _trim(run: list[str]) -> list[str]:
 
 
 def _single_token_admissible(token: str) -> bool:
-    """Whether a lone token is strong enough evidence to index on its own."""
+    """Whether a lone token is strong enough evidence to index on its own.
+
+    Only acronyms the gazetteer already knows are admitted; "TO" and "USA" are handled by
+    the gazetteer/trim lists instead.
+    """
     bare = token.strip(".")
     if len(bare) < 2:
         return False
     if _INTERNAL_CAPS_RE.match(bare):
         return True
     if _ACRONYM_RE.match(bare):
-        # Only known acronyms; "TO", "USA" handled by the gazetteer/trim lists.
         return bare.lower() in _GAZETTEER
     return False
 
@@ -927,7 +937,12 @@ def _looks_like_person_token(token: str) -> bool:
 
 
 def _classify(tokens: list[str], normalized: str) -> EntityKind:
-    """Map a name to its kind using name-intrinsic signals only (see module docstring)."""
+    """Map a name to its kind using name-intrinsic signals only (see module docstring).
+
+    With no lexicon hit, exactly two clean name-shaped words is the classic "First Last".
+    Requiring BOTH tokens to be alphabetic, non-acronym and absent from every lexicon is
+    what keeps "Company URL" / "Staff Engineer" out of the person bucket.
+    """
     if normalized in _GAZETTEER:
         return _GAZETTEER[normalized][1]
     last = tokens[-1].lower().strip(".")
@@ -940,9 +955,6 @@ def _classify(tokens: list[str], normalized: str) -> EntityKind:
         return EntityKind.LOCATION
     if len(tokens) >= 2 and first in _FIRST_NAMES and all(_is_capitalised(t) for t in tokens):
         return EntityKind.PERSON
-    # No lexicon hit: exactly two clean name-shaped words is the classic "First Last".
-    # Requiring BOTH tokens to be alphabetic, non-acronym and absent from every lexicon
-    # is what keeps "Company URL" / "Staff Engineer" out of the person bucket.
     if len(tokens) == 2 and all(_looks_like_person_token(t) for t in tokens):
         return EntityKind.PERSON
     if _INTERNAL_CAPS_RE.match(tokens[0].strip(".")) and len(tokens) == 1:
@@ -979,6 +991,9 @@ def extract_entities(text: str, *, max_chars: int = 20000) -> list[ExtractedEnti
     One pass per segment: a longest gazetteer match wins where it applies, otherwise a
     run of capitalised tokens is taken, trimmed of function words, and admitted only
     with real evidence (multi-word proper noun, org suffix, or a strong single token).
+    That run is the maximal one, allowing lowercase connectors between two capitals
+    ("Bank of America") and stopping at the first gazetteer hit so a known name is never
+    swallowed into a longer run.
     """
     if not text:
         return []
@@ -1015,9 +1030,6 @@ def extract_entities(text: str, *, max_chars: int = 20000) -> list[ExtractedEnti
                 i += 1
                 continue
 
-            # Maximal run of capitalised tokens, allowing lowercase connectors between
-            # two capitals ("Bank of America"), stopping at the first gazetteer hit so
-            # a known name is never swallowed into a longer run.
             start = i
             j = i
             while j < len(tokens):
@@ -1055,16 +1067,13 @@ def extract_entities(text: str, *, max_chars: int = 20000) -> list[ExtractedEnti
     ]
 
 
-# --------------------------------------------------------------------------- #
-# Optional LLM extractor
-# --------------------------------------------------------------------------- #
 _LLM_TIMEOUT_SECONDS = 30.0
 _LLM_MAX_TOKENS = 2048
 _LLM_MAX_RESPONSE_CHARS = 200_000
 _LLM_MAX_ITEMS = 1000
 _MAX_JSON_SCAN_RESTARTS = 8
-# Counts are advisory; clamp so a hostile reply cannot overflow the integer column.
 _MAX_COUNT = 100_000
+"""Counts are advisory; clamp so a hostile reply cannot overflow the integer column."""
 
 _LLM_SYSTEM_PROMPT = """\
 You extract named entities from one document of a company knowledge base and return \
@@ -1200,12 +1209,16 @@ async def extract_entities_llm(
     Returns ``None`` (never raises, except on cancellation) when no billable provider is
     configured, the call fails or times out, or the reply cannot be parsed - so the
     caller uses the deterministic heuristic instead.
+
+    The provider is gated BEFORE the call so keyless deployments and CI never build a
+    prompt at all, and again afterwards: :func:`complete` silently substitutes the
+    offline stub on a provider error, and parsing its prose would yield nonsense. Real
+    provider spend is metered on its own session so it survives a later rollback.
     """
     body = text[: settings.ENTITY_EXTRACTION_MAX_CHARS].strip()
     if not body:
         return None
     res = await resolver.resolve(db, org_id, ConnectorPurpose.COMPLETION)
-    # Gate BEFORE the call so keyless deployments and CI never build a prompt at all.
     if is_offline(res.api_key, res.api_base, res.provider, purpose="completion"):
         return None
 
@@ -1232,8 +1245,6 @@ async def extract_entities_llm(
         logger.warning("entity_llm_call_failed", error=type(exc).__name__, detail=str(exc)[:200])
         return None
 
-    # complete() silently substitutes the offline stub on a provider error; parsing its
-    # prose would yield nonsense, so re-check what actually served the call.
     if not is_billable_provider(result.provider):
         return None
 
@@ -1242,7 +1253,6 @@ async def extract_entities_llm(
         logger.info("entity_llm_unparsable", provider=result.provider, model=result.model)
         return None
 
-    # Real provider spend: meter it on its own session so it survives a later rollback.
     async with SessionLocal() as usage_db:
         await record_usage(
             usage_db,
@@ -1310,8 +1320,19 @@ async def sync_document_entities(
     Reprocess-safe: replaces the document's existing links, upserts org-scoped ``Entity``
     rows, recomputes ``mention_count`` for every entity whose link set changed, and
     deletes entities left with no links at all (so re-extracting with a better algorithm
-    clears the old noise instead of stranding it). The caller commits. Returns the number
-    of entities linked.
+    clears the old noise instead of leaving it in the index forever with a zero count).
+    The caller commits. Returns the number of entities linked.
+
+    The unique index is ``(org_id, kind, normalized)``, so a name classified differently
+    in another document would fork into a second visible row. The kind already on record
+    for each name is therefore pinned - in ONE query rather than a probe per entity.
+    Sorting by name gives every writer the same lock order, so two concurrent syncs
+    cannot deadlock.
+
+    Each entity is upserted with a self-resolving statement because that LOCKS the row it
+    returns, so a concurrent orphan sweep cannot delete the entity between the upsert and
+    the link insert below it (which would raise a foreign-key violation, or silently drop
+    the link).
     """
     extracted: list[ExtractedEntity] | None = None
     if settings.ENTITY_EXTRACTION_MODE == "llm":
@@ -1330,10 +1351,6 @@ async def sync_document_entities(
     )
     await db.execute(delete(DocumentEntity).where(DocumentEntity.document_id == document_id))
 
-    # The unique index is (org_id, kind, normalized), so a name classified differently in
-    # another document would fork into a second visible row. Pin the kind already on record
-    # for each name - in ONE query rather than a probe per entity. Sorting by name gives
-    # every writer the same lock order, so two concurrent syncs cannot deadlock.
     extracted = sorted(extracted, key=lambda e: normalize_name(e.name))
     normalized_names = [normalize_name(ent.name) for ent in extracted]
     pinned: dict[str, EntityKind] = {}
@@ -1348,9 +1365,6 @@ async def sync_document_entities(
     touched: set[uuid.UUID] = set(previous)
     for ent, normalized in zip(extracted, normalized_names, strict=True):
         kind = pinned.get(normalized, ent.kind)
-        # A self-resolving upsert LOCKS the row it returns, so a concurrent orphan sweep
-        # cannot delete this entity between here and the link insert below (which would
-        # raise a foreign-key violation, or silently drop the link).
         entity_id = (
             await db.execute(
                 pg_insert(Entity)
@@ -1386,7 +1400,5 @@ async def sync_document_entities(
         await db.execute(
             update(Entity).where(Entity.id.in_(touched)).values(mention_count=link_count)
         )
-        # Drop entities this pass orphaned - otherwise noise from an older extractor lingers
-        # in the index forever with a zero count.
         await reap_orphan_entities(db, Entity.id.in_(touched))
     return len(extracted)

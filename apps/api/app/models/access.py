@@ -52,13 +52,13 @@ class AccessGrant(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     granted_by_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
-    # Non-null when this grant was materialised by a data-source ACL sync. A re-sync only
-    # ever adds/removes grants carrying its own ``source_id``; manually-created grants
-    # (``source_id IS NULL``) are never touched. ON DELETE CASCADE so removing a data
-    # source cleans up exactly the grants it created.
     source_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("data_sources.id", ondelete="CASCADE"), index=True, nullable=True
     )
+    """Non-null when this grant was materialised by a data-source ACL sync. A re-sync only
+    ever adds/removes grants carrying its own ``source_id``; manually-created grants
+    (``source_id IS NULL``) are never touched. ON DELETE CASCADE so removing a data source
+    cleans up exactly the grants it created."""
 
     def __repr__(self) -> str:  # pragma: no cover
         return (

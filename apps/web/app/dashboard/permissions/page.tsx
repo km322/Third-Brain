@@ -45,6 +45,14 @@ function errMsg(e: unknown, fallback = "Something went wrong") {
   return e instanceof ApiError ? e.message : fallback;
 }
 
+/**
+ * Access page - review and manage the grants on a single knowledge base or document.
+ *
+ * The queries form a chain. The resource pickers decide what is being inspected; the
+ * caller's effective permission on that resource drives whether grant management is
+ * allowed at all; the grants themselves are only readable by managers; and the principal
+ * directories (org members, teams) are only fetched to populate the add-grant picker.
+ */
 export default function PermissionsPage() {
   const { role } = useAuth();
   const canListMembers = isOrgAdmin(role);
@@ -57,7 +65,6 @@ export default function PermissionsPage() {
   const resourceId = resourceType === "collection" ? collectionId : documentId;
   const hasResource = Boolean(resourceId);
 
-  // --- Resource pickers ---------------------------------------------------
   const collectionsQuery = useQuery<CollectionWithPerm[]>({
     queryKey: ["collections"],
     queryFn: () => api.get<CollectionWithPerm[]>("/collections"),
@@ -73,7 +80,6 @@ export default function PermissionsPage() {
     enabled: resourceType === "document" && Boolean(collectionId),
   });
 
-  // --- Effective permission (drives whether grant management is allowed) ---
   const effectiveQuery = useQuery<{ permission: PermissionLevel }>({
     queryKey: ["effective", resourceType, resourceId],
     queryFn: () =>
@@ -86,7 +92,6 @@ export default function PermissionsPage() {
   const effective = effectiveQuery.data?.permission;
   const canManage = effective === "manager";
 
-  // --- Grants (only readable by managers) ---------------------------------
   const grantsKey = ["grants", resourceType, resourceId];
   const grantsQuery = useQuery<AccessGrant[]>({
     queryKey: grantsKey,
@@ -98,7 +103,6 @@ export default function PermissionsPage() {
     enabled: hasResource && canManage,
   });
 
-  // --- Principal directories ----------------------------------------------
   const membersQuery = useQuery<Membership[]>({
     queryKey: ["org-members"],
     queryFn: () => api.get<Membership[]>("/orgs/members"),
@@ -210,7 +214,6 @@ export default function PermissionsPage() {
         description="Review and manage who can see each knowledge base and document."
       />
 
-      {/* Resource picker */}
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Choose a resource</CardTitle>
@@ -291,7 +294,6 @@ export default function PermissionsPage() {
         />
       ) : (
         <>
-          {/* Effective permission + add grant */}
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-2 text-sm">
               <span className="text-muted-foreground">Your access:</span>

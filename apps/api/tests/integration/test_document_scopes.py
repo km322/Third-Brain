@@ -22,8 +22,9 @@ async def _collection_and_doc(db_session):
 
 
 async def test_search_scope_key_cannot_write_or_delete(client, db_session, api) -> None:
+    """The key here is the "read-only" integration shape: search scope, acting as the owner and
+    so holding full ACL rights. It may still read, because search implies read."""
     org, owner, collection, document = await _collection_and_doc(db_session)
-    # A "read-only" integration key: search scope, acting as the owner (full ACL rights).
     _key, secret = await factories.create_api_key(
         db_session, org=org, scopes=["search"], acts_as_user=owner
     )
@@ -42,7 +43,6 @@ async def test_search_scope_key_cannot_write_or_delete(client, db_session, api) 
     reprocessed = await client.post(f"{api}/documents/{document.id}/reprocess", headers=headers)
     assert reprocessed.status_code == 403, reprocessed.text
 
-    # ...but the same key can still read (search implies read).
     listed = await client.get(f"{api}/documents", headers=headers)
     assert listed.status_code == 200, listed.text
 
@@ -63,9 +63,9 @@ async def test_ingest_scope_key_can_write(client, db_session, api) -> None:
 
 
 async def test_scopeless_key_cannot_read_knowledge(client, db_session, api) -> None:
+    """An empty-scoped key acting as the owner has the ACLs but no capability scope: it must not
+    be able to read knowledge content, so ``read`` is not a silent no-op."""
     org, owner, _collection, document = await _collection_and_doc(db_session)
-    # An empty-scoped key acting as the owner has the ACLs but no capability scope: it must
-    # not be able to read knowledge content, so ``read`` is not a silent no-op.
     _key, secret = await factories.create_api_key(
         db_session, org=org, scopes=[], acts_as_user=owner
     )
