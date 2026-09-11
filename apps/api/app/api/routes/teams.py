@@ -357,12 +357,15 @@ async def update_team(
     the team itself or any of its descendants) and keeps the moved subtree within
     ``MAX_TEAM_DEPTH``. Sending ``parent_team_id: null`` re-parents the team to the root.
 
-    An unchanged ``parent_team_id`` is not an actual move (the dashboard always sends the
-    current parent on a rename), so the destination-admin / cycle / depth checks are skipped
-    for it - a sub-team lead who is not an admin of the parent can still rename/edit their
-    own team.
+    An unchanged ``parent_team_id`` is not an actual move, so the destination-admin / cycle
+    / depth checks are skipped for it - a sub-team lead who is not an admin of the parent
+    can still rename/edit their own team.
 
     \f
+
+    Treating an unchanged parent as a no-op matters because the dashboard always sends the
+    current parent on a rename, so requiring destination-admin there would block a sub-team
+    lead from editing their own team.
 
     A real move first serializes concurrent re-parents in this org so the cycle/depth guard
     validates against a stable tree. Without it two moves could interleave between reading

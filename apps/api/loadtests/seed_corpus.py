@@ -13,6 +13,11 @@ Run from apps/api:
         [--manifest loadtests/.manifest.json] [--keep-index]
 
 Must never import locust: the seeder runs with core API dependencies alone.
+
+Laid out in the order the seed runs: synthetic vocabulary and chunk text; the fast
+composed embedding that is byte-identical to the offline provider; the (small) entity
+graph built through the app's async models; bulk documents and chunks via psycopg COPY;
+then the manifest and ``main``.
 """
 
 from __future__ import annotations
@@ -61,11 +66,17 @@ PASSWORD = "loadtest-changeme"
 COPY_BATCH_SIZE = 5_000
 QUERY_COUNT = 200
 
-# SQLAlchemy persists a non-native Enum by its member *name*, so the raw COPY must write the
-# same uppercase form the ORM would ("INDEXED"/"TEXT", not "indexed"/"text"); otherwise the
-# seeded rows can never be read back through the ORM or matched by a status filter.
 DOC_STATUS_DB_VALUE = DocumentStatus.INDEXED.name
+"""Status literal the raw COPY writes for seeded documents.
+
+SQLAlchemy persists a non-native Enum by its member *name*, so the raw COPY must write the
+same uppercase form the ORM would ("INDEXED", not "indexed"); otherwise the seeded rows can
+never be read back through the ORM or matched by a status filter.
+"""
+
 DOC_SOURCE_TYPE_DB_VALUE = SourceType.TEXT.name
+"""Source-type literal the raw COPY writes, uppercase ("TEXT", not "text") for the same
+member-name reason as ``DOC_STATUS_DB_VALUE``."""
 
 HNSW_INDEX_NAME = "ix_document_chunks_embedding_hnsw"
 HNSW_CREATE_SQL = (
@@ -73,10 +84,6 @@ HNSW_CREATE_SQL = (
     "USING hnsw (embedding vector_cosine_ops) WITH (m = 16, ef_construction = 64)"
 )
 
-
-# --------------------------------------------------------------------------- #
-# Synthetic vocabulary + chunk text
-# --------------------------------------------------------------------------- #
 
 _PREFIXES = [
     "acc",
@@ -191,10 +198,6 @@ def make_queries(count: int = QUERY_COUNT) -> list[str]:
     ]
 
 
-# --------------------------------------------------------------------------- #
-# Fast composed embedding, byte-identical to the offline provider
-# --------------------------------------------------------------------------- #
-
 _token_offsets_cache: dict[str, tuple[int, ...]] = {}
 
 
@@ -256,11 +259,6 @@ def embed_and_serialize(start_index: int, count: int, dim: int) -> list[tuple[st
     return rows
 
 
-# --------------------------------------------------------------------------- #
-# Entity graph (small, via the app's async models)
-# --------------------------------------------------------------------------- #
-
-
 @dataclass
 class SeededOrg:
     name: str
@@ -289,6 +287,13 @@ async def _delete_previous_loadtest_data(db) -> None:
 
 
 async def _seed_org(db, index: int, collections_per_org: int) -> SeededOrg:
+    """Seed one org: users, memberships, a team, mixed-visibility collections and two API keys.
+
+    The member key is deliberately narrow. Its ``["search"]`` scope is a least-privilege search
+    scope: enough for search/chat/embeddings, which all gate on ``require_scope("search")``,
+    while ``acts_as`` editor_a keeps the caller a NON-admin so retrieval exercises the real ACL
+    predicate, not the admin short-circuit.
+    """
     slug = f"{ORG_SLUG_PREFIX}{index:03d}"
     org = Organization(name=f"Loadtest Org {index:03d}", slug=slug)
     db.add(org)
@@ -397,10 +402,6 @@ async def _seed_org(db, index: int, collections_per_org: int) -> SeededOrg:
                 name="Loadtest key (member)",
                 key_prefix=member_prefix,
                 hashed_key=member_hash,
-                # Least-privilege search scope: enough for search/chat/embeddings, which all
-                # gate on require_scope("search"), while acts_as editor_a keeps the caller a
-                # NON-admin so retrieval exercises the real ACL predicate, not the admin
-                # short-circuit.
                 scopes=["search"],
                 rate_limit_per_minute=1_000_000,
             ),
@@ -424,11 +425,6 @@ async def seed_entity_graph(orgs: int, collections_per_org: int) -> list[SeededO
         seeded = [await _seed_org(db, i, collections_per_org) for i in range(orgs)]
         await db.commit()
     return seeded
-
-
-# --------------------------------------------------------------------------- #
-# Bulk documents + chunks via psycopg COPY
-# --------------------------------------------------------------------------- #
 
 
 def _psycopg_dsn() -> str:
@@ -590,11 +586,6 @@ def print_sizes(conn: psycopg.Connection) -> None:
     print(f"document_chunks table size: {table_size}, hnsw index size: {index_size}")
 
 
-# --------------------------------------------------------------------------- #
-# Manifest + main
-# --------------------------------------------------------------------------- #
-
-
 def write_manifest(path: str, seeded: list[SeededOrg], chunk_count: int, dim: int) -> None:
     manifest = {
         "chunk_count": chunk_count,
@@ -634,10 +625,13 @@ def _warn_if_build_memory_undersized(
 
     The build holds the whole graph in memory; if it does not fit it spills to disk and
     slows by an order of magnitude (a 1M x 1536 build can go from minutes to ~an hour).
+
+    The size estimate is ``chunks * dim * 4`` because the float4 vectors dominate the
+    graph size.
     """
     if keep_index:
         return
-    graph_bytes = chunks * dim * 4  # float4 vectors dominate the graph size
+    graph_bytes = chunks * dim * 4
     mem_bytes = _parse_mem_to_bytes(maintenance_mem)
     if mem_bytes is not None and graph_bytes > mem_bytes:
         need_gb = graph_bytes / 1024**3

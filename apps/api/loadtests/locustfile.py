@@ -69,9 +69,9 @@ MANIFEST = _load_manifest()
 ORGS: list[dict] = MANIFEST["orgs"]
 QUERIES: list[str] = MANIFEST["queries"]
 
-# Vocabulary for synthetic ingest bodies, drawn from the manifest queries so ingested
-# text resembles the seeded corpus.
 _WORDS: list[str] = sorted({word for query in QUERIES for word in query.lower().split()})
+"""Vocabulary for synthetic ingest bodies, drawn from the manifest queries so ingested
+text resembles the seeded corpus."""
 
 
 def _synthetic_content() -> str:
@@ -108,11 +108,15 @@ class ThirdBrainUser(FastHttpUser):
     wait_time = between(0.1, 0.5)
 
     def on_start(self) -> None:
+        """Bind this user to a random seeded org and prepare its request headers.
+
+        Both member and admin keys are sent as ``X-API-Key``; the bearer variant exists
+        because the /v1 surface authenticates the same API keys via a Bearer header.
+        """
         org = random.choice(ORGS)
         self.collection_ids: list[str] = list(org.get("collection_ids") or [])
         self.member_headers = {"X-API-Key": org["member_api_key"]}
         self.admin_headers = {"X-API-Key": org["admin_api_key"]}
-        # The /v1 surface authenticates the same API keys via a Bearer header.
         self.bearer_headers = {"Authorization": f"Bearer {org['member_api_key']}"}
 
     @task(5)

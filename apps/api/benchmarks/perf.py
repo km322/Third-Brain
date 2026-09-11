@@ -34,8 +34,6 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
-# The retrieval/RAG spans the app emits, in pipeline order. Which subset appears depends
-# on the config: vector-only retrieval emits no ``retrieval.keyword_search`` span.
 _STAGE_NAMES = (
     "retrieval.scope",
     "retrieval.embed_query",
@@ -44,6 +42,11 @@ _STAGE_NAMES = (
     "retrieval.retrieve",
     "rag.answer",
 )
+"""The retrieval/RAG spans the app emits, in pipeline order.
+
+Which subset appears depends on the config: vector-only retrieval emits no
+``retrieval.keyword_search`` span.
+"""
 
 
 @dataclass
