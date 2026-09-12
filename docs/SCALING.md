@@ -1,8 +1,8 @@
 # Scaling Third Brain
 
-How the architecture holds up from thousands to **hundreds of millions of documents**, what
-the real limits are, and the concrete levers to pull. No hand-waving - the numbers below are
-the ones that actually govern a pgvector-backed, multi-tenant retrieval system.
+How the architecture holds up from thousands to **hundreds of millions of documents**, what the
+real limits are, and the concrete levers to pull. The numbers below are the ones that actually
+govern a pgvector-backed, multi-tenant retrieval system.
 
 ## The one insight that makes it scale
 
@@ -20,15 +20,14 @@ flowchart LR
     chunks --> hits["Results filtered to one<br/>tenant only (SQL predicate)"]
 ```
 
-One caveat: on the default single shared HNSW index, the ANN candidate scan itself is still
-global - the org predicate is applied as an iterative post-filter (pgvector >= 0.8 iterative
-scans, with `ef_search` widened per query; see `pgvector_store.py`) - so only the result set is
-guaranteed tenant-only. A query over 100M documents spread across 10,000 tenants truly behaves
-like a ~10k-doc search once the index narrows per tenant: partition `document_chunks` by `org_id`
-(Lever A below) or use per-tenant collections in a dedicated store (Lever B). Scaling is therefore
-about (a) keeping each tenant's index small and fast, and (b) spreading tenants across storage.
-Both are standard, and the code is already written for them (retrieval goes through the
-`VectorStore` interface + `RetrievalScope`).
+One caveat: on the default single shared HNSW index the ANN candidate scan is still global - the
+org predicate is applied as an iterative post-filter (pgvector >= 0.8 iterative scans, with
+`ef_search` widened per query; see `pgvector_store.py`) - so only the *result set* is guaranteed
+tenant-only. A query over 100M documents across 10,000 tenants behaves like a ~10k-doc search only
+once the index itself narrows per tenant: partition `document_chunks` by `org_id` (Lever A) or use
+per-tenant collections in a dedicated store (Lever B). Scaling is therefore about keeping each
+tenant's index small and spreading tenants across storage. Both are standard, and retrieval already
+goes through the `VectorStore` interface + `RetrievalScope` that make them possible.
 
 ## Where the volume is
 
@@ -144,11 +143,11 @@ flowchart LR
 
 ## Known code-level optimizations for very large tenants
 
-These are correct-but-not-yet-optimized spots, called out honestly:
+Correct, but not yet optimized:
 
 - **Visible-collection resolution** (`permissions.build_retrieval_scope`) scans an org's collections
-  per request. Fine for orgs with hundreds/thousands of collections; for orgs with *very* many,
-  cache the computed visible-collection set in Redis per `(user, org)` and invalidate on grant/visibility
+  per request. Fine for hundreds or thousands of collections; for orgs with *very* many, cache the
+  computed visible-collection set in Redis per `(user, org)` and invalidate on grant/visibility
   changes (the Redis cache layer is already present).
 - **Deep pagination** - document/audit lists use `OFFSET/LIMIT`, which degrades at very deep pages.
   Switch to **keyset (cursor) pagination** on `(created_at, id)` for tenants with millions of docs.

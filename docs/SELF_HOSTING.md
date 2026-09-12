@@ -94,17 +94,17 @@ make selfhost
 4. **Bootstraps your first admin** and prints the dashboard URL along with the admin email
    and password.
 
-To bind to a public host or IP instead of `localhost`, pass `make selfhost` a host:
-`./scripts/selfhost-init.sh --host 203.0.113.10 --email you@yourcompany.com`. Note this
-publishes the dashboard and API over plaintext HTTP with no TLS. Before exposing a public
-host or IP to the internet, put TLS in front - use the Cloudflare Tunnel overlay in
-[Deploy behind Cloudflare](#deploy-behind-cloudflare-public-domain) (outbound-only, no
-inbound ports at all), or your own TLS-terminating reverse proxy (nginx or a cloud load
-balancer). On `localhost` (the default) the ports bind to loopback only. If 3000 or 8000 is
-already taken on the host, set `WEB_PORT` / `API_PORT` (and `TB_BIND_IP` for the interface) on
-that first run; the script records all three in the generated `.env`, which is where
-`docker-compose.selfhost.yml` reads them from, so later plain `docker compose up -d` runs keep
-the same binding. Run `./scripts/selfhost-init.sh --help` for the full list.
+To bind to a public host or IP instead of `localhost`, pass one in:
+`./scripts/selfhost-init.sh --host 203.0.113.10 --email you@yourcompany.com`. That publishes the
+dashboard and API over plaintext HTTP, so put TLS in front before exposing it to the internet:
+the Cloudflare Tunnel overlay in
+[Deploy behind Cloudflare](#deploy-behind-cloudflare-public-domain) (outbound-only, no inbound
+ports at all), or your own TLS-terminating reverse proxy (nginx or a cloud load balancer). On the
+`localhost` default the ports bind to loopback only. If 3000 or 8000 is already taken, set
+`WEB_PORT` / `API_PORT` (and `TB_BIND_IP` for the interface) on that first run; the script records
+all three in the generated `.env`, where `docker-compose.selfhost.yml` reads them from, so later
+plain `docker compose up -d` runs keep the same binding. Run `./scripts/selfhost-init.sh --help`
+for the full list.
 
 When it finishes it prints something like:
 
@@ -243,9 +243,9 @@ credentials are Fernet-encrypted at rest, with the encryption key derived from y
 
 ## Nothing phones home
 
-A default self-host makes **no server-side outbound call at all**: no telemetry, no
-analytics, no update check, no licence check, and no project-operated endpoint anywhere in
-the data path - none exists. Grounded in how the code is wired:
+A default self-host makes **no server-side outbound call at all**: no telemetry, no analytics, no
+update check, no licence check, and no project-operated endpoint anywhere in the data path - none
+exists. How that is wired:
 
 - **Telemetry is opt-in.** Tracing installs nothing and makes zero network calls unless you
   set `OTEL_EXPORTER_OTLP_ENDPOINT`. Left blank (the default), there is no exporter at all.
@@ -257,8 +257,8 @@ the data path - none exists. Grounded in how the code is wired:
   keys, optional), your own data-source connectors, and user-triggered URL ingestion (which
   is SSRF-gated).
 
-Two honest exceptions. Neither is the running stack calling out, and neither touches your
-data, but both are worth knowing before you claim total isolation:
+Two exceptions. Neither is the running stack calling out and neither touches your data, but both
+are worth knowing before you claim total isolation:
 
 - **The API's interactive docs pages load their UI from a public CDN.** `/docs` (Swagger UI)
   and `/redoc` (ReDoc) are FastAPI's built-in pages, and they pull their JavaScript from
@@ -390,16 +390,14 @@ The full runbook is in [`RELEASING.md`](./RELEASING.md#rolling-back) and
 The production compose is built to run safely on a single host:
 
 - **TLS at the edge (public domain path).** The stack terminates no TLS itself, and with
-  `docker-compose.prod.yml` on its own no service publishes a port at all: `db`, `redis`,
-  `api`, `worker`, and `web` stay on the internal network, reachable only by service name.
-  For a public domain, either add the Cloudflare Tunnel overlay
-  (`docker-compose.cloudflare.yml`) - `cloudflared` dials out to Cloudflare, the host opens
-  no inbound ports, and TLS terminates at the edge (see
-  [Deploy behind Cloudflare](#deploy-behind-cloudflare-public-domain)) - or bring your own
-  TLS-terminating reverse proxy (nginx or a cloud load balancer) in front of `web:3000` /
-  `api:8000`. The `make selfhost` single-box overlay (`docker-compose.selfhost.yml`)
-  publishes the web and API ports directly, loopback by default - convenient for a
-  localhost/LAN trial, but put a TLS terminator in front before exposing it to the internet.
+  `docker-compose.prod.yml` alone no service publishes a port: `db`, `redis`, `api`, `worker` and
+  `web` stay on the internal network, reachable only by service name. For a public domain, either
+  add the Cloudflare Tunnel overlay (`docker-compose.cloudflare.yml`), where `cloudflared` dials
+  out, the host opens no inbound ports and TLS terminates at the edge (see
+  [Deploy behind Cloudflare](#deploy-behind-cloudflare-public-domain)), or put your own
+  TLS-terminating reverse proxy in front of `web:3000` / `api:8000`. The `make selfhost` overlay
+  (`docker-compose.selfhost.yml`) publishes those ports directly, loopback by default - fine for a
+  localhost/LAN trial, but add a TLS terminator before exposing it to the internet.
 - **Explicit CORS.** `BACKEND_CORS_ORIGINS` must list your real web origin(s). A wildcard
   (`*`) is refused at boot in production because credentials are allowed.
 - **Strong `POSTGRES_PASSWORD`.** `make selfhost` generates one; if you set it by hand, use
@@ -527,11 +525,11 @@ For the rest of the production hardening checklist, see
 This section is architectural fact, not legal advice; confirm specifics with your own
 counsel and security team.
 
-Because you host and control all data, nobody else holds, processes, or transmits your
-knowledge. There is no service operator behind Third Brain: in data-protection terms the
-project is **not a processor or sub-processor of your data** - which is the usual driver of a
-SaaS vendor's SOC 1 / SOC 2 obligations for customer data. There is no shared cloud tenancy
-and no third-party data component to audit.
+Because you host and control all data, nobody else holds, processes or transmits your knowledge.
+There is no service operator behind Third Brain, so in data-protection terms the project is **not
+a processor or sub-processor of your data** - the usual driver of a SaaS vendor's SOC 1 / SOC 2
+obligations for customer data. There is no shared cloud tenancy and no third-party data component
+to audit.
 
 What that means in practice:
 

@@ -55,11 +55,11 @@ out/
   _headers              per-path response headers, read by Cloudflare Pages and Netlify
 ```
 
-The dashboard and the auth pages are **deliberately absent**. They are shells around an
-API, so publishing them on a site with no API behind it would be a dead end. For the same
-reason the site's navbar and footer carry no "Sign in" link - the on-ramp is the
-[quick start](https://third-brain.ai/docs#quick-start), which tells you how to run your
-own instance. The build fails if any page other than the ones listed above is emitted.
+The dashboard and auth pages are **deliberately absent**: they are shells around an API, so
+publishing them on a site with no API behind it would be a dead end. For the same reason the
+navbar and footer carry no "Sign in" link - the on-ramp is the
+[quick start](https://third-brain.ai/docs#quick-start), which tells you how to run your own
+instance. The build fails if any page other than those listed above is emitted.
 
 ## Serve it anywhere
 

@@ -162,20 +162,20 @@ flowchart LR
   exceeds the ceiling. Each chunk keeps a stable `chunk_index`.
 - Embedding + indexing run in **arq workers** so uploads return immediately; `documents.status`
   transitions `pending → processing → indexed | quarantined | failed`. A `quarantined` document
-  (secret scanner, or DLP when the deployment is configured to quarantine) leaves that state only
-  through review: approving it stamps a checksum-keyed approval and re-queues it as `pending`,
-  or it is deleted (see [`SECURITY.md`](./SECURITY.md)).
+  (secret scanner, or DLP where the deployment quarantines) leaves that state only through review:
+  approving it stamps a checksum-keyed approval and re-queues it as `pending`, or it is deleted
+  (see [`SECURITY.md`](./SECURITY.md)).
 - Re-ingestion (`reprocess`) atomically replaces a document's prior chunks under a per-document
-  advisory lock, so a re-run never leaves duplicate or partial chunk sets. A SHA-256 `checksum`
-  of the source bytes is stored for change detection/integrity (it is not yet used to skip
-  unchanged re-embeds).
+  advisory lock, so a re-run never leaves duplicate or partial chunk sets. A SHA-256 `checksum` of
+  the source bytes is stored for change detection and integrity (not yet used to skip unchanged
+  re-embeds).
 
 ## 7. LLM layer (multi-provider, one httpx client)
 
-`services/llm/` speaks to several LLM providers through **per-provider wire adapters over a
-single shared `httpx` client - still no third-party SDKs**. Each adapter maps the provider's
-native REST protocol (request shape, auth header, streaming frames) onto one internal interface
-that exposes embeddings and chat completions, sync and streaming. Supported provider types
+`services/llm/` reaches every provider through **per-provider wire adapters over one shared
+`httpx` client - no third-party SDKs**. Each adapter maps a provider's native REST protocol
+(request shape, auth header, streaming frames) onto one internal interface for embeddings and
+chat completions, sync and streaming. Supported provider types
 (mirrored by **Connectors**): `openai`, `azure_openai`, `ollama`, and `custom` speak the
 OpenAI-compatible API (`custom` = any other compatible endpoint via `config.base_url`);
 `anthropic` and `google` (labelled Anthropic and Google Gemini) speak their own. **Anthropic is
@@ -186,23 +186,21 @@ rejected; **Gemini** does both (embeddings via `gemini-embedding-001` at the con
 Platform-wide default keys come from the environment - `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`,
 `GOOGLE_API_KEY` - resolved by priority (`openai > anthropic > google` for completions,
 `openai > google` for embeddings); per-org **Connectors** override them, including
-private/self-hosted endpoints. When no key is configured at all, a deterministic **offline stub**
-runs the whole pipeline (embeddings + answers) so dev/CI/demo work with zero keys. This is what
-lets any of these models plug in behind the same permission-aware retrieval.
+private/self-hosted endpoints. With no key configured at all, a deterministic **offline stub** runs
+the whole pipeline (embeddings + answers) so dev/CI/demo work with zero keys.
 
 ## 8. Integration surfaces ("any LLM can connect")
 
 - **Native REST** - `/api/v1/...` full CRUD + `/search` + `/chat`.
 - **OpenAI-compatible** - `/v1/chat/completions` and `/v1/embeddings`, so any OpenAI SDK
   or tool can point at Third Brain and get **grounded, permission-filtered** answers.
-- **MCP server** - `app/mcp/` exposes `search_knowledge`, `get_document`,
-  `list_collections`, `add_knowledge` and `update_knowledge` tools so Claude Desktop /
-  Claude Code / Cursor / agents connect natively and both read the brain and **write
-  documentation back to it** as they work (`add_knowledge` / `update_knowledge` are the
-  write path, gated by the secret scanner and ACLs). The `third-brain-mcp` CLI wires clients
-  in with one command (`connect` + `install`) and runs the stdio-to-HTTP `serve` bridge to
-  the JSON-RPC `POST /mcp` endpoint. All MCP calls authenticate with an API key and respect
-  ACLs.
+- **MCP server** - `app/mcp/` exposes `search_knowledge`, `get_document`, `list_collections`,
+  `add_knowledge` and `update_knowledge`, so Claude Desktop / Claude Code / Cursor / agents
+  connect natively and both read the brain and **write documentation back to it** as they work.
+  `add_knowledge` / `update_knowledge` are the write path, gated by the secret scanner and ACLs.
+  The `third-brain-mcp` CLI wires clients in with one command (`connect` + `install`) and runs
+  the stdio-to-HTTP `serve` bridge to the JSON-RPC `POST /mcp` endpoint. Every MCP call
+  authenticates with an API key and respects ACLs.
 
 ## 9. Caching & performance
 

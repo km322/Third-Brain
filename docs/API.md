@@ -12,11 +12,10 @@ Third Brain exposes three integration surfaces:
   brain *and* write documentation back to it as they work. The `third-brain-mcp` CLI connects
   them in one command.
 
-Base URL in these examples is `http://localhost:8000`. Interactive OpenAPI docs are served
-at `/docs`, and the raw schema at `/openapi.json`. On a deployment with its own domain the
-API and the dashboard (web app) sit on the origins you set as `PUBLIC_API_URL` and
-`APP_BASE_URL` - for example `https://api.your-domain.example` and
-`https://your-domain.example`.
+Examples use `http://localhost:8000`. Interactive OpenAPI docs are at `/docs`, the raw schema
+at `/openapi.json`. On a deployment with its own domain, the API and the dashboard sit on the
+origins you set as `PUBLIC_API_URL` and `APP_BASE_URL` - say `https://api.your-domain.example`
+and `https://your-domain.example`.
 
 - [Authentication](#authentication)
 - [Conventions](#conventions)
@@ -836,9 +835,9 @@ curl -X POST "${auth[@]}" "$TB/api/v1/connectors/<id>/test"
 format: a single LLM layer (`app/services/llm/`, plain `httpx`, no provider SDKs) adapts each
 provider's native REST protocol behind one interface. `openai`, `azure_openai`, `ollama`, and
 `custom` speak the OpenAI-compatible API (`custom` = any other OpenAI-compatible endpoint via
-`config.base_url`); `anthropic` and `google` speak their own. **Anthropic is completions-only**
-- it has no embeddings API, so posting an `anthropic` connector with `purpose: "embedding"` is
-rejected; Google Gemini does both (embeddings via `gemini-embedding-001` at the configured
+`config.base_url`); `anthropic` and `google` speak their own. **Anthropic is completions-only**:
+it has no embeddings API, so posting an `anthropic` connector with `purpose: "embedding"` is
+rejected. Google Gemini does both (embeddings via `gemini-embedding-001` at the configured
 `EMBEDDING_DIM`).
 
 ---
@@ -897,14 +896,13 @@ curl -X POST "${auth[@]}" -H 'Content-Type: application/json' \
 curl -X DELETE "${auth[@]}" "$TB/api/v1/data-sources/identities/<identity_id>"
 ```
 
-`local_folder` is the reference connector and the one that is live: it reads a server-side
-folder tree plus an optional `.acl.json` sidecar mapping paths to principals. Because it
-reads raw files off the server's own disk it stays disabled until an operator allow-lists
-absolute paths in `LOCAL_CONNECTOR_ROOTS`; a `root` that resolves outside them is rejected
-with `400`. The `google_drive`, `slack`, `github`, `notion` and `confluence` connectors
-validate and store their configuration today, but their live fetch is not enabled in this
-build - the sync engine, ACL mapping and identity resolution behind them are
-provider-agnostic and already done.
+`local_folder` is the reference connector and the only live one: it reads a server-side folder
+tree plus an optional `.acl.json` sidecar mapping paths to principals. Because it reads raw files
+off the server's own disk, it stays disabled until an operator allow-lists absolute paths in
+`LOCAL_CONNECTOR_ROOTS`; a `root` resolving outside them is rejected with `400`. The
+`google_drive`, `slack`, `github`, `notion` and `confluence` connectors validate and store their
+configuration today, but their live fetch is not enabled in this build - the sync engine, ACL
+mapping and identity resolution behind them are provider-agnostic and already done.
 
 Active sources that set `sync_interval_minutes` are swept by a worker cron every five
 minutes, and each source honours its own interval.
@@ -1085,11 +1083,11 @@ retrieval is permission-aware, the model only ever grounds on chunks your key ca
 
 ## MCP server
 
-Third Brain ships a [Model Context Protocol](https://modelcontextprotocol.io) server at
-`/mcp`. It is how agents **write documentation as they work**: Claude Desktop, Claude Code,
-Cursor, and custom agents connect natively and can both **read** the brain and **write** to it,
-capturing decisions and answers into the right collection without anyone stopping to author a
-doc. All MCP calls authenticate with an API key and respect the same ACLs.
+Third Brain ships a [Model Context Protocol](https://modelcontextprotocol.io) server at `/mcp`.
+It is how agents **write documentation as they work**: Claude Desktop, Claude Code, Cursor and
+custom agents connect natively, **read** the brain and **write** back to it, capturing decisions
+and answers into the right collection without anyone stopping to author a doc. Every MCP call
+authenticates with an API key and respects the same ACLs.
 
 Tools exposed:
 
@@ -1143,11 +1141,11 @@ npx third-brain-mcp status           # sanity-check the saved connection
 ```
 
 `install claude` and `install cursor` write the client config for you; `install claude-code`
-prints the `claude mcp add` one-liner to paste. Under the hood these point the client at
-`npx third-brain-mcp serve`, the stdio-to-HTTP bridge that relays the client's MCP traffic to
-`POST /mcp` with your saved key. Once connected, ask your assistant to *"write up the decision we
-just made into Engineering / Decisions"* or *"search the company brain for the on-call runbook"* -
-every call is scoped to what the key's principal is allowed to see and do.
+prints the `claude mcp add` one-liner to paste. Each points the client at
+`npx third-brain-mcp serve`, the stdio-to-HTTP bridge that relays MCP traffic to `POST /mcp` with
+your saved key. Once connected, ask your assistant to *"write up the decision we just made into
+Engineering / Decisions"* or *"search the company brain for the on-call runbook"* - every call is
+scoped to what the key's principal may see and do.
 
 ### Manual configuration (clients the CLI doesn't cover)
 

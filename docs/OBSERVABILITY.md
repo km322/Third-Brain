@@ -188,14 +188,14 @@ by the document:
 docker compose logs api worker | grep <document_id>
 ```
 
-The matching lines are coarse transitions, not per-stage detail: `ingestion_status`
+Those lines are coarse transitions, not per-stage detail: `ingestion_status`
 (`status=processing|indexed|quarantined|failed`) plus the worker's `worker_ingest_started` /
 `worker_ingest_finished` bracketing the job, each carrying `job_id` and `document_id`. The
 per-stage breakdown (`ingest.load_extract`, `ingest.secret_scan`, `ingest.dlp_scan`,
-`ingest.chunk`, `ingest.embed`, `ingest.index`, `ingest.entities`) lives in the trace, not
-the logs. Because the `traceparent` is propagated through arq, the upload request's trace
-continues into the job - open it to see which stage is slow, including per-batch embedding
-calls with token counts.
+`ingest.chunk`, `ingest.embed`, `ingest.index`, `ingest.entities`) lives in the trace, not the
+logs. Since the `traceparent` propagates through arq, the upload request's trace continues into
+the job - open it to see which stage is slow, including per-batch embedding calls with token
+counts.
 
 **An LLM call is slow or expensive.** Search traces for `gen_ai.request.model` spans; the
 span shows the provider (`server.address`), token usage and duration, and

@@ -17,10 +17,10 @@ npx third-brain-mcp connect
 ```
 
 You will be asked for your Third Brain server URL - the API origin of the instance
-you run (`http://localhost:8000` for a local stack, or something like
+you run (`http://localhost:8000` locally, or something like
 `https://brain.example.com`). A one-time code then opens in your browser at that
-deployment's dashboard `/activate` page. Approve the device there and the CLI saves
-a scoped API key to `~/.third-brain/config.json` (file permissions 600).
+deployment's `/activate` page; approve the device there and the CLI saves a scoped
+API key to `~/.third-brain/config.json` (permissions 600).
 
 Don't have a server yet? Clone
 [km322/Third-Brain](https://github.com/km322/Third-Brain) and run `make selfhost`.
@@ -36,9 +36,9 @@ npx third-brain-mcp install cursor       # Cursor
 Restart the client and the `third-brain` tools (search, get document, list
 collections, add and update knowledge) appear.
 
-Both `connect` and `install` print a short heads-up: agents connected through
-this server can write to your organization's shared knowledge base, and their
-captures are reviewable in the dashboard under Documents -> Written by agents.
+Both `connect` and `install` print a heads-up: agents connected through this
+server can write to your organization's shared knowledge base, and their captures
+are reviewable in the dashboard under Documents -> Written by agents.
 
 ## Commands
 

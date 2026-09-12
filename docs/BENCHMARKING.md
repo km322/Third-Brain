@@ -7,21 +7,18 @@ stage.
 
 ## 1. Why this exists
 
-[`docs/LOAD_TESTING.md`](LOAD_TESTING.md) answers "does the platform hold up under load":
-latency, throughput and error rate at millions of chunks. It deliberately says nothing about
-whether a search returned the *right* chunks or an answer was *correct* - a system can be
-fast and confidently wrong.
+[`docs/LOAD_TESTING.md`](LOAD_TESTING.md) answers "does the platform hold up under load" -
+latency, throughput and error rate at millions of chunks. It says nothing about whether a search
+returned the *right* chunks, and a system can be fast and confidently wrong.
 
-This harness answers the other half: "how good are the results". Given a query whose correct
-answer we already know, does permission-scoped retrieval surface the document that answers
-it, near the top? Does the generated answer cite the right sources and state the key facts?
-And, most important, does a principal ever retrieve a document they were never allowed to
-see? Those are quality questions, not performance questions, and they need labeled ground
-truth rather than synthetic traffic.
+This harness answers the other half. Given a query whose correct answer we already know: does
+permission-scoped retrieval surface the document that answers it, near the top? Does the generated
+answer cite the right sources and state the key facts? And, most important, does a principal ever
+retrieve a document they were never allowed to see? Those questions need labeled ground truth, not
+synthetic traffic.
 
-The harness lives in `apps/api/benchmarks/`. It never reimplements retrieval, permissions or
-ingestion: it imports and calls the same services the product uses, so the numbers describe
-the real system.
+The harness lives in `apps/api/benchmarks/` and never reimplements retrieval, permissions or
+ingestion: it calls the same services the product uses, so the numbers describe the real system.
 
 ## 2. What the harness does
 
@@ -245,14 +242,13 @@ feed it real confidential text.
 
 ## 7. The permission-invariant guarantee
 
-Permission correctness is not one metric among many; it is a pass/fail gate. Because the
-harness passes no collection filter to retrieval, the permission engine is the sole thing
-standing between a query and every document in the org. For every run the harness checks that
-each retrieved document falls inside the asking principal's ground-truth visible set, and
-counts the ones that do not.
+Permission correctness is not one metric among many; it is a pass/fail gate. Because the harness
+passes no collection filter to retrieval, the permission engine is the only thing standing between
+a query and every document in the org. Every run checks that each retrieved document falls inside
+the asking principal's ground-truth visible set and counts the ones that do not.
 
-That count must be zero. A single leaked document makes `benchmarks.run_benchmark` exit
-non-zero, so the benchmark fails loudly the moment retrieval surfaces something an asker was
-never allowed to see. This mirrors the invariant in [`docs/PERMISSIONS.md`](PERMISSIONS.md):
-the visibility predicate is pushed into SQL, so a chunk you cannot see can never enter a
-result set or a prompt. The benchmark is the end-to-end proof of that claim on labeled data.
+That count must be zero. A single leaked document makes `benchmarks.run_benchmark` exit non-zero,
+so the benchmark fails loudly the moment retrieval surfaces something an asker was never allowed
+to see. This mirrors the invariant in [`docs/PERMISSIONS.md`](PERMISSIONS.md) - the visibility
+predicate is pushed into SQL, so a chunk you cannot see can never enter a result set or a prompt -
+and is the end-to-end proof of that claim on labeled data.

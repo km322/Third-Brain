@@ -9,7 +9,7 @@ that must never disagree:
 
 Both are implemented in
 [`app/services/permissions.py`](../apps/api/app/services/permissions.py). This document
-explains the model it implements.
+explains that model.
 
 - [Principals, resources, levels](#principals-resources-and-levels)
 - [The core rule: maximum of all sources](#the-core-rule-maximum-of-all-sources)

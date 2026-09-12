@@ -7,16 +7,15 @@ latency and error thresholds.
 
 ## 1. Why this exists
 
-Everything interesting about Third Brain's performance happens in one place: an ANN scan
-over the `document_chunks` HNSW index **with the `RetrievalScope` ACL predicate pushed into
-the SQL `WHERE` clause**. At a few thousand chunks any index looks fast. The honest
-question is what happens at millions of chunks, when the iterative post-filter has to walk
-past other tenants' candidates to fill a single org's result set, and dozens of concurrent
-users are doing it at once while ingestion writes race the same table.
+Everything interesting about Third Brain's performance happens in one place: an ANN scan over the
+`document_chunks` HNSW index **with the `RetrievalScope` ACL predicate pushed into the SQL `WHERE`
+clause**. At a few thousand chunks any index looks fast. The honest question is what happens at
+millions, when the iterative post-filter has to walk past other tenants' candidates to fill one
+org's result set while dozens of concurrent users do the same and ingestion writes race the table.
 
-Microbenchmarks do not answer that. This harness does: it builds a corpus big enough for
-the index to matter, with the same mixed-visibility permission graph real tenants have,
-then measures the endpoints users actually hit.
+Microbenchmarks do not answer that. This harness does: it builds a corpus big enough for the index
+to matter, with the mixed-visibility permission graph real tenants have, then measures the
+endpoints users actually hit.
 
 ## 2. What the harness does
 
@@ -120,13 +119,12 @@ The runner prints one row per endpoint: request count, failure percentage, media
 latency, then the verdict line comparing each measured value to its budget. The stats CSVs
 in `LOAD_CSV_DIR` hold the full distribution if you want more than the table.
 
-What p95 means here: with the offline stub in place there is **no provider latency in the
-numbers** (see caveats), so search p95 is almost purely the platform: the ACL-filtered ANN
-scan over the HNSW index, permission-scope resolution, Redis, and serialization. That makes
-it the single most honest number for "does permission-scoped retrieval hold up at this
-scale". If search p95 climbs as `SCALE` grows, you are watching the filtered-HNSW cost
-described in [`docs/SCALING.md`](SCALING.md); reach for the levers there (smaller
-embedding dimensions, `hnsw.ef_search`, partitioning by `org_id`).
+What p95 means here: with the offline stub there is **no provider latency in the numbers** (see
+caveats), so search p95 is almost purely the platform - the ACL-filtered ANN scan, permission-scope
+resolution, Redis and serialization. That makes it the most honest number for "does
+permission-scoped retrieval hold up at this scale". If it climbs as `SCALE` grows, you are watching
+the filtered-HNSW cost described in [`docs/SCALING.md`](SCALING.md); reach for the levers there
+(smaller embedding dimensions, `hnsw.ef_search`, partitioning by `org_id`).
 
 To explain an individual slow or failed request, use the correlation chain from
 [`docs/OBSERVABILITY.md`](OBSERVABILITY.md): every response carries `X-Request-ID`, so grep

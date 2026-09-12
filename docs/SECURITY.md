@@ -37,16 +37,14 @@ Include:
 - affected version / commit,
 - your contact for follow-up.
 
-[`.github/SECURITY.md`](../.github/SECURITY.md) is the canonical policy and the single source
-of truth for what to expect: acknowledgement **within 7 business days**. This is a
-volunteer-maintained open-source project, so timelines are best effort, not a contractual
-SLA. Disclosure is coordinated - please allow a reasonable window (target **90 days**) for a
-fix to ship before disclosing publicly - and reporters who want to be named are credited in
-the advisory and the changelog.
+[`.github/SECURITY.md`](../.github/SECURITY.md) is the canonical policy: acknowledgement
+**within 7 business days**, best effort rather than a contractual SLA, since this is a
+volunteer-maintained project. Disclosure is coordinated - please allow a **90 day** target window
+for a fix before going public - and reporters who want to be named are credited in the advisory
+and the changelog.
 
-Third Brain is self-hosted software, so please test only against an instance **you** run.
-Do not test against someone else's deployment, and do not access, modify or exfiltrate data
-belonging to anyone else while testing.
+Third Brain is self-hosted software: test only against an instance **you** run, and never access,
+modify or exfiltrate anyone else's data while testing.
 
 ---
 
@@ -63,7 +61,7 @@ Adversaries we design against:
 
 | Adversary | Example goal | Primary control |
 |---|---|---|
-| Unauthenticated internet user | Read any data | Auth required on every data route. The unauthenticated surface is small and by design: the health/version probes (no tenant data), the two device-auth endpoints (start and poll), the SSO discovery/start/callback/ACS endpoints, `POST /api/v1/invites/accept` (rate limited per token and client IP; a valid, unexpired, unused invite token provisions the account and signs in, and it can only ever provision a **new** account - an address that already has one gets `409`, never a session), and `GET /api/v1/files/{token}` - a capability URL serving an image document's original bytes to any holder of an unguessable 256-bit token (rate limited on misses, raster-image media-type whitelist, quarantined documents 404). `public` collections are still org-scoped (any org member or org API key), not internet-public. Auth endpoints are per-identifier rate limited against brute force. |
+| Unauthenticated internet user | Read any data | Auth required on every data route. The unauthenticated surface is small and deliberate: health/version probes (no tenant data); the two device-auth endpoints (start, poll); the SSO discovery/start/callback/ACS endpoints; `POST /api/v1/invites/accept` (rate limited per token and client IP; a valid, unexpired, unused token provisions the account and signs in, and only ever a **new** one - an address that already has an account gets `409`, never a session); and `GET /api/v1/files/{token}`, a capability URL serving an image document's original bytes to any holder of an unguessable 256-bit token (rate limited on misses, raster-image media-type whitelist, quarantined documents 404). `public` collections are still org-scoped (any org member or org API key), not internet-public. Auth endpoints are per-identifier rate limited against brute force. |
 | Authenticated org member | Read a document they weren't granted | Permission engine enforced at retrieval time (SQL pushdown). |
 | Cross-tenant attacker | Read another org's data | Every query filters by `org_id`; resources 404 across org boundaries. |
 | Malicious/leaked API key | Escalate privilege via impersonation | Keys carry scopes + fixed org; **keys cannot mint or revoke keys**; `acts_as_user_id` must be an existing org member. |
@@ -84,9 +82,9 @@ third-party LLM providers you configure, and DoS at the network layer (use a WAF
   client / LLM output   │  authorizes, meters)      │  object storage, provider keys
 ```
 
-All input crossing the first boundary is validated by Pydantic schemas and authorized by
-the permission engine. **LLM output and ingested document content are treated as untrusted**
-- they influence answers but never widen the retrieval scope.
+All input crossing the first boundary is validated by Pydantic schemas and authorized by the
+permission engine. **LLM output and ingested document content are treated as untrusted**: they
+influence answers but never widen the retrieval scope.
 
 ---
 
@@ -142,33 +140,30 @@ sequenceDiagram
     api-->>web: fresh access + refresh pair (rotation)
 ```
 
-**Where the dashboard keeps its tokens - an accepted trade-off.** Both the access token and
-the refresh token live in `localStorage` ([`apps/web/lib/api.ts`](../apps/web/lib/api.ts)),
-which is what lets a page reload keep you signed in without a cookie session. The cost is
-stated here rather than hidden: any script executing on the dashboard's origin can read both,
-and the refresh token is valid for `REFRESH_TOKEN_EXPIRE_DAYS` (30 by default). Single-use
-rotation stops a *replayed* copy, but not a thief who simply rotates the token themselves, so
-an XSS in the dashboard is a month of access rather than 30 minutes.
-[`apps/web/next.config.mjs`](../apps/web/next.config.mjs) sets `X-Frame-Options: DENY`,
+**Where the dashboard keeps its tokens - an accepted trade-off.** Both the access and refresh
+tokens live in `localStorage` ([`apps/web/lib/api.ts`](../apps/web/lib/api.ts)), which is what
+keeps you signed in across a page reload without a cookie session. The cost, stated rather than
+hidden: any script running on the dashboard's origin can read both, and the refresh token is valid
+for `REFRESH_TOKEN_EXPIRE_DAYS` (30 by default). Single-use rotation stops a *replayed* copy but
+not a thief who rotates the token themselves, so a dashboard XSS is a month of access rather than
+30 minutes. [`apps/web/next.config.mjs`](../apps/web/next.config.mjs) sets `X-Frame-Options: DENY`,
 `nosniff`, a referrer policy and `frame-ancestors 'none'`, but **deliberately no `script-src`
-policy** - Next.js relies on inline and hashed scripts, and a strict policy needs per-build
-nonces - so CSP is not a second line of defence against injected script here. If dashboard
-XSS is in your threat model, shorten `REFRESH_TOKEN_EXPIRE_DAYS`; a password change or admin
-reset bumps `token_version` and invalidates every outstanding token at once.
+policy**: Next.js relies on inline and hashed scripts and a strict policy needs per-build nonces,
+so CSP is not a second line of defence here. If dashboard XSS is in your threat model, shorten
+`REFRESH_TOKEN_EXPIRE_DAYS`; a password change or admin reset bumps `token_version` and
+invalidates every outstanding token at once.
 
 Session revocation is layered:
 
-- **Refresh rotation (single-use tokens).** Exchanging a refresh token - or surrendering
-  it via `POST /auth/logout` with the optional `{"refresh_token": ...}` body - denylists
-  its `jti` in Redis until the token's natural expiry, so a replayed or stolen refresh
-  token is rejected with 401. Caveat: the denylist **fails open** on a Redis outage
-  (matching the rate limiter's documented policy) - a denylist backend being down must
-  not lock every user out of refreshing, at the cost of single-use enforcement lapsing
-  for the duration of the outage. Logout is always recorded in the audit log.
-- **Token versioning.** Every JWT embeds the user's `token_version` as `ver`, re-checked
-  against the database on each authenticated request and on refresh. Credential events -
-  a password change or an admin password reset - increment the version and instantly
-  revoke all of the user's outstanding access and refresh tokens.
+- **Refresh rotation (single-use tokens).** Exchanging a refresh token - or surrendering it via
+  `POST /auth/logout` with the optional `{"refresh_token": ...}` body - denylists its `jti` in
+  Redis until the token's natural expiry, so a replayed or stolen refresh token gets a 401.
+  Caveat: the denylist **fails open** on a Redis outage, matching the rate limiter's policy, since
+  a downed denylist must not lock every user out of refreshing; single-use enforcement lapses for
+  the duration. Logout is always audited.
+- **Token versioning.** Every JWT embeds the user's `token_version` as `ver`, re-checked against
+  the database on each authenticated request and on refresh. A password change or admin password
+  reset increments the version and instantly revokes all of that user's outstanding tokens.
 - **Secret rotation.** Rotating `SECRET_KEY` invalidates all outstanding JWTs (note the
   [secret-handling caveat](#secret-handling) - it also affects connector decryption).
 
@@ -179,13 +174,12 @@ Password lifecycle endpoints are **session-only**; API keys are rejected outrigh
   minted with the new version so the caller stays signed in while every other session
   dies. It is rate limited like login.
 - `POST /orgs/members/{id}/reset-password` (admin or owner) sets a temporary password
-  (`secrets.token_urlsafe`, returned exactly once, only its bcrypt hash stored) and bumps
-  the target's `token_version`. Rules: only an owner may reset an owner; you cannot reset
-  yourself (use change-password); and the reset is refused with 409 unless this org is
-  the target's only organization - any membership elsewhere (active, invited or suspended)
-  blocks it, because the temporary password is a global credential an admin could later use
-  against that other tenant once the membership there is active, so such users must reset
-  from their own account or through support.
+  (`secrets.token_urlsafe`, returned exactly once, only its bcrypt hash stored) and bumps the
+  target's `token_version`. Rules: only an owner may reset an owner; you cannot reset yourself
+  (use change-password); and the reset is refused with 409 unless this org is the target's only
+  organization. Any membership elsewhere - active, invited or suspended - blocks it, because the
+  temporary password is a global credential an admin could later use against that other tenant;
+  such users must reset from their own account or through support.
 
 ---
 
@@ -369,12 +363,12 @@ metered because several endpoints (search, chat, ingestion) spend real provider 
 unmetered signed-in caller could otherwise bill the operator without limit. The
 unauthenticated auth endpoints have their own per-(identifier, IP) brute-force guard.
 
-**Self-serve signup is closed by default in production.** This is a safety default for you,
-the operator, not a gate on the software. A newly registered org has no connector of its own,
-so its completions and embeddings fall back to the deployment's platform provider keys, which
-means open registration on a reachable instance lets any stranger who finds it spend **your**
-OpenAI / Anthropic / Gemini budget. `POST /auth/register` therefore returns `403` when
-`ENVIRONMENT=production` unless `SIGNUP_ENABLED=true` is set explicitly.
+**Self-serve signup is closed by default in production** - a safety default for you, the operator,
+not a gate on the software. A newly registered org has no connector of its own, so its completions
+and embeddings fall back to the deployment's platform provider keys: open registration on a
+reachable instance lets any stranger who finds it spend **your** OpenAI / Anthropic / Gemini
+budget. `POST /auth/register` therefore returns `403` when `ENVIRONMENT=production` unless
+`SIGNUP_ENABLED=true` is set explicitly.
 
 Bring members in deliberately instead:
 
@@ -411,12 +405,12 @@ as append-only and ship it to durable, tamper-evident storage.
 > address rather than the user's**. Do not read audit IPs as user attribution; your proxy's
 > access log (or Cloudflare's `CF-Connecting-IP`) is the record of record for now.
 >
-> The login rate limiter is keyed on `(email, client IP)`, so a constant peer address degrades
-> it to a purely per-account limit. That is not a bypass - the per-account half still caps
-> credential stuffing against one account at 10 attempts a minute, and per-IP was never a
-> defence against spraying across many accounts, since each `(email, IP)` pair gets its own
-> bucket either way. The visible effect is the other direction: users sharing the proxy share
-> a bucket, so repeated failures against one account throttle every client behind it.
+> The login rate limiter is keyed on `(email, client IP)`, so a constant peer address degrades it
+> to a purely per-account limit. That is not a bypass: the per-account half still caps credential
+> stuffing against one account at 10 attempts a minute, and per-IP was never a defence against
+> spraying across many accounts, since each `(email, IP)` pair gets its own bucket either way. The
+> visible effect runs the other way - users sharing the proxy share a bucket, so repeated failures
+> against one account throttle every client behind it.
 
 ---
 
@@ -435,15 +429,14 @@ as append-only and ship it to durable, tamper-evident storage.
 
 ## Data residency & self-hosting
 
-Third Brain runs entirely on infrastructure you control - there is no hosted service, so
-self-hosting is the only way it runs. All data - documents, chunks, embeddings, permissions,
-usage metering, and the audit log - stays in **your** Postgres, Redis, and upload directory,
-and no one else holds a copy. A default deployment makes **no phone-home calls**: telemetry
-is fully opt-in (nothing is exported unless you set `OTEL_EXPORTER_OTLP_ENDPOINT`), the
-offline stub provider means zero LLM calls until you configure a key, and storage is local by
-default. The only outbound traffic is to the LLM providers and data sources **you** configure
-(and user-triggered, SSRF-gated URL ingestion). You choose the region and jurisdiction where
-the data lives.
+Third Brain runs entirely on infrastructure you control; there is no hosted service, so
+self-hosting is the only way it runs. All data - documents, chunks, embeddings, permissions, usage
+metering and the audit log - stays in **your** Postgres, Redis and upload directory, and no one
+else holds a copy. A default deployment makes **no phone-home calls**: telemetry is opt-in (nothing
+is exported unless you set `OTEL_EXPORTER_OTLP_ENDPOINT`), the offline stub means zero LLM calls
+until you configure a key, and storage is local. The only outbound traffic goes to the LLM
+providers and data sources **you** configure, plus user-triggered, SSRF-gated URL ingestion. You
+choose the region and jurisdiction where the data lives.
 
 See [`SELF_HOSTING.md`](./SELF_HOSTING.md) for the deployment guide, the verifiable
 "nothing phones home" guarantee, and how compliance obligations follow data custody.

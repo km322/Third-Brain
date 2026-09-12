@@ -23,11 +23,11 @@ covers running each piece **without Docker** for tight iteration and debugging.
 | Redis | 7+ | Cache, rate limiting, task queue |
 | Docker + Compose v2 | latest | For Option A |
 
-For real embeddings and answers you need a **provider key** - set `OPENAI_API_KEY`,
-`ANTHROPIC_API_KEY` (completions only; Anthropic has no embeddings API), or `GOOGLE_API_KEY`
-(Google Gemini), plus `OPENAI_BASE_URL` to point the OpenAI-compatible path at OpenAI, Azure
-OpenAI, Ollama, vLLM, or any compatible gateway. Without any key, the app falls back to a
-deterministic offline stub so the UI still works, but retrieval quality is meaningless.
+For real embeddings and answers you need a **provider key**: `OPENAI_API_KEY`,
+`ANTHROPIC_API_KEY` (completions only; Anthropic has no embeddings API) or `GOOGLE_API_KEY`
+(Google Gemini), plus `OPENAI_BASE_URL` to aim the OpenAI-compatible path at OpenAI, Azure OpenAI,
+Ollama, vLLM or any compatible gateway. With no key, a deterministic offline stub keeps the UI
+working, but retrieval quality is meaningless.
 
 ---
 
@@ -56,10 +56,10 @@ Services:
 | localhost:5432 | Postgres |
 | localhost:6379 | Redis |
 
-The demo seed prints three logins that share one randomly generated password -
-`admin@example.com` (owner), `engineer@example.com` (editor) and `viewer@example.com`
-(viewer) - plus a one-time admin API key. Copy the password and the key; they are shown
-only once. Asking the same question as each user shows permission-aware retrieval.
+The seed prints three logins sharing one randomly generated password - `admin@example.com`
+(owner), `engineer@example.com` (editor), `viewer@example.com` (viewer) - plus a one-time admin
+API key. Copy the password and the key; both are shown once. Asking the same question as each user
+shows permission-aware retrieval.
 
 Handy Make targets: `make logs`, `make down`, `make shell` (api container), `make test`,
 `make lint`, `make fmt`. Run `make` with no arguments for the full list.
@@ -68,9 +68,9 @@ Handy Make targets: `make logs`, `make down`, `make shell` (api container), `mak
 
 ## Option B - run without Docker
 
-Useful when you want a debugger attached or fast reloads without container overhead. You
-still need Postgres and Redis running somewhere; the simplest is to run just those two in
-Docker and everything else on the host:
+Useful when you want a debugger attached or fast reloads without container overhead. You still
+need Postgres and Redis somewhere; simplest is to run just those two in Docker and everything else
+on the host:
 
 ```bash
 docker compose up -d db redis
@@ -259,11 +259,10 @@ the HTTP surface, and [`PERMISSIONS.md`](./PERMISSIONS.md) for the access model.
   env. Ensure `psycopg[binary]` is installed (it is a required runtime dependency, pulled
   in by `pip install -e .`) and the DB host is right.
 - **`Can't locate revision identified by '0002_drop_waitlist'`** (or `'0003_drop_org_plan'`,
-  or a pre-1.0 id such as `'0002_device_authorizations'`) - v2.0.0 folded the whole history
-  into a single `0001_initial` baseline, so your dev DB is stamped at a revision that no
-  longer exists. There is exactly one revision now, and nothing is layered on top of it.
+  or a pre-1.0 id such as `'0002_device_authorizations'`) - v2.0.0 folded the whole history into a
+  single `0001_initial` baseline, so your dev DB is stamped at a revision that no longer exists.
   Simplest fix is to reset (`docker compose down -v && make up-d && make migrate && make seed`).
-  To keep your data, check the schema already matches the baseline - no `waitlist_entries`
+  To keep your data, confirm the schema already matches the baseline - no `waitlist_entries`
   table, no `organizations.plan` column, since those drops are all the missing revisions did -
   then realign the stamp and re-run `make migrate`:
   `docker compose exec db psql -U thirdbrain -c "UPDATE alembic_version SET version_num = '0001_initial'"`.

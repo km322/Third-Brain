@@ -1,8 +1,8 @@
 # Contributing to Third Brain
 
-Third Brain is free and open source under [Apache-2.0](LICENSE), and contributions are
-welcome from anyone - bug reports, documentation, and code alike. This guide covers how to
-set up your environment, the conventions we follow, and how to get a change merged.
+Third Brain is free and open source under [Apache-2.0](LICENSE), and contributions are welcome
+from anyone - bug reports, documentation and code alike. This guide covers setup, the conventions
+we follow, and how to get a change merged.
 
 - [Code of conduct](#code-of-conduct)
 - [Ways to contribute](#ways-to-contribute)
@@ -55,14 +55,13 @@ make up-d                     # db, redis, api, worker, web (detached; 'make log
 make migrate && make seed     # schema + demo org (prints a generated password once)
 ```
 
-The API is then on `http://localhost:8000` (`/docs` for the interactive schema) and the
-dashboard on `http://localhost:3000`. You need Docker with the Compose v2 plugin; for
-host-native iteration (debuggers, fast reloads) see the "run without Docker" section of the
-development guide.
+The API is then on `http://localhost:8000` (`/docs` for the interactive schema) and the dashboard
+on `http://localhost:3000`. You need Docker with the Compose v2 plugin; for host-native iteration
+(debuggers, fast reloads) see the "run without Docker" section of the development guide.
 
-You never need a provider API key to develop: with every key blank, a deterministic offline
-stub answers completions and produces embeddings, so the whole stack builds, seeds, and passes
-its tests with no network access at all.
+You never need a provider API key to develop: with every key blank, a deterministic offline stub
+answers completions and produces embeddings, so the stack builds, seeds and passes its tests with
+no network access at all.
 
 ---
 
@@ -203,16 +202,15 @@ does not exist in production. Three tiers:
 | **Integration** | Drives the real FastAPI app over httpx ASGI against real Postgres+pgvector and Redis, after a real `alembic upgrade head`. | `make test-integration` |
 | **E2E** | Playwright drives the full docker-compose stack in a browser. | `make test-e2e` |
 
-Integration tests **skip** (they never fail) when that infrastructure is unreachable, so a
-bare `pytest` stays green on a laptop with nothing running - but CI provides the infrastructure
-and is the authoritative gate. Point the suite at your own infrastructure with
-`TEST_DATABASE_URL` / `TEST_REDIS_URL`. Any new integration or e2e test must pass against real
-pgvector and Redis.
+Integration tests **skip** rather than fail when that infrastructure is unreachable, so a bare
+`pytest` stays green on a laptop with nothing running - but CI provides the infrastructure and is
+the authoritative gate. Point the suite at your own with `TEST_DATABASE_URL` / `TEST_REDIS_URL`.
+Any new integration or e2e test must pass against real pgvector and Redis.
 
-Write tests from the intended behavior, not from the implementation you just wrote, and give
-them the same review attention as the code: a wrong test silently blesses wrong behavior.
-Backend tests use `pytest` + `pytest-asyncio` (async mode auto) and live in `apps/api/tests`.
-Cover new services and routes, especially their **permission and org-scoping** behavior.
+Write tests from the intended behavior, not from the implementation you just wrote, and review
+them as carefully as the code: a wrong test silently blesses wrong behavior. Backend tests use
+`pytest` + `pytest-asyncio` (async mode auto) and live in `apps/api/tests`. Cover new services and
+routes, especially their **permission and org-scoping** behavior.
 
 ---
 
@@ -227,10 +225,10 @@ disagree:
    pushes the visibility predicate into the SQL `WHERE` clause, so a chunk the caller cannot
    see can never enter a search result, an LLM prompt, or a citation.
 
-A PR that touches retrieval, ACLs, roles, scopes, or auth **must** add or adjust tests for
-both call sites, and must not introduce a code path that filters permissions in Python after
-the query. This is the guarantee the whole product rests on; it is the one place where "it
-works" is not enough.
+A PR that touches retrieval, ACLs, roles, scopes or auth **must** add or adjust tests for both
+call sites, and must not introduce a code path that filters permissions in Python after the query.
+This is the guarantee the whole product rests on, and the one place where "it works" is not
+enough.
 
 ---
 
@@ -246,17 +244,17 @@ works" is not enough.
   [`CHANGELOG.md`](CHANGELOG.md) for anything a user would notice.
 - Ensure CI is green before requesting review.
 
-Maintainers review on a best-effort basis. A PR that is focused, tested, and explains its
-reasoning gets merged much faster than one that is not.
+Maintainers review on a best-effort basis. A focused, tested PR that explains its reasoning gets
+merged much faster than one that doesn't.
 
 ---
 
 ## Licensing of contributions
 
 By submitting a contribution you agree that it is licensed under the project's
-[Apache-2.0](LICENSE) license, per section 5 of that license. There is **no CLA** and no
-DCO sign-off requirement - inbound equals outbound. Only contribute code you have the right
-to license this way, and do not paste in code whose provenance or license you are unsure of.
+[Apache-2.0](LICENSE) license, per section 5 of that license. There is **no CLA** and no DCO
+sign-off - inbound equals outbound. Only contribute code you have the right to license this way,
+and never paste in code whose provenance or license you are unsure of.
 
 ---
 

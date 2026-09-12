@@ -11,68 +11,66 @@ version covers the API, the worker, and the web app - they release together, and
 
 ### Added
 
-- **`robots.txt` and `sitemap.xml`**, generated at build time and deliberately opposite in
-  the two builds. The published project site invites crawlers and points them at the
-  sitemap; a self-hosted instance answers `Disallow: /`, because a company's private
-  knowledge base should never be indexed if its origin is ever reachable. Neither build
-  emitted a `robots.txt` at all before, which a crawler reads as "no rules".
-- **The SIL Open Font License text now ships with the fonts it covers.**
-  `apps/web/app/fonts` vendored Inter and JetBrains Mono but carried only a link to the
-  licence, while the font files are redistributed three ways - in this repository, as
-  `_next/static/media/*.woff2` on the published site, and inside the web image. Each
-  licence now lives in `apps/web/public/fonts/`, the one directory that reaches all three
-  (it is copied verbatim into the static export and into the image), so the site serves
-  them at `/fonts/*-LICENSE.txt`. [`NOTICE`](NOTICE) lists both.
-- **CI builds the static project site.** `npm run build:site` is the command Cloudflare
-  Pages runs on every push, but nothing ran it in CI - so a page missing from the
-  `PUBLISHED_PAGES` allowlist, or any component that cannot be statically exported, passed
-  CI green and failed at the host instead, with no signal in the repository.
-- **Dependabot watches the container base images.** `python:3.11-slim` and `node:22-alpine`
-  are what every self-hoster pulls, and a CVE in either produced no pull request.
-- **CI builds both images for `linux/arm64`** on a native arm64 runner. The release
-  publishes a two-architecture manifest and hard-fails if a leg is missing, but CI built
-  only the runner's native amd64 - so an arm64-only break first surfaced mid-release. Not
-  yet a required status check; add `Docker build (arm64)` to branch protection to enforce it.
-- **The MCP CLI is tested on Node 18**, the floor its `engines` field and its npm page
-  promise. Nothing exercised it, so an API that throws on 18 would have shipped green.
+- **`robots.txt` and `sitemap.xml`**, generated at build time and deliberately opposite in the
+  two builds: the published project site invites crawlers and points them at the sitemap, while a
+  self-hosted instance answers `Disallow: /`, because a company's private knowledge base should
+  never be indexed if its origin is ever reachable. Neither build emitted a `robots.txt` before,
+  which a crawler reads as "no rules".
+- **The SIL Open Font License text now ships with the fonts it covers.** `apps/web/app/fonts`
+  vendored Inter and JetBrains Mono but carried only a link to the licence, while the font files
+  are redistributed three ways: in this repository, as `_next/static/media/*.woff2` on the
+  published site, and inside the web image. Each licence now lives in `apps/web/public/fonts/`,
+  the one directory that reaches all three, so the site serves them at `/fonts/*-LICENSE.txt`.
+  [`NOTICE`](NOTICE) lists both.
+- **CI builds the static project site.** `npm run build:site` is what Cloudflare Pages runs on
+  every push, but nothing ran it in CI - so a page missing from the `PUBLISHED_PAGES` allowlist,
+  or a component that cannot be statically exported, passed CI green and failed at the host.
+- **Dependabot watches the container base images.** `python:3.11-slim` and `node:22-alpine` are
+  what every self-hoster pulls, and a CVE in either produced no pull request.
+- **CI builds both images for `linux/arm64`** on a native arm64 runner. The release publishes a
+  two-architecture manifest and hard-fails if a leg is missing, but CI built only the runner's
+  native amd64, so an arm64-only break first surfaced mid-release. Not yet a required status
+  check; add `Docker build (arm64)` to branch protection to enforce it.
+- **The MCP CLI is tested on Node 18**, the floor its `engines` field and npm page promise.
+  Nothing exercised it, so an API that throws on 18 would have shipped green.
+- **An AI-coded notice in the [`README`](README.md).** Nearly all of this repository was written
+  by AI coding agents under human direction and review, and nothing said so. Anyone weighing
+  whether to trust it with their company's knowledge should read that on the front page.
 
 ### Fixed
 
-- The security policy's supported-versions table still named `1.x` as the supported line
-  after the 2.0 release, so the file GitHub surfaces told readers the current release was
-  unsupported.
-- **A failed release could burn an npm version permanently.** `npm-publish` depended only
-  on `verify`, so it ran alongside the image build: if either architecture failed, the CLI
-  was already live at a version that had no images and no GitHub release, and npm versions
-  cannot be reused. It now runs after the manifests are merged, last in the pipeline.
-- **A second push to `main` could block a release.** CI cancelled superseded runs on the
-  same ref, but the release gate requires the tagged commit's CI run to have concluded
-  `success` - a cancelled run concludes `cancelled` and no amount of re-running the release
-  would clear it. Pushes to `main` are now grouped by commit SHA and never cancel each
-  other; pull requests still cancel superseded runs.
-- Two CI comments claimed the published GHCR packages are private. They are public and
-  pullable; the actual reason that job builds from source is that the published tags are
-  the *previous* release.
-- **A quarantined document's extracted entities stayed browsable.** Every other surface
-  withholds a document held for secret review - both retrievers, `/documents/{id}/chunks`,
-  `/documents/{id}/content` and the MCP `get_document` tool - but the entity index applied
-  only the ACL predicate. Entity names are lifted verbatim from document text, and
-  quarantining an already-indexed document leaves its rows in place (the scanner gate
-  returns before the resync), so `/entities` and `/entities/{id}/documents` still exposed
-  them. Both now inherit the same `!= QUARANTINED` guard, pinned by an integration test.
-- **`GET /answers` ran a permission resolution per answer.** Each call cost 2-3 queries,
-  so listing answers was a query storm linear in the number of answers. The collection
-  lookup is now memoised per request - answers cluster into far fewer collections than
-  there are answers. The route still scans unbounded; see below.
+- The security policy's supported-versions table still named `1.x` after the 2.0 release, so the
+  file GitHub surfaces told readers the current release was unsupported.
+- **A failed release could burn an npm version permanently.** `npm-publish` depended only on
+  `verify`, so it ran alongside the image build: if either architecture failed, the CLI was
+  already live at a version with no images and no GitHub release, and npm versions cannot be
+  reused. It now runs last, after the manifests are merged.
+- **A second push to `main` could block a release.** CI cancelled superseded runs on the same ref,
+  but the release gate requires the tagged commit's CI run to have concluded `success`, and a
+  cancelled run concludes `cancelled` - no amount of re-running the release would clear it. Pushes
+  to `main` are now grouped by commit SHA and never cancel each other; pull requests still do.
+- Two CI comments claimed the published GHCR packages are private. They are public and pullable;
+  that job builds from source because the published tags are the *previous* release.
+- **A quarantined document's extracted entities stayed browsable.** Every other surface withholds
+  a document held for secret review - both retrievers, `/documents/{id}/chunks`,
+  `/documents/{id}/content` and the MCP `get_document` tool - but the entity index applied only
+  the ACL predicate. Entity names are lifted verbatim from document text, and quarantining an
+  already-indexed document leaves its rows in place (the scanner gate returns before the resync),
+  so `/entities` and `/entities/{id}/documents` still exposed them. Both now inherit the same
+  `!= QUARANTINED` guard, pinned by an integration test.
+- **`GET /answers` ran a permission resolution per answer**, 2-3 queries each, making the listing
+  a query storm linear in the number of answers. The collection lookup is now memoised per
+  request, since answers cluster into far fewer collections than there are answers. The route
+  still scans unbounded.
 
 ### Changed
 
-- **Linting runs the ESLint CLI instead of `next lint`**, which Next deprecates and removes
-  in 16. Coverage is unchanged or wider, and a new `.eslintignore` mirroring
-  `.prettierignore` keeps generated output from ever failing the lint job.
+- **Linting runs the ESLint CLI instead of `next lint`**, which Next deprecates and removes in 16.
+  Coverage is unchanged or wider, and a new `.eslintignore` mirroring `.prettierignore` keeps
+  generated output from failing the lint job.
 - **Next's build assets are frozen at the edge.** Their filenames are content hashes, but
-  `_headers` carried no rule for them, so the host's short default TTL made every repeat
-  visitor revalidate every script and stylesheet.
+  `_headers` carried no rule for them, so the host's short default TTL made every repeat visitor
+  revalidate every script and stylesheet.
 - **The release workflow drops to least privilege.** It granted `contents: write` and
   `packages: write` to every job; each job now takes only what it needs, so the third-party
   `docker/*` actions can no longer inherit the ability to push to the repository.
@@ -201,15 +199,15 @@ migration history and the Compose topology all change.
 
 ### Changed
 
-- **Third Brain is now a fully open-source project.** The whole product is in this
-  repository under Apache-2.0, free for any use: there is no hosted service, no waitlist, no
-  tiers, no seat counts and no usage limits. **Self-hosting is the supported way to run it** -
-  `make selfhost` stands up the production topology on your own box, and your documents,
-  embeddings, provider keys and audit log never leave your perimeter. The README, the compose
-  files and [`CONTRIBUTING.md`](CONTRIBUTING.md) were rewritten to match, the last one for
-  outside contributors: how to bring the stack up, how to run the three test tiers, the
-  "tests run against the real stack, never fakes" rule, the permission invariant any PR
-  touching retrieval or ACLs must respect, and inbound-equals-outbound licensing (no CLA).
+- **Third Brain is now a fully open-source project.** The whole product is in this repository
+  under Apache-2.0, free for any use: no hosted service, no waitlist, no tiers, no seat counts, no
+  usage limits. **Self-hosting is the supported way to run it** - `make selfhost` stands up the
+  production topology on your own box, and your documents, embeddings, provider keys and audit log
+  never leave your perimeter. The README, the compose files and
+  [`CONTRIBUTING.md`](CONTRIBUTING.md) were rewritten to match, the last for outside contributors:
+  bringing the stack up, the three test tiers, the "tests run against the real stack, never fakes"
+  rule, the permission invariant any PR touching retrieval or ACLs must respect, and
+  inbound-equals-outbound licensing (no CLA).
 - **[`docs/VISION.md`](docs/VISION.md) and [`docs/ROADMAP.md`](docs/ROADMAP.md) are project
   docs, not a pitch.** They keep why Third Brain exists and the technical intent, and drop
   the pricing tiers, business model, moat and monetization material.
@@ -273,16 +271,15 @@ migration history and the Compose topology all change.
 
 ### Added
 
-- A recorded three-minute product walkthrough, embedded on the marketing landing page as a
-  new `#demo` section and reachable from a "Watch the demo" hero button and a "Demo" nav
-  link. It is built not to cost anything until it is wanted: `preload="none"` so a visitor
-  who never presses play never fetches the video, a 50 KB WebP poster as the only byte the
-  page spends on it, and two renditions - 720p for viewports under 1024px, 1080p above -
-  so a phone, whose frame is about 1020 device pixels wide, is not handed 1080p to decode
-  for three minutes. The element is `muted` because the recording has no audio track at
-  all. A second encode of the same walkthrough ships in the repo at
-  [`docs/assets/third-brain-demo.mp4`](docs/assets/third-brain-demo.mp4); it replaces the
-  placeholder image in the README, and [`docs/DEMO.md`](docs/DEMO.md) links to it.
+- A recorded three-minute product walkthrough, embedded on the landing page as a new `#demo`
+  section and reachable from a "Watch the demo" hero button and a "Demo" nav link. It costs
+  nothing until it is wanted: `preload="none"`, so a visitor who never presses play never fetches
+  the video; a 50 KB WebP poster as the only byte the page spends on it; and two renditions, 720p
+  for viewports under 1024px and 1080p above, so a phone (frame about 1020 device pixels wide) is
+  not handed 1080p to decode for three minutes. The element is `muted` because the recording has
+  no audio track at all. A second encode ships in the repo at
+  [`docs/assets/third-brain-demo.mp4`](docs/assets/third-brain-demo.mp4), replacing the README's
+  placeholder image, and [`docs/DEMO.md`](docs/DEMO.md) links to it.
 
 ### Changed
 

@@ -4,15 +4,15 @@ Orientation for an LLM/agent seeing this repo for the first time. Keep it accura
 it when the architecture changes.
 
 ## What this is
-**Third Brain** is a "company-wide second brain": ingest a company's knowledge once,
-and the LLM tools your teams use (Claude Desktop, Cursor, any OpenAI-compatible client,
-agents) can **search it, cite it, and write back to it**, governed by **document-level
-permissions**. Think a clean gateway + dashboard, but for knowledge instead of tokens.
+**Third Brain** is a "company-wide second brain": ingest a company's knowledge once, and the
+LLM tools your teams use (Claude Desktop, Cursor, any OpenAI-compatible client, agents) can
+**search it, cite it, and write back to it**, governed by **document-level permissions**. A
+clean gateway + dashboard, but for knowledge instead of tokens.
 
-It is a **free, open-source, self-hosted** product - Apache-2.0, the whole thing in this
-repo. There is no hosted service, no waitlist, no tiers and no billing: whoever runs the
-stack owns the data and pays only their own model provider. Keep it that way when you
-change things - nothing here should imply a paid or gated offering.
+It is **free, open-source and self-hosted** - Apache-2.0, the whole thing in this repo. No
+hosted service, no waitlist, no tiers, no billing: whoever runs the stack owns the data and
+pays only their own model provider. Keep it that way - nothing here should imply a paid or
+gated offering.
 
 ## Stack & layout
 Monorepo.
@@ -91,12 +91,11 @@ New integration/e2e tests MUST pass against real pgvector + Redis.
   Page files export only a default component (no other named exports - Next enforces this).
 - Model annotations that SQLAlchemy resolves at runtime (e.g. `Mapped[datetime | None]`) must be
   importable at runtime, not under `TYPE_CHECKING`.
-- There is no waitlist route/model/schema, no Cloudflare Turnstile verification and no EmailJS
-  notifier - all removed with the commercial framing; do not reintroduce them. `SIGNUP_ENABLED`
-  is closed by default in production for a security reason (an open instance lets strangers
-  spend the operator's provider keys), not as a funnel. `services/llm/pricing.py` and the
-  `cost_usd` columns exist so an operator can see what their OWN provider keys cost - Third
-  Brain never charges anyone.
+- No waitlist route/model/schema, no Cloudflare Turnstile and no EmailJS notifier - all removed
+  with the commercial framing; do not reintroduce them. `SIGNUP_ENABLED` is closed by default in
+  production for a security reason (an open instance lets strangers spend the operator's provider
+  keys), not as a funnel. `services/llm/pricing.py` and the `cost_usd` columns exist so an
+  operator can see what their OWN provider keys cost - Third Brain never charges anyone.
 - The root `VERSION` file is the single source of truth for the product version - never edit
   version literals by hand; `make version VERSION=x.y.z` updates them all.
 - Releases are cut with `make release VERSION=x.y.z` + a tag push, which triggers

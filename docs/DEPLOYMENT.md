@@ -5,10 +5,9 @@ How to run Third Brain in production. The stack is three long-running processes 
 with `pgvector`** and **Redis 7**.
 
 > **New here? Start with [`SELF_HOSTING.md`](./SELF_HOSTING.md).** Third Brain only runs
-> self-hosted - there is no hosted service - and that guide is the one-command
-> (`make selfhost`), all-on-your-host route: your documents, embeddings, keys, and audit log
-> never leave datastores you run. This document is the deeper runbook it builds on, for when
-> you want managed datastores, Kubernetes, or horizontal scale.
+> self-hosted, and that guide is the one-command (`make selfhost`) route where your documents,
+> embeddings, keys and audit log stay on your own host. This document is the deeper runbook it
+> builds on, for managed datastores, Kubernetes and horizontal scale.
 
 - [Architecture recap](#architecture-recap)
 - [Prerequisites](#prerequisites)
@@ -268,14 +267,13 @@ history into that one baseline. It is frozen from here on - every future schema 
 as a new revision on top of it, so `alembic upgrade head` is what carries an existing
 database forward and must run on every deploy, not only on fresh installs.
 
-A 1.x database is already stamped `0001_initial`, so `alembic upgrade head` finds nothing to
-do and the new code starts normally. What the fold changed is the baseline, not your
-database: it no longer creates the commercial-era `waitlist_entries` table or the
-`organizations.plan` column, and Alembic will not remove them from a database that already
-has them. Nothing in 2.x reads either one, but the statements below bring an older database
-back to baseline parity. They are idempotent and safe to run repeatedly, and they also cover
-the pre-1.0 folds, when schema changes were merged into `0001_initial` while no deployment
-existed that we did not control:
+A 1.x database is already stamped `0001_initial`, so `alembic upgrade head` finds nothing to do
+and the new code starts normally. The fold changed the baseline, not your database: it no longer
+creates the commercial-era `waitlist_entries` table or the `organizations.plan` column, and
+Alembic will not remove them from a database that already has them. Nothing in 2.x reads either
+one, but the statements below restore baseline parity. They are idempotent, and they also cover
+the pre-1.0 folds, when schema changes were merged into `0001_initial` while no deployment existed
+outside our control:
 
 ```sql
 DROP TABLE IF EXISTS waitlist_entries;
@@ -421,12 +419,11 @@ only starts once the schema is current.
 make rollback IMAGE_TAG=vPREV
 ```
 
-This restarts `api`/`worker`/`web` on the older images without re-running the `migrate`
-gate. No schema downgrade is involved - it is release **policy** that every release's
-migrations are backward-compatible with the previous release's code (expand/contract:
-add columns/tables first, backfill, remove in a later release), so the previous images
-run correctly against the newer schema. See [`RELEASING.md`](./RELEASING.md) for the
-full runbook.
+This restarts `api`/`worker`/`web` on the older images without re-running the `migrate` gate. No
+schema downgrade is involved: release **policy** is that every release's migrations stay
+backward-compatible with the previous release's code (expand/contract - add columns and tables
+first, backfill, remove in a later release), so the older images run correctly against the newer
+schema. Full runbook in [`RELEASING.md`](./RELEASING.md).
 
 It defaults to the single-box file pair (`docker-compose.prod.yml` +
 `docker-compose.selfhost.yml`). Name the ingress overlay you actually deployed with, so the
