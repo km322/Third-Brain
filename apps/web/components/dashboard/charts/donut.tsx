@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { PieChart as PieIcon } from "lucide-react";
-import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
+import { Cell, Pie, PieChart, ResponsiveContainer } from "recharts";
 
 import { EmptyState } from "@/components/dashboard/empty-state";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -17,48 +17,13 @@ export interface DonutSegment {
   color: string;
 }
 
-interface TooltipEntry {
-  payload?: DonutSegment & { _total: number };
-}
-
-function DonutTooltip({
-  active,
-  payload,
-  formatValue,
-}: {
-  active?: boolean;
-  payload?: TooltipEntry[];
-  formatValue: (n: number) => string;
-}) {
-  const seg = active ? payload?.[0]?.payload : undefined;
-  if (!seg) return null;
-  const pct = seg._total > 0 ? (seg.value / seg._total) * 100 : 0;
-
-  return (
-    <div className="rounded-lg border bg-popover p-2.5 text-popover-foreground shadow-md">
-      <p className="flex items-center gap-1.5 text-xs font-medium">
-        <span
-          className="h-2 w-2 rounded-[2px]"
-          style={{ backgroundColor: seg.color }}
-          aria-hidden
-        />
-        {seg.name}
-      </p>
-      <p className="mt-1 text-xs tabular-nums text-muted-foreground">
-        <span className="font-semibold text-foreground">{formatValue(seg.value)}</span> ·{" "}
-        {pct.toFixed(1)}%
-      </p>
-    </div>
-  );
-}
-
 interface DonutChartProps {
   data: DonutSegment[];
   /** Override the denominator (defaults to the sum of segment values). */
   total?: number;
   /** Small caption under the center figure (e.g. "Total spend"). */
   centerLabel?: string;
-  /** Formats segment values in the tooltip, legend and center figure. */
+  /** Formats segment values in the legend and center figure. */
   formatValue?: (n: number) => string;
   loading?: boolean;
   height?: number;
@@ -72,6 +37,11 @@ interface DonutChartProps {
  * relies on color alone. The center figure is overlaid on the donut hole rather
  * than drawn by recharts. Renders a friendly empty state when there's no value
  * to divide.
+ *
+ * Hovering a segment - or its legend row - reads that segment out in the center
+ * and dims the rest, instead of floating a tooltip: recharts anchors a pie
+ * tooltip at the hovered sector's midpoint, which for a donut lands on top of
+ * the center figure and makes both unreadable.
  */
 export function DonutChart({
   data,
@@ -83,14 +53,11 @@ export function DonutChart({
   emptyMessage = "No data for this period.",
   className,
 }: DonutChartProps) {
+  const [activeName, setActiveName] = React.useState<string | null>(null);
   const sum = total ?? data.reduce((acc, d) => acc + d.value, 0);
   const segments = React.useMemo(
-    () =>
-      data
-        .filter((d) => d.value > 0)
-        .map((d) => ({ ...d, _total: sum }))
-        .sort((a, b) => b.value - a.value),
-    [data, sum],
+    () => data.filter((d) => d.value > 0).sort((a, b) => b.value - a.value),
+    [data],
   );
 
   if (loading) {
@@ -112,6 +79,9 @@ export function DonutChart({
   const inner = Math.round(height * 0.3);
   const outer = Math.round(height * 0.44);
 
+  const active = segments.find((s) => s.name === activeName) ?? null;
+  const activePct = active && sum > 0 ? (active.value / sum) * 100 : 0;
+
   return (
     <div
       className={cn(
@@ -122,10 +92,6 @@ export function DonutChart({
       <div className="relative shrink-0" style={{ height, width: height }}>
         <ResponsiveContainer width="100%" height="100%">
           <PieChart>
-            <Tooltip
-              content={<DonutTooltip formatValue={formatValue} />}
-              cursor={false}
-            />
             <Pie
               data={segments}
               dataKey="value"
@@ -137,18 +103,31 @@ export function DonutChart({
               stroke="hsl(var(--card))"
               startAngle={90}
               endAngle={-270}
+              onMouseEnter={(_, index) => setActiveName(segments[index]?.name ?? null)}
+              onMouseLeave={() => setActiveName(null)}
             >
               {segments.map((s) => (
-                <Cell key={s.name} fill={s.color} />
+                <Cell
+                  key={s.name}
+                  fill={s.color}
+                  fillOpacity={activeName && activeName !== s.name ? 0.3 : 1}
+                />
               ))}
             </Pie>
           </PieChart>
         </ResponsiveContainer>
         <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center text-center">
           <span className="text-lg font-semibold tabular-nums tracking-tight">
-            {formatValue(sum)}
+            {formatValue(active ? active.value : sum)}
           </span>
-          {centerLabel ? (
+          {active ? (
+            <span
+              className="truncate text-[11px] text-muted-foreground"
+              style={{ maxWidth: inner * 2 - 12 }}
+            >
+              {active.name} · {activePct.toFixed(1)}%
+            </span>
+          ) : centerLabel ? (
             <span className="text-[11px] text-muted-foreground">{centerLabel}</span>
           ) : null}
         </div>
@@ -158,7 +137,15 @@ export function DonutChart({
         {segments.map((s) => {
           const pct = sum > 0 ? (s.value / sum) * 100 : 0;
           return (
-            <li key={s.name} className="flex items-center justify-between gap-3 text-sm">
+            <li
+              key={s.name}
+              onMouseEnter={() => setActiveName(s.name)}
+              onMouseLeave={() => setActiveName(null)}
+              className={cn(
+                "flex items-center justify-between gap-3 text-sm transition-opacity",
+                activeName && activeName !== s.name && "opacity-50",
+              )}
+            >
               <span className="flex min-w-0 items-center gap-2">
                 <span
                   className="h-2.5 w-2.5 shrink-0 rounded-[3px]"

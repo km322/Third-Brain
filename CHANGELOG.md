@@ -62,6 +62,11 @@ version covers the API, the worker, and the web app - they release together, and
   a query storm linear in the number of answers. The collection lookup is now memoised per
   request, since answers cluster into far fewer collections than there are answers. The route
   still scans unbounded.
+- **A hovered donut segment covered the figure it explained.** Recharts anchors a pie tooltip at
+  the hovered sector's midpoint, which on a donut is inside the ring, so the "Cost by type"
+  tooltip landed on top of the center total and overlapped two numbers into something
+  unreadable. Hovering a segment - or its legend row - now reads that segment out in the center
+  and dims the others, so the chart and the legend highlight together and nothing overlaps.
 
 ### Changed
 
@@ -74,6 +79,17 @@ version covers the API, the worker, and the web app - they release together, and
 - **The release workflow drops to least privilege.** It granted `contents: write` and
   `packages: write` to every job; each job now takes only what it needs, so the third-party
   `docker/*` actions can no longer inherit the ability to push to the repository.
+- **Dependency batch:** recharts 2 -> 3, lucide-react 0.469 -> 1, React and React DOM
+  19.2.8 -> 19.3 with matching `@types/react*`, autoprefixer to 10.6, and ruff 0.16.6 -> 0.16.7.
+  recharts 3 is the line that supports React 19 without the deprecated `defaultProps` path; it
+  retypes `LabelList`'s formatter to receive `string | number | boolean | null | undefined`, so
+  the bar chart narrows to a number before formatting. Its internals moved onto Redux, which
+  costs about 13 kB gzip in the chart chunk - first-load JS is unaffected, because the charts are
+  already loaded on demand; React 19.3 adds about 1 kB to every route.
+- **Dependabot no longer re-proposes two majors that something else pins.** `@types/node` tracks
+  the runtime (the web image is `node:22-alpine` and CI runs Node 22) and `eslint-config-next`
+  ships with Next and is versioned with it, so both move by hand, in the change that moves what
+  they follow. Minor and patch updates still flow for each.
 
 ## [2.1.0] - 2026-09-07
 
