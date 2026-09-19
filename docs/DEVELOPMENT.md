@@ -227,6 +227,15 @@ flowchart TD
     requireGate -->|"set (CI)"| runFails["Run fails<br/>(the authoritative gate cannot silently degrade)"]
 ```
 
+> **The integration tier owns the infrastructure it points at.** Its fixtures `TRUNCATE`
+> every table in the target database and `FLUSHDB` the target Redis between tests, so
+> `TEST_DATABASE_URL` / `TEST_REDIS_URL` (or the `DATABASE_URL` / `REDIS_URL` they fall back
+> to) must name a throwaway pair. Never a database whose contents matter, and never a Redis
+> a worker is using: the flush deletes queued ingestion jobs, and the documents they
+> belonged to then sit in `pending` indefinitely - the stuck-document reaper deliberately
+> leaves `pending` alone, because a backlog is not a crash. For the same reason, do not run
+> the suite while the e2e stack is driving the same Redis.
+
 ---
 
 ## Project layout
