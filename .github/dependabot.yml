@@ -31,6 +31,21 @@ updates:
       frontend-dependencies:
         patterns: ["*"]
         update-types: ["minor", "patch"]
+    # Two packages are pinned to something else in this repo and a major bump of either,
+    # on its own, is wrong rather than merely unreviewed. Minor and patch still flow.
+    ignore:
+      # @types/node types the runtime, so it tracks the runtime: the web Dockerfile is
+      # node:22-alpine and CI runs Node 22. A newer major would type APIs that do not
+      # exist where this code runs - `tsc` passes, the call throws. Move it in the same
+      # change that moves the Dockerfile and the CI matrix.
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
+      # eslint-config-next ships with Next and is versioned with it, so it moves when
+      # `next` moves. Its majors also carry the lint stack: v16 requires ESLint >= 9 and
+      # flat config, and pulls eslint-plugin-react-hooks 7, whose React Compiler rules
+      # are a reviewed change of their own.
+      - dependency-name: "eslint-config-next"
+        update-types: ["version-update:semver-major"]
 
   # ---- Container base images ---------------------------------------------- #
   # The images every self-hoster pulls. Without these, a CVE in python:3.11-slim or

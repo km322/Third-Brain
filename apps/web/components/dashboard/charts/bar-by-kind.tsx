@@ -165,7 +165,7 @@ export function BarByKind({
           <LabelList
             dataKey="value"
             position="right"
-            formatter={(v: number) => format(v)}
+            formatter={(v) => (typeof v === "number" ? format(v) : v)}
             style={{ fontSize: 12, fill: "hsl(var(--muted-foreground))" }}
           />
         </Bar>
