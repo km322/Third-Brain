@@ -254,6 +254,9 @@ async def db_ready(integration_infra):
     try:
         from app.core.redis import get_redis
 
+        # Flushes the whole database, not just this suite's keys: point TEST_REDIS_URL at a
+        # throwaway Redis. Sharing one with a running worker deletes its queued arq jobs,
+        # stranding those documents in `pending` (the reaper only reaps `processing`).
         await get_redis().flushdb()
     except Exception:  # pragma: no cover - cache reset is best-effort
         pass

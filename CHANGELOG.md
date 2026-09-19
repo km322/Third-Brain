@@ -25,6 +25,12 @@ version covers the API, the worker, and the web app - they release together, and
 - **CI builds the static project site.** `npm run build:site` is what Cloudflare Pages runs on
   every push, but nothing ran it in CI - so a page missing from the `PUBLISHED_PAGES` allowlist,
   or a component that cannot be statically exported, passed CI green and failed at the host.
+- **An end-to-end journey for the Usage page.** Its charts had no automated coverage, which is
+  exactly where a charting-library upgrade fails quietly: the build compiles, the page loads, and
+  the series is simply missing. The new spec ingests a document, asks a question, then asserts the
+  trend is drawn, that each bar carries its formatted value label, and that hovering one still
+  produces a tooltip with all three measures - the two contracts recharts changed in v3. Both were
+  confirmed to bite by breaking them on purpose and watching the spec fail.
 - **Dependabot watches the container base images.** `python:3.11-slim` and `node:22-alpine` are
   what every self-hoster pulls, and a CVE in either produced no pull request.
 - **CI builds both images for `linux/arm64`** on a native arm64 runner. The release publishes a
@@ -62,6 +68,18 @@ version covers the API, the worker, and the web app - they release together, and
   a query storm linear in the number of answers. The collection lookup is now memoised per
   request, since answers cluster into far fewer collections than there are answers. The route
   still scans unbounded.
+- **Nothing warned that the integration tier destroys the infrastructure it points at.** Its
+  fixtures `TRUNCATE` every table in the target database and `FLUSHDB` the target Redis, which
+  is fine against throwaway infrastructure and ruinous against anything else - sharing a Redis
+  with a running worker deletes its queued ingestion jobs, and those documents then sit in
+  `pending` for good, since the reaper only reaps `processing`. The testing docs and the fixture
+  now say so.
+- **Dependabot could not label its own pull requests.** `.github/dependabot.yml` has always asked
+  for `dependencies`, `backend`, `frontend`, `docker` and `ci`, but none of those labels existed in
+  the repository. Dependabot does not create labels: it applied none of them and commented "The
+  following labels could not be found" on all nineteen pull requests it has ever opened. The labels
+  now exist, the config records that they must, and the open and closed pull requests have been
+  labelled retroactively.
 - **A hovered donut segment covered the figure it explained.** Recharts anchors a pie tooltip at
   the hovered sector's midpoint, which on a donut is inside the ring, so the "Cost by type"
   tooltip landed on top of the center total and overlapped two numbers into something

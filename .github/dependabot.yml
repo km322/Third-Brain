@@ -1,5 +1,10 @@
 # Automated dependency updates for every manifest in the monorepo.
 # Docs: https://docs.github.com/code-security/dependabot/dependabot-version-updates
+#
+# Every label named below must exist in the repository. Dependabot does not create labels:
+# when one is missing it applies none of them and comments "The following labels could not
+# be found" on every pull request it opens. The set in use here is `dependencies`, plus one
+# of `backend` / `frontend`, plus `docker` or `ci` where the ecosystem is one of those.
 version: 2
 updates:
   # ---- Backend API (Python / pip via pyproject.toml) ----------------------- #
@@ -53,7 +58,7 @@ updates:
   #
   # Patch and minor only. A major base-image bump is a decision, not an update: CI pins
   # Python 3.11 and Node 22, so moving the runtime without moving the test matrix ships
-  # an interpreter the 763-test suite has never run against. Raise the language version
+  # an interpreter the 766-test suite has never run against. Raise the language version
   # in CI and the Dockerfile together, by hand.
   - package-ecosystem: docker
     directory: /apps/api
