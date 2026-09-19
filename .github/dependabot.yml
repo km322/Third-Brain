@@ -36,8 +36,8 @@ updates:
       frontend-dependencies:
         patterns: ["*"]
         update-types: ["minor", "patch"]
-    # Two packages are pinned to something else in this repo and a major bump of either,
-    # on its own, is wrong rather than merely unreviewed. Minor and patch still flow.
+    # These majors are pinned by something else in this repo, so bumping any one of them on
+    # its own is wrong rather than merely unreviewed. Minor and patch still flow.
     ignore:
       # @types/node types the runtime, so it tracks the runtime: the web Dockerfile is
       # node:22-alpine and CI runs Node 22. A newer major would type APIs that do not
@@ -45,11 +45,21 @@ updates:
       # change that moves the Dockerfile and the CI matrix.
       - dependency-name: "@types/node"
         update-types: ["version-update:semver-major"]
-      # eslint-config-next ships with Next and is versioned with it, so it moves when
-      # `next` moves. Its majors also carry the lint stack: v16 requires ESLint >= 9 and
-      # flat config, and pulls eslint-plugin-react-hooks 7, whose React Compiler rules
-      # are a reviewed change of their own.
+      # The lint toolchain moves as one unit, with Next, by hand. eslint-config-next ships
+      # with Next and is versioned with it, and it is what pins the other two:
+      #   * eslint-plugin-react (its dependency) peers at `eslint ^9.7`, so ESLint 10 cannot
+      #     install, and forced in it dies on the first file with
+      #     "contextOrFilename.getFilename is not a function";
+      #   * typescript-eslint (its dependency) peers at `typescript <6.1`, so TypeScript 7
+      #     fails the lint job with "typescript-eslint does not support TS 7.0".
+      # eslint-config-next 16 additionally requires flat config and pulls
+      # eslint-plugin-react-hooks 7, whose React Compiler rules are a reviewed change of
+      # their own.
       - dependency-name: "eslint-config-next"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "eslint"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "typescript"
         update-types: ["version-update:semver-major"]
 
   # ---- Container base images ---------------------------------------------- #

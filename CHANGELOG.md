@@ -98,16 +98,22 @@ version covers the API, the worker, and the web app - they release together, and
   `packages: write` to every job; each job now takes only what it needs, so the third-party
   `docker/*` actions can no longer inherit the ability to push to the repository.
 - **Dependency batch:** recharts 2 -> 3, lucide-react 0.469 -> 1, React and React DOM
-  19.2.8 -> 19.3 with matching `@types/react*`, autoprefixer to 10.6, and ruff 0.16.6 -> 0.16.7.
+  19.2.8 -> 19.3 with matching `@types/react*`, zod 3 -> 4, date-fns 3 -> 4, react-hook-form to
+  7.88, TanStack Query to 5.103, autoprefixer to 10.6, and ruff 0.16.6 -> 0.16.7.
   recharts 3 is the line that supports React 19 without the deprecated `defaultProps` path; it
   retypes `LabelList`'s formatter to receive `string | number | boolean | null | undefined`, so
   the bar chart narrows to a number before formatting. Its internals moved onto Redux, which
   costs about 13 kB gzip in the chart chunk - first-load JS is unaffected, because the charts are
-  already loaded on demand; React 19.3 adds about 1 kB to every route.
-- **Dependabot no longer re-proposes two majors that something else pins.** `@types/node` tracks
-  the runtime (the web image is `node:22-alpine` and CI runs Node 22) and `eslint-config-next`
-  ships with Next and is versioned with it, so both move by hand, in the change that moves what
-  they follow. Minor and patch updates still flow for each.
+  already loaded on demand; React 19.3 adds about 1 kB to every route. The two other majors are
+  invisible from here: the hand-rolled zod resolver in the auth forms uses only `safeParse` and
+  an issue's `path` / `code` / `message`, all unchanged in zod 4, and every validation message
+  still reads the same; date-fns 4 formats the three relative timestamps identically.
+- **Dependabot no longer re-proposes majors that something else pins.** `@types/node` tracks the
+  runtime (the web image is `node:22-alpine` and CI runs Node 22). The lint toolchain moves as one
+  unit with Next: `eslint-config-next` is versioned with Next and is what pins the other two, since
+  its `eslint-plugin-react` peers at `eslint ^9.7` (ESLint 10 cannot install, and crashes if forced)
+  and its `typescript-eslint` peers at `typescript <6.1` (TypeScript 7 fails the lint job outright).
+  All four move by hand, in the change that moves what they follow. Minor and patch still flow.
 
 ## [2.1.0] - 2026-09-07
 
