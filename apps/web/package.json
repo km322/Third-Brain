@@ -36,7 +36,7 @@
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "react-force-graph-2d": "^1.29.1",
-    "react-hook-form": "^7.87.0",
+    "react-hook-form": "^7.88.0",
     "recharts": "^3.10.1",
     "sonner": "^2.0.8",
     "tailwind-merge": "^2.3.0",
@@ -45,7 +45,7 @@
   },
   "devDependencies": {
     "@playwright/test": "^1.63.0",
-    "@types/node": "^22.20.1",
+    "@types/node": "^22.20.3",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "autoprefixer": "^10.5.6",
