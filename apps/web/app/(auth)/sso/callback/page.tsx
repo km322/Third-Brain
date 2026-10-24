@@ -24,18 +24,18 @@ import type { AuthTokens, CurrentUser } from "@/lib/types";
 function SsoCallbackInner() {
   const router = useRouter();
   const params = useSearchParams();
-  const [error, setError] = React.useState<string | null>(null);
+  const code = params.get("code");
+  const state = params.get("state");
+  const [exchangeError, setExchangeError] = React.useState<string | null>(null);
+  const error =
+    !code || !state
+      ? "This sign-in link is missing its authorization code."
+      : exchangeError;
   const ran = React.useRef(false);
 
   React.useEffect(() => {
-    if (ran.current) return;
+    if (ran.current || !code || !state) return;
     ran.current = true;
-    const code = params.get("code");
-    const state = params.get("state");
-    if (!code || !state) {
-      setError("This sign-in link is missing its authorization code.");
-      return;
-    }
     (async () => {
       try {
         const tokens = await api.post<AuthTokens>("/auth/sso/callback", { code, state });
@@ -46,10 +46,12 @@ function SsoCallbackInner() {
         } catch {}
         router.replace("/dashboard");
       } catch (err) {
-        setError(err instanceof ApiError ? err.message : "Single sign-on failed.");
+        setExchangeError(
+          err instanceof ApiError ? err.message : "Single sign-on failed.",
+        );
       }
     })();
-  }, [params, router]);
+  }, [code, state, router]);
 
   return (
     <Card className="border-0 bg-transparent shadow-none">

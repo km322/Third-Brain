@@ -41,7 +41,11 @@ export function GraphControls({
   isFetching,
 }: GraphControlsProps) {
   const [localSim, setLocalSim] = React.useState(similarity);
-  React.useEffect(() => setLocalSim(similarity), [similarity]);
+  const [syncedSim, setSyncedSim] = React.useState(similarity);
+  if (similarity !== syncedSim) {
+    setSyncedSim(similarity);
+    setLocalSim(similarity);
+  }
 
   React.useEffect(() => {
     if (localSim === similarity) return;

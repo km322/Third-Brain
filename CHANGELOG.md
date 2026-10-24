@@ -88,6 +88,38 @@ version covers the API, the worker, and the web app - they release together, and
 
 ### Changed
 
+- **Next.js 15.5.28 -> 16.4.3**, with `eslint-config-next` 16.4.3 and ESLint 8 -> 9.
+  Turbopack now builds both the app and the static project site. Dependabot's 16.3.5 bump
+  (#37) failed on the site build alone: it stages a copy of `apps/web` whose `node_modules` is
+  a symlink back into the checkout, and Turbopack refuses to follow a link out of its project
+  root. `next.config.mjs` now declares the real `apps/web` as an additional root for that build
+  only. The export also gains a `_not-found/` copy of the 404 page, which a static host would
+  serve as a 200; the site build deletes it. Next 16 removed the `eslint` key from
+  `next.config`, so the lint setup moves to a flat `eslint.config.mjs`, which also takes over the
+  ignore list from `.eslintignore`. Next rewrote `tsconfig.json` to the automatic JSX runtime.
+  `next-env.d.ts` is no longer tracked, because `next dev` and `next build` now write different
+  versions of it. The minimum Node version is 20.9; the image and CI stay on Node 22. The
+  rendered site does not change: the landing and docs pages export pixel-identical to the 15.5
+  build, in light and dark mode. The link-preview card keeps its look by loading its own font,
+  the Noto Sans that `next/og` used to bundle (vendored with its OFL text), because Next 16
+  switched that default to Geist; only glyph anti-aliasing differs. `/opengraph-image` and
+  `/icon.svg` keep their year-long `Cache-Control`, which Next 16 dropped to `max-age=0`.
+  `next dev` no longer writes an `AGENTS.md` into `apps/web` when it detects an AI agent
+  (`agentRules: false`). Next 16 ships a larger React DOM, so every page loads 20-37 kB more
+  gzipped JavaScript, and `next build` no longer prints per-route sizes.
+- **The dashboard passes the React Compiler lint rules** that `eslint-plugin-react-hooks` 7
+  enables by default. Most hits were state copied inside an effect, which renders once with
+  the stale value and then again with the new one. Dialogs now reset their forms in the same
+  render that opens them, and the settings forms, graph slider and URL-driven document filters
+  sync the same way. Changing a document filter now resets to page 1 before the list is fetched,
+  instead of first requesting the old page number under the new filter. A sign-in link with no
+  authorization code shows its error immediately, without a spinner first. "Latest value" refs
+  are no longer written during render (`useEffectEvent`, or a layout effect for the graph
+  canvas). Four places keep the old pattern on purpose, each with a scoped disable and a
+  reason: the two places that read the session token from localStorage, the restore of a
+  document draft from sessionStorage (browser-only storage, so it can only be read after
+  hydration), and the graph's node registry, a mutable cache that keeps node identity stable
+  for the force layout.
 - **Linting runs the ESLint CLI instead of `next lint`**, which Next deprecates and removes in 16.
   Coverage is unchanged or wider, and a new `.eslintignore` mirroring `.prettierignore` keeps
   generated output from failing the lint job.

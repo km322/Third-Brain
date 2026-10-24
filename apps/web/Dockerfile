@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 
 # ============================================================================
-# Third Brain - web (Next.js 15) production image.
+# Third Brain - web (Next.js 16) production image.
 #
 # Four stages:
 #   deps    -> reproducible install from the lockfile

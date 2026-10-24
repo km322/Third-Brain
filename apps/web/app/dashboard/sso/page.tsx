@@ -487,16 +487,19 @@ function SsoConnectionDialog({
   const [defaultRole, setDefaultRole] = React.useState<OrgRole>("viewer");
   const [enabled, setEnabled] = React.useState(true);
 
-  React.useEffect(() => {
-    if (!open) return;
-    setProtocol("oidc");
-    setName("");
-    setEmailDomain("");
-    setConfigText("");
-    setClientSecret("");
-    setDefaultRole("viewer");
-    setEnabled(true);
-  }, [open]);
+  const [wasOpen, setWasOpen] = React.useState(false);
+  if (open !== wasOpen) {
+    setWasOpen(open);
+    if (open) {
+      setProtocol("oidc");
+      setName("");
+      setEmailDomain("");
+      setConfigText("");
+      setClientSecret("");
+      setDefaultRole("viewer");
+      setEnabled(true);
+    }
+  }
 
   const save = useMutation({
     mutationFn: () => {
@@ -681,9 +684,11 @@ function CreateScimTokenDialog({
 }) {
   const [name, setName] = React.useState("");
 
-  React.useEffect(() => {
+  const [wasOpen, setWasOpen] = React.useState(false);
+  if (open !== wasOpen) {
+    setWasOpen(open);
     if (open) setName("");
-  }, [open]);
+  }
 
   const create = useMutation({
     mutationFn: () => api.post<ScimTokenCreated>("/scim-tokens", { name: name.trim() }),

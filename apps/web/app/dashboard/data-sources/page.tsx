@@ -374,16 +374,19 @@ function CreateDialog({
   });
   const collections = collectionsQuery.data ?? [];
 
-  React.useEffect(() => {
-    if (!open) return;
-    setName("");
-    setKind("local_folder");
-    setCollectionId("");
-    setVisibility("private");
-    setConfigText("");
-    setSecret("");
-    setSyncInterval("");
-  }, [open]);
+  const [wasOpen, setWasOpen] = React.useState(false);
+  if (open !== wasOpen) {
+    setWasOpen(open);
+    if (open) {
+      setName("");
+      setKind("local_folder");
+      setCollectionId("");
+      setVisibility("private");
+      setConfigText("");
+      setSecret("");
+      setSyncInterval("");
+    }
+  }
 
   const create = useMutation({
     mutationFn: () => {
@@ -621,9 +624,12 @@ function ManageAccessDialog({
 
   const [targets, setTargets] = React.useState<Record<string, string>>({});
 
-  React.useEffect(() => {
+  const openedFor = open ? (source?.id ?? null) : undefined;
+  const [targetsFor, setTargetsFor] = React.useState<string | null>();
+  if (openedFor !== targetsFor) {
+    setTargetsFor(openedFor);
     if (open) setTargets({});
-  }, [open, source?.id]);
+  }
 
   const mapIdentity = useMutation({
     mutationFn: (p: ExternalPrincipalItem) => {

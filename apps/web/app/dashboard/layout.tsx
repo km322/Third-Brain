@@ -50,10 +50,11 @@ function DashboardShell({ children }: { children: React.ReactNode }) {
   const { user, isError, refetch } = useAuth();
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = React.useState(false);
-
-  React.useEffect(() => {
+  const [shownPathname, setShownPathname] = React.useState(pathname);
+  if (pathname !== shownPathname) {
+    setShownPathname(pathname);
     setMobileOpen(false);
-  }, [pathname]);
+  }
 
   return (
     <div className="min-h-screen bg-background">

@@ -396,13 +396,15 @@ function TeamFormDialog({
   const [description, setDescription] = React.useState("");
   const [parentId, setParentId] = React.useState("");
 
-  React.useEffect(() => {
+  const [wasOpen, setWasOpen] = React.useState(false);
+  if (open !== wasOpen) {
+    setWasOpen(open);
     if (open) {
       setName(team?.name ?? "");
       setDescription(team?.description ?? "");
       setParentId(team?.parent_team_id ?? "");
     }
-  }, [open, team]);
+  }
 
   const parentOptions = React.useMemo(() => {
     if (!team) return [];

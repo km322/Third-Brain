@@ -47,14 +47,16 @@ updates:
         update-types: ["version-update:semver-major"]
       # The lint toolchain moves as one unit, with Next, by hand. eslint-config-next ships
       # with Next and is versioned with it, and it is what pins the other two:
-      #   * eslint-plugin-react (its dependency) peers at `eslint ^9.7`, so ESLint 10 cannot
-      #     install, and forced in it dies on the first file with
-      #     "contextOrFilename.getFilename is not a function";
+      #   * eslint-plugin-react, eslint-plugin-import and eslint-plugin-jsx-a11y (its
+      #     dependencies) peer at `eslint ^9`. eslint-config-next 16.4 shims the context
+      #     APIs ESLint 10 removed, so a forced ESLint 10 now lints cleanly, but npm only
+      #     installs it by overriding all three peer ranges (ERESOLVE warnings). Take it
+      #     when those plugins declare ESLint 10 support;
       #   * typescript-eslint (its dependency) peers at `typescript <6.1`, so TypeScript 7
       #     fails the lint job with "typescript-eslint does not support TS 7.0".
-      # eslint-config-next 16 additionally requires flat config and pulls
-      # eslint-plugin-react-hooks 7, whose React Compiler rules are a reviewed change of
-      # their own.
+      # A new eslint-config-next major also brings whatever new rules its plugins enable
+      # by default, as 16 did with eslint-plugin-react-hooks 7's React Compiler rules, and
+      # those are a reviewed change of their own.
       - dependency-name: "eslint-config-next"
         update-types: ["version-update:semver-major"]
       - dependency-name: "eslint"

@@ -82,22 +82,14 @@ export function KnowledgeGraph() {
 
   const neighborsQuery = useDocumentNeighbors(expandId, 16);
 
-  React.useEffect(() => {
-    if (!expandId || !neighborsQuery.data) return;
+  if (expandId && neighborsQuery.data) {
     const { nodes, edges } = neighborsQuery.data;
     setExpansions((prev) => ({
       nodes: [...prev.nodes, ...nodes],
       edges: [...prev.edges, ...edges],
     }));
     setExpandId(null);
-  }, [expandId, neighborsQuery.data]);
-
-  React.useEffect(() => {
-    setExpansions(EMPTY_EXPANSIONS);
-    setSelectedId(null);
-    setActiveClusterId(null);
-    setExpandId(null);
-  }, [collectionId, minSimilarity]);
+  }
 
   const { mergedNodes, mergedEdges, adjacency } = React.useMemo(() => {
     const nodeMap = new Map<string, GraphNode>();
@@ -152,6 +144,9 @@ export function KnowledgeGraph() {
     links: Map<string, VizLink>;
   }>({ nodes: new Map(), links: new Map() });
 
+  /* eslint-disable react-hooks/refs -- the registry is a deliberate mutable cache: the
+     force layout writes x/y/vx/vy onto the node objects it is handed, so they must keep
+     their identity across renders or every data change would restart the simulation. */
   const graphData = React.useMemo<VizGraphData>(() => {
     const reg = registryRef.current;
     const seenNodes = new Set<string>();
@@ -201,6 +196,7 @@ export function KnowledgeGraph() {
 
     return { nodes, links };
   }, [mergedNodes, mergedEdges, communityByNode, colorByNode]);
+  /* eslint-enable react-hooks/refs */
 
   const selectedNode = selectedId
     ? (graphData.nodes.find((n) => n.id === selectedId) ?? null)
@@ -231,15 +227,36 @@ export function KnowledgeGraph() {
     canvasRef.current?.fitAll();
   }, []);
 
+  const resetView = React.useCallback(() => {
+    setExpansions(EMPTY_EXPANSIONS);
+    setSelectedId(null);
+    setActiveClusterId(null);
+    setExpandId(null);
+  }, []);
+
+  const handleCollectionChange = React.useCallback(
+    (id: string) => {
+      setCollectionId(id);
+      resetView();
+    },
+    [resetView],
+  );
+
+  const handleSimilarityChange = React.useCallback(
+    (value: number) => {
+      setMinSimilarity(value);
+      resetView();
+    },
+    [resetView],
+  );
+
   const handleReset = React.useCallback(() => {
     setCollectionId(ALL_COLLECTIONS);
     setMinSimilarity(DEFAULT_SIMILARITY);
-    setSelectedId(null);
-    setActiveClusterId(null);
+    resetView();
     setHoverId(null);
-    setExpansions(EMPTY_EXPANSIONS);
     canvasRef.current?.fitAll();
-  }, []);
+  }, [resetView]);
 
   const total = graphQuery.data;
   const truncated = total?.truncated ?? false;
@@ -254,9 +271,9 @@ export function KnowledgeGraph() {
       <GraphControls
         collections={collections ?? []}
         collectionId={collectionId}
-        onCollectionChange={setCollectionId}
+        onCollectionChange={handleCollectionChange}
         similarity={minSimilarity}
-        onSimilarityChange={setMinSimilarity}
+        onSimilarityChange={handleSimilarityChange}
         onReset={handleReset}
         isFetching={graphQuery.isFetching}
       />

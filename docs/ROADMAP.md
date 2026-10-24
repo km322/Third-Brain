@@ -86,7 +86,7 @@ The baseline the roadmap builds on - all of it in the repo and covered by tests:
   live fetch is not built yet.
 - **Hybrid search** - vector similarity fused with keyword search via reciprocal rank fusion.
 - **Dashboard** - usage analytics, spend, scoped API keys, teams, connectors, document management
-  and audit logs (Next.js 15).
+  and audit logs (Next.js 16).
 - **SSO / SAML + SCIM** - OIDC and SAML 2.0 sign-in with just-in-time provisioning (SAML assertions
   are signature-verified against the connection's IdP certificate), plus SCIM 2.0 provisioning of
   users and of IdP groups as teams. Both are set up from the dashboard's **SSO & SCIM** page.

@@ -82,6 +82,7 @@ export default function DocumentDetailPage({
 
   React.useEffect(() => {
     const stored = sessionStorage.getItem(`doc-draft:${id}`);
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- sessionStorage exists only in the browser, so the draft is restored after hydration
     if (stored !== null) setDraft(stored);
   }, [id]);
 

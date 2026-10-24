@@ -220,14 +220,16 @@ function SettingsDialog({
     collection.default_permission,
   );
 
-  React.useEffect(() => {
+  const [wasOpen, setWasOpen] = React.useState(false);
+  if (open !== wasOpen) {
+    setWasOpen(open);
     if (open) {
       setName(collection.name);
       setDescription(collection.description ?? "");
       setVisibility(collection.visibility);
       setDefaultPermission(collection.default_permission);
     }
-  }, [open, collection]);
+  }
 
   const mutation = useMutation<Collection>({
     mutationFn: () =>

@@ -10,7 +10,9 @@
  * exported at all without a `generateStaticParams`. So the build copies apps/web into a
  * temp directory, drops those two route trees from the copy, and runs `next build`
  * there with STATIC_EXPORT=1. The checkout is never modified, nothing is restored
- * afterwards, and two builds can run at once without racing.
+ * afterwards, and two builds can run at once without racing. The copy's node_modules is
+ * a symlink back into apps/web, which next.config.mjs lets Turbopack follow
+ * (SITE_SOURCE_DIR).
  *
  * Usage:
  *   npm run build:site
@@ -57,6 +59,14 @@ const PUBLISHED_PAGES = new Set([
   "404.html",
   "404/index.html",
 ]);
+
+/**
+ * Next 16 also exports the not-found page at the path of its own internal `_not-found`
+ * route. A static host would serve that copy as a 200 at `/_not-found/`, a soft 404 that
+ * no link points to, so the directory is deleted before the allowlist check. The 404
+ * pages above are the ones a host serves for a missing path.
+ */
+const INTERNAL_ROUTE_DIRS = ["_not-found"];
 
 /**
  * Per-path response headers, in the `_headers` format Cloudflare Pages and Netlify read
@@ -123,6 +133,7 @@ function runNextBuild(staging) {
     env: {
       ...process.env,
       STATIC_EXPORT: "1",
+      SITE_SOURCE_DIR: WEB_DIR,
       NEXT_TELEMETRY_DISABLED: "1",
       NEXT_PUBLIC_SITE_URL: process.env.NEXT_PUBLIC_SITE_URL || DEFAULT_SITE_URL,
     },
@@ -156,6 +167,9 @@ try {
   runNextBuild(staging);
 
   const exportDir = path.join(staging, "out");
+  for (const dir of INTERNAL_ROUTE_DIRS) {
+    await fs.rm(path.join(exportDir, dir), { recursive: true, force: true });
+  }
   await fs.writeFile(path.join(exportDir, "_headers"), HEADERS_FILE);
   const pages = await assertPublishablePages(exportDir);
 

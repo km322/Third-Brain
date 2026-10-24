@@ -69,6 +69,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   React.useEffect(() => {
     if (!auth.isAuthenticated) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- the token lives in localStorage, readable only after hydration; this pairs with the redirect
       setHasToken(false);
       if (!pathname?.startsWith("/login")) router.replace(loginPath());
     }

@@ -113,6 +113,7 @@ function ActivateInner() {
   const [authed, setAuthed] = React.useState(false);
   React.useEffect(() => {
     if (auth.isAuthenticated) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- the token lives in localStorage, readable only after hydration; the alternative is the redirect below
       setAuthed(true);
       return;
     }

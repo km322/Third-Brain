@@ -369,7 +369,9 @@ function CreateKeyDialog({
   const [rateLimit, setRateLimit] = React.useState("");
   const [actsAs, setActsAs] = React.useState<string>(NONE);
 
-  React.useEffect(() => {
+  const [wasOpen, setWasOpen] = React.useState(false);
+  if (open !== wasOpen) {
+    setWasOpen(open);
     if (open) {
       setName("");
       setScopes(["read", "search"]);
@@ -377,7 +379,7 @@ function CreateKeyDialog({
       setRateLimit("");
       setActsAs(NONE);
     }
-  }, [open]);
+  }
 
   const membersQuery = useQuery<Membership[]>({
     queryKey: ["org-members"],

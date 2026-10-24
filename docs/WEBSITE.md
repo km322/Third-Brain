@@ -24,7 +24,7 @@ npm ci
 npm run build:site       # -> apps/web/out
 ```
 
-Requires Node 20 or newer (the repo builds on Node 22). The output directory is
+Requires Node 20.9 or newer (the repo builds on Node 22). The output directory is
 `apps/web/out` and is gitignored - it is a build artifact, never committed.
 
 One optional setting: `NEXT_PUBLIC_SITE_URL` is the absolute origin used for the
@@ -49,9 +49,12 @@ out/
   opengraph-image       link-preview card (PNG, no extension - see below)
   robots.txt            invites crawlers and points them at the sitemap
   sitemap.xml           the two published pages
-  fonts/                the SIL OFL texts covering the fonts served from _next/static
+  fonts/                the SIL OFL texts covering the bundled fonts
   media/                the recorded demo (two renditions) and its poster
   _next/static/         hashed CSS, JS and font files
+  index.txt  __next.*.txt
+                        React Server Component payloads for client-side navigation and
+                        prefetching, one set per page (docs/ has its own)
   _headers              per-path response headers, read by Cloudflare Pages and Netlify
 ```
 
@@ -59,7 +62,9 @@ The dashboard and auth pages are **deliberately absent**: they are shells around
 publishing them on a site with no API behind it would be a dead end. For the same reason the
 navbar and footer carry no "Sign in" link - the on-ramp is the
 [quick start](https://third-brain.ai/docs#quick-start), which tells you how to run your own
-instance. The build fails if any page other than those listed above is emitted.
+instance. The build fails if any page other than those listed above is emitted. Next also
+exports a copy of the not-found page at `_not-found/`, the path of its internal route; the
+build deletes it, so a host answers that path with a real 404 instead of a 200.
 
 ## Serve it anywhere
 

@@ -375,22 +375,25 @@ function ConnectorFormDialog({
   const [isDefault, setIsDefault] = React.useState(false);
   const [enabled, setEnabled] = React.useState(true);
 
-  React.useEffect(() => {
-    if (!open) return;
-    setName(connector?.name ?? "");
-    setType(connector?.type ?? "openai");
-    setPurpose(connector?.purpose ?? "completion");
-    setModel(connector?.model ?? "");
-    setConfigText(
-      connector && Object.keys(connector.config ?? {}).length
-        ? JSON.stringify(connector.config, null, 2)
-        : "",
-    );
-    setApiKey("");
-    setCredsTouched(false);
-    setIsDefault(connector?.is_default ?? false);
-    setEnabled(connector?.enabled ?? true);
-  }, [open, connector]);
+  const [wasOpen, setWasOpen] = React.useState(false);
+  if (open !== wasOpen) {
+    setWasOpen(open);
+    if (open) {
+      setName(connector?.name ?? "");
+      setType(connector?.type ?? "openai");
+      setPurpose(connector?.purpose ?? "completion");
+      setModel(connector?.model ?? "");
+      setConfigText(
+        connector && Object.keys(connector.config ?? {}).length
+          ? JSON.stringify(connector.config, null, 2)
+          : "",
+      );
+      setApiKey("");
+      setCredsTouched(false);
+      setIsDefault(connector?.is_default ?? false);
+      setEnabled(connector?.enabled ?? true);
+    }
+  }
 
   const save = useMutation({
     mutationFn: () => {
