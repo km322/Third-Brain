@@ -24,7 +24,7 @@ npm ci
 npm run build:site       # -> apps/web/out
 ```
 
-Requires Node 20 or newer (the repo builds on Node 22). The output directory is
+Requires Node 20.9 or newer (the repo builds on Node 22). The output directory is
 `apps/web/out` and is gitignored - it is a build artifact, never committed.
 
 One optional setting: `NEXT_PUBLIC_SITE_URL` is the absolute origin used for the

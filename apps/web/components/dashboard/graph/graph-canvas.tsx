@@ -146,7 +146,9 @@ function GraphCanvasInner(
   const fgRef = React.useRef<GraphInstance | undefined>(undefined);
 
   const dataRef = React.useRef(data);
-  dataRef.current = data;
+  React.useLayoutEffect(() => {
+    dataRef.current = data;
+  }, [data]);
   const fitPendingRef = React.useRef(true);
   const userMovedRef = React.useRef(false);
 

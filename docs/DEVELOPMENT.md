@@ -244,7 +244,7 @@ flowchart TD
 third-brain/
 ├── apps/
 │   ├── api/          # FastAPI backend (REST + OpenAI-compat + MCP) + arq workers
-│   └── web/          # Next.js 15 dashboard
+│   └── web/          # Next.js 16 dashboard
 ├── docs/             # this directory
 ├── .github/workflows # CI
 └── docker-compose.yml

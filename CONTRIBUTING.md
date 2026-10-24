@@ -69,7 +69,7 @@ no network access at all.
 
 ```
 apps/api          FastAPI backend + arq workers   (Python 3.11, async SQLAlchemy 2.0)
-apps/web          Next.js 15 dashboard            (TypeScript, React 19, Tailwind, shadcn/ui)
+apps/web          Next.js 16 dashboard            (TypeScript, React 19, Tailwind, shadcn/ui)
 packages/mcp-cli  third-brain-mcp npm CLI         (Node >= 18, zero runtime deps)
 docs/             architecture, API, permissions, security, deployment
 scripts/          version bump, release, rollback, self-host bootstrap
@@ -108,8 +108,8 @@ TS/JS/JSON/CSS/YAML/Markdown.
 
 Python is linted and formatted by **ruff** (config in
 [`apps/api/pyproject.toml`](apps/api/pyproject.toml), line length 100). TypeScript is linted
-by **eslint** (config in [`apps/web/.eslintrc.json`](apps/web/.eslintrc.json), run through
-the ESLint CLI) and formatted by **prettier**. The MCP CLI has its own
+by **eslint** (flat config in [`apps/web/eslint.config.mjs`](apps/web/eslint.config.mjs), run
+through the ESLint CLI) and formatted by **prettier**. The MCP CLI has its own
 dependency-free lint script. Run the full local check before pushing:
 
 ```bash

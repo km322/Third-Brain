@@ -37,13 +37,27 @@ const nextConfig = {
    * change the standalone output layout.
    */
   outputFileTracingRoot: import.meta.dirname,
-  eslint: { ignoreDuringBuilds: true },
   /**
    * Export every route as `<route>/index.html` so any plain file server resolves
    * `/docs` without needing clean-URL rules. No effect on the app build.
    */
   trailingSlash: STATIC_SITE,
 };
+
+if (STATIC_SITE && process.env.SITE_SOURCE_DIR) {
+  /**
+   * The static site is built from a staged copy whose node_modules is a symlink back
+   * into the real apps/web (see scripts/build-site.mjs). Turbopack resolves nothing
+   * outside its project root and rejects that symlink as pointing out of it, so the real
+   * apps/web is declared as an additional root it may follow the link into. Experimental
+   * as of Next 16.4; a rename surfaces as a failed `npm run build:site` in CI.
+   */
+  nextConfig.experimental = {
+    turbopackAdditionalRoots: {
+      webSource: { path: process.env.SITE_SOURCE_DIR },
+    },
+  };
+}
 
 if (!STATIC_SITE) {
   /**

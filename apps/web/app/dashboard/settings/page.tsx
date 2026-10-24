@@ -31,6 +31,7 @@ import { Label } from "@/components/ui/label";
 import { api, ApiError, auth } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import type { AuthTokens, ChangePasswordRequest, Organization, User } from "@/lib/types";
+import { useMounted } from "@/lib/use-mounted";
 import { cn, initials } from "@/lib/utils";
 
 function errMsg(e: unknown, fallback = "Something went wrong") {
@@ -65,13 +66,19 @@ export default function SettingsPage() {
 }
 
 function ProfileCard({ user, onSaved }: { user: User | null; onSaved: () => void }) {
-  const [fullName, setFullName] = React.useState("");
-  const [avatarUrl, setAvatarUrl] = React.useState("");
-
-  React.useEffect(() => {
-    setFullName(user?.full_name ?? "");
-    setAvatarUrl(user?.avatar_url ?? "");
-  }, [user?.full_name, user?.avatar_url]);
+  const serverFullName = user?.full_name ?? "";
+  const serverAvatarUrl = user?.avatar_url ?? "";
+  const [fullName, setFullName] = React.useState(serverFullName);
+  const [avatarUrl, setAvatarUrl] = React.useState(serverAvatarUrl);
+  const [synced, setSynced] = React.useState({
+    fullName: serverFullName,
+    avatarUrl: serverAvatarUrl,
+  });
+  if (synced.fullName !== serverFullName || synced.avatarUrl !== serverAvatarUrl) {
+    setSynced({ fullName: serverFullName, avatarUrl: serverAvatarUrl });
+    setFullName(serverFullName);
+    setAvatarUrl(serverAvatarUrl);
+  }
 
   const save = useMutation({
     mutationFn: () =>
@@ -263,8 +270,7 @@ function SecurityCard() {
 
 function AppearanceCard() {
   const { theme, setTheme } = useTheme();
-  const [mounted, setMounted] = React.useState(false);
-  React.useEffect(() => setMounted(true), []);
+  const mounted = useMounted();
 
   const options = [
     { value: "light", label: "Light", icon: Sun },
@@ -314,8 +320,13 @@ function OrgProfileCard({
   admin: boolean;
   onSaved: () => void;
 }) {
-  const [name, setName] = React.useState("");
-  React.useEffect(() => setName(org?.name ?? ""), [org?.name]);
+  const serverName = org?.name ?? "";
+  const [name, setName] = React.useState(serverName);
+  const [syncedName, setSyncedName] = React.useState(serverName);
+  if (syncedName !== serverName) {
+    setSyncedName(serverName);
+    setName(serverName);
+  }
 
   const save = useMutation({
     mutationFn: () => api.patch<Organization>("/orgs/current", { name: name.trim() }),
@@ -461,9 +472,11 @@ function CreateOrgDialog({
 }) {
   const [name, setName] = React.useState("");
 
-  React.useEffect(() => {
+  const [wasOpen, setWasOpen] = React.useState(false);
+  if (open !== wasOpen) {
+    setWasOpen(open);
     if (open) setName("");
-  }, [open]);
+  }
 
   const create = useMutation({
     mutationFn: () => api.post<Organization>("/orgs", { name: name.trim() }),

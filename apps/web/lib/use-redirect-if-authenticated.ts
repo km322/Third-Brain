@@ -22,13 +22,12 @@ const useIsomorphicLayoutEffect =
 export function useRedirectIfAuthenticated(getTarget: () => string): boolean {
   const router = useRouter();
   const [redirecting, setRedirecting] = React.useState(false);
-  const targetRef = React.useRef(getTarget);
-  targetRef.current = getTarget;
+  const resolveTarget = React.useEffectEvent(getTarget);
 
   useIsomorphicLayoutEffect(() => {
     if (auth.isAuthenticated) {
       setRedirecting(true);
-      router.replace(targetRef.current());
+      router.replace(resolveTarget());
     }
   }, [router]);
 

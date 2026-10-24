@@ -215,10 +215,11 @@ function ChunkSheet({
  *
  * The collection and author filters are URL-seeded. The App Router does not remount the
  * page when only search params change (e.g. clicking the sidebar "Documents" link while
- * filtered), so an effect re-syncs each filter whenever its param actually changes. The
- * author filter means ALL = everyone and "mcp" = written by connected agents, deep-linkable
- * via ?via=mcp exactly as ?collection= seeds the collection filter. Any filter change
- * resets back to the first page, and the chunk viewer is itself deep-linkable from
+ * filtered), so each filter is re-synced during render whenever its param actually
+ * changes. The author filter means ALL = everyone and "mcp" = written by connected agents,
+ * deep-linkable via ?via=mcp exactly as ?collection= seeds the collection filter. Any filter
+ * change resets back to the first page in the same render, so a stale page number is
+ * never requested under the new filters, and the chunk viewer is itself deep-linkable from
  * citations (`?doc=<id>`).
  *
  * The list polls while any visible document is still being ingested.
@@ -231,22 +232,29 @@ function DocumentsInner() {
 
   const collectionParam = searchParams.get("collection") ?? ALL;
   const [collectionId, setCollectionId] = React.useState<string>(collectionParam);
-  React.useEffect(() => {
+  const [seededCollection, setSeededCollection] = React.useState(collectionParam);
+  if (collectionParam !== seededCollection) {
+    setSeededCollection(collectionParam);
     setCollectionId(collectionParam);
-  }, [collectionParam]);
+  }
   const [status, setStatus] = React.useState<string>(ALL);
   const viaParam = searchParams.get("via") === "mcp" ? "mcp" : ALL;
   const [author, setAuthor] = React.useState<string>(viaParam);
-  React.useEffect(() => {
+  const [seededAuthor, setSeededAuthor] = React.useState(viaParam);
+  if (viaParam !== seededAuthor) {
+    setSeededAuthor(viaParam);
     setAuthor(viaParam);
-  }, [viaParam]);
+  }
   const [rawSearch, setRawSearch] = React.useState("");
   const search = useDebounced(rawSearch);
   const [page, setPage] = React.useState(1);
 
-  React.useEffect(() => {
+  const filters = JSON.stringify([collectionId, status, author, search]);
+  const [pagedFilters, setPagedFilters] = React.useState(filters);
+  if (filters !== pagedFilters) {
+    setPagedFilters(filters);
     setPage(1);
-  }, [collectionId, status, author, search]);
+  }
 
   const { data: collections } = useQuery<Collection[]>({
     queryKey: ["collections"],

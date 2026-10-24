@@ -30,7 +30,7 @@ Monorepo.
   - `app/mcp` - Model Context Protocol server (`mount_mcp(app)`), mounted at `/mcp`.
   - `app/workers` - arq ingestion workers (`app.workers.settings.WorkerSettings`).
   - `alembic/` migrations, `tests/`.
-- `apps/web` - **Next.js 15** (App Router, React 19, TS, Tailwind + shadcn/ui, TanStack Query).
+- `apps/web` - **Next.js 16** (App Router, React 19, TS, Tailwind + shadcn/ui, TanStack Query).
   - `app/(marketing)` landing · `app/(auth)` login/signup · `app/dashboard/*` the app.
   - `components/ui/*` shadcn primitives · `components/dashboard/*` shell · `lib/api.ts` typed client ·
     `lib/types.ts` mirrors backend schemas · `lib/auth-context.tsx`.

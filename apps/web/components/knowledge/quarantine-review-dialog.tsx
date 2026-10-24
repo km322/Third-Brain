@@ -159,9 +159,11 @@ export function QuarantineReviewDialog({
   const confirmButtonRef = React.useRef<HTMLButtonElement>(null);
   const wasConfirming = React.useRef(false);
 
-  React.useEffect(() => {
+  const [wasOpen, setWasOpen] = React.useState(open);
+  if (open !== wasOpen) {
+    setWasOpen(open);
     if (!open) setConfirmingDiscard(false);
-  }, [open]);
+  }
 
   React.useEffect(() => {
     if (confirmingDiscard && !wasConfirming.current) {

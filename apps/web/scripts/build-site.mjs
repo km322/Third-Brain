@@ -10,7 +10,9 @@
  * exported at all without a `generateStaticParams`. So the build copies apps/web into a
  * temp directory, drops those two route trees from the copy, and runs `next build`
  * there with STATIC_EXPORT=1. The checkout is never modified, nothing is restored
- * afterwards, and two builds can run at once without racing.
+ * afterwards, and two builds can run at once without racing. The copy's node_modules is
+ * a symlink back into apps/web, which next.config.mjs lets Turbopack follow
+ * (SITE_SOURCE_DIR).
  *
  * Usage:
  *   npm run build:site
@@ -49,13 +51,15 @@ const EXCLUDED = new Set([
  * The complete set of HTML files the site is allowed to publish. Checked after every
  * build so a new route can never quietly ship a page that needs an API behind it; add
  * an entry here deliberately when the site gains a page. Next emits the not-found page
- * twice under `trailingSlash`, once at each spelling.
+ * three times under `trailingSlash`: once at each spelling of 404, and once at the path
+ * of its own `_not-found` route.
  */
 const PUBLISHED_PAGES = new Set([
   "index.html",
   "docs/index.html",
   "404.html",
   "404/index.html",
+  "_not-found/index.html",
 ]);
 
 /**
@@ -123,6 +127,7 @@ function runNextBuild(staging) {
     env: {
       ...process.env,
       STATIC_EXPORT: "1",
+      SITE_SOURCE_DIR: WEB_DIR,
       NEXT_TELEMETRY_DISABLED: "1",
       NEXT_PUBLIC_SITE_URL: process.env.NEXT_PUBLIC_SITE_URL || DEFAULT_SITE_URL,
     },

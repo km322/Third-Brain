@@ -186,7 +186,7 @@ services:
     healthcheck:
       disable: true
 
-  # ---- Web (Next.js 15 standalone server) ----
+  # ---- Web (Next.js 16 standalone server) ----
   web:
     build:
       context: ./apps/web

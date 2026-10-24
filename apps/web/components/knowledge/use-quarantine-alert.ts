@@ -27,8 +27,12 @@ export function useQuarantineAlert(
 ): void {
   const previous = React.useRef<Map<string, DocumentStatus>>(new Map());
   const seenQuarantined = React.useRef<Set<string>>(new Set());
-  const onReviewRef = React.useRef(onReview);
-  onReviewRef.current = onReview;
+  const notifyQuarantined = React.useEffectEvent((doc: DocumentItem) => {
+    toast.warning("Possible secrets detected", {
+      description: `"${doc.title}" was quarantined before indexing. Review it to decide what happens.`,
+      action: onReview ? { label: "Review", onClick: () => onReview(doc) } : undefined,
+    });
+  });
 
   React.useEffect(() => {
     if (!documents) return;
@@ -41,11 +45,7 @@ export function useQuarantineAlert(
         prev !== undefined &&
         isProcessingStatus(prev)
       ) {
-        const review = onReviewRef.current;
-        toast.warning("Possible secrets detected", {
-          description: `"${doc.title}" was quarantined before indexing. Review it to decide what happens.`,
-          action: review ? { label: "Review", onClick: () => review(doc) } : undefined,
-        });
+        notifyQuarantined(doc);
       }
       if (doc.status === "quarantined") {
         seenQuarantined.current.add(doc.id);

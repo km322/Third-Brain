@@ -310,13 +310,16 @@ function AnswerFormDialog({
   const [visibility, setVisibility] = React.useState<Visibility>("org");
   const [collectionId, setCollectionId] = React.useState<string>(NO_COLLECTION);
 
-  React.useEffect(() => {
-    if (!open) return;
-    setQuestion(answer?.question ?? "");
-    setAnswerText(answer?.answer ?? "");
-    setVisibility(answer?.visibility ?? "org");
-    setCollectionId(answer?.collection_id ?? NO_COLLECTION);
-  }, [open, answer]);
+  const [wasOpen, setWasOpen] = React.useState(false);
+  if (open !== wasOpen) {
+    setWasOpen(open);
+    if (open) {
+      setQuestion(answer?.question ?? "");
+      setAnswerText(answer?.answer ?? "");
+      setVisibility(answer?.visibility ?? "org");
+      setCollectionId(answer?.collection_id ?? NO_COLLECTION);
+    }
+  }
 
   const save = useMutation({
     mutationFn: () => {

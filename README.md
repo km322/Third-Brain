@@ -5,7 +5,7 @@
 [![CI](https://github.com/km322/Third-Brain/actions/workflows/ci.yml/badge.svg)](https://github.com/km322/Third-Brain/actions/workflows/ci.yml)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](./LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-3776AB.svg)](apps/api)
-[![Next.js 15](https://img.shields.io/badge/Next.js-15-000000.svg)](apps/web)
+[![Next.js 16](https://img.shields.io/badge/Next.js-16-000000.svg)](apps/web)
 
 **Third Brain turns the work your team already does with LLMs into documentation.** Connect its
 MCP server to the tools you already use - Claude Desktop, Claude Code, Cursor, your own agents -
@@ -223,7 +223,7 @@ third-brain/
 │   │   │   └── mcp/          # Model Context Protocol server
 │   │   ├── alembic/          # migrations
 │   │   └── tests/
-│   └── web/            # Next.js 15 frontend (marketing site + dashboard)
+│   └── web/            # Next.js 16 frontend (marketing site + dashboard)
 │       ├── app/
 │       │   ├── (marketing)/  # landing, ...
 │       │   ├── (auth)/       # login, signup
