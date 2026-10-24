@@ -114,6 +114,27 @@ version covers the API, the worker, and the web app - they release together, and
   its `eslint-plugin-react` peers at `eslint ^9.7` (ESLint 10 cannot install, and crashes if forced)
   and its `typescript-eslint` peers at `typescript <6.1` (TypeScript 7 fails the lint job outright).
   All four move by hand, in the change that moves what they follow. Minor and patch still flow.
+  `tailwind-merge` joins them: v3 supports only Tailwind v4 and this app is on tailwindcss 3, so
+  it passes CI while merging some classes wrongly. So does the Python base image's minor, which
+  is its language version: `3.11-slim` -> `3.14-slim` is a minor update to Dependabot, which the
+  major-only rule does not catch.
+- **Dependency roll-up:** the frontend minor/patch group (Radix primitives, TanStack Query
+  5.104, lucide-react 1.58, React 19.3.1, react-hook-form 7.90, Playwright 1.64, prettier
+  3.9.10 and others), `eslint-config-next` 15.5.28 in step with Next, and ruff 0.16.8, which
+  leaves all 210 files formatted as they were.
+
+### Security
+
+- **Next.js 15.5.25 -> 15.5.28**, the current 15.x backport. It fixes a critical
+  unauthenticated remote code execution in the Image Optimization API when SVG files are used
+  (GHSA-2464-fhr4-w9xw), a high-severity Server Actions denial of service (GHSA-p3m5-59mp-jv5r)
+  and two SSG/ISR cache-poisoning advisories (GHSA-4jqv-mc3x-m676, GHSA-mcj8-r9mp-w47p).
+  Dependabot offered only 15.5.27, which still carries the first two.
+- Four more web advisories: `zod` 4.6.7 (memory exhaustion on oversized collections),
+  `source-map-js` 1.2.2 in the lockfile, the `sharp` override floor raised to 0.35.5 (librsvg),
+  and `postcss-selector-parser` overridden to 7.1.x. Tailwind 3's chain asks for 6.x, which has
+  no fix; the compiled stylesheet is byte-identical under both. `npm audit` now reports zero
+  vulnerabilities.
 
 ## [2.1.0] - 2026-09-07
 
