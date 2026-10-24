@@ -61,6 +61,12 @@ updates:
         update-types: ["version-update:semver-major"]
       - dependency-name: "typescript"
         update-types: ["version-update:semver-major"]
+      # tailwind-merge tracks the Tailwind major, and this app is on tailwindcss 3. v3 supports
+      # only Tailwind v4 ("if you use Tailwind v3, use tailwind-merge v2.6.0", per its README),
+      # so it builds and passes CI green while merging some v3 classes wrongly: v2 resolves
+      # `outline-none outline` to `outline`, v3 keeps both. Move it with tailwindcss 4.
+      - dependency-name: "tailwind-merge"
+        update-types: ["version-update:semver-major"]
 
   # ---- Container base images ---------------------------------------------- #
   # The images every self-hoster pulls. Without these, a CVE in python:3.11-slim or
@@ -82,6 +88,12 @@ updates:
     ignore:
       - dependency-name: "*"
         update-types: ["version-update:semver-major"]
+      # Python's language version is its minor: 3.11 -> 3.14 (proposed in #11) is the runtime
+      # change described above, but Dependabot reads it as a minor update, which the major-only
+      # rule does not catch. `3.11-slim` floats, so every image build already takes the newest
+      # 3.11 patch and nothing is lost by ignoring it here.
+      - dependency-name: "python"
+        update-types: ["version-update:semver-minor"]
 
   - package-ecosystem: docker
     directory: /apps/web
