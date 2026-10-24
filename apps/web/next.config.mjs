@@ -42,6 +42,11 @@ const nextConfig = {
    * `/docs` without needing clean-URL rules. No effect on the app build.
    */
   trailingSlash: STATIC_SITE,
+  /**
+   * Stop `next dev` from writing an untracked apps/web/AGENTS.md whenever it detects an
+   * AI coding agent. The repo's agent guidance lives in the root CLAUDE.md.
+   */
+  agentRules: false,
 };
 
 if (STATIC_SITE && process.env.SITE_SOURCE_DIR) {
@@ -78,6 +83,12 @@ if (!STATIC_SITE) {
    * cached immutably. Without this Next serves public/ as `max-age=0`, which makes
    * the CDN in front of production revalidate - and re-stream the multi-megabyte
    * demo from the origin - on every play. Rename the file when the content changes.
+   *
+   * `/opengraph-image` and `/icon.svg` keep the year-long cache Next 15 gave them. Next
+   * 16 serves both as `max-age=0, must-revalidate`, but every page links them with a
+   * hash query string that changes with the file (`/icon.svg?icon.<hash>.svg`), so a new
+   * card or icon is a new URL and revalidating the old one only costs a round trip.
+   * Production builds only, so `next dev` still serves an edited card fresh.
    */
   nextConfig.headers = async () => {
     const securityHeaders = [
@@ -88,12 +99,23 @@ if (!STATIC_SITE) {
       { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=()" },
       { key: "X-DNS-Prefetch-Control", value: "off" },
     ];
+    const hashedMetadataRoutes =
+      process.env.NODE_ENV === "production" ? ["/opengraph-image", "/icon.svg"] : [];
     return [
       { source: "/:path*", headers: securityHeaders },
       {
         source: "/media/:path*",
         headers: [{ key: "Cache-Control", value: "public, max-age=31536000, immutable" }],
       },
+      ...hashedMetadataRoutes.map((source) => ({
+        source,
+        headers: [
+          {
+            key: "Cache-Control",
+            value: "public, immutable, no-transform, max-age=31536000",
+          },
+        ],
+      })),
     ];
   };
 }

@@ -1,3 +1,6 @@
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
+
 import { ImageResponse } from "next/og";
 
 import { LOGO_PATH } from "@/components/brand/logo";
@@ -14,8 +17,13 @@ export const dynamic = "force-static";
 /**
  * Link-preview (Open Graph / Twitter) card, so a shared Third Brain link renders a branded
  * preview instead of a blank box.
+ *
+ * The card brings its own font, Noto Sans (app/fonts/README.md). Without one it falls back
+ * to whatever `next/og` bundles, which changed from Noto Sans to Geist in Next 16 and so
+ * silently restyled every link preview on a framework upgrade.
  */
-export default function OpengraphImage() {
+export default async function OpengraphImage() {
+  const notoSans = await readFile(join(process.cwd(), "app/fonts/noto-sans-regular.ttf"));
   return new ImageResponse(
     <div
       style={{
@@ -28,7 +36,7 @@ export default function OpengraphImage() {
         padding: "80px",
         background: "linear-gradient(135deg, #0b0b12 0%, #1a1030 55%, #2a1a4a 100%)",
         color: "#ffffff",
-        fontFamily: "sans-serif",
+        fontFamily: "Noto Sans",
       }}
     >
       <div style={{ display: "flex", alignItems: "center", gap: 20 }}>
@@ -80,6 +88,9 @@ export default function OpengraphImage() {
         github.com/km322/Third-Brain
       </div>
     </div>,
-    { ...size },
+    {
+      ...size,
+      fonts: [{ name: "Noto Sans", data: notoSans, weight: 400, style: "normal" }],
+    },
   );
 }

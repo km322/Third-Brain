@@ -51,16 +51,22 @@ const EXCLUDED = new Set([
  * The complete set of HTML files the site is allowed to publish. Checked after every
  * build so a new route can never quietly ship a page that needs an API behind it; add
  * an entry here deliberately when the site gains a page. Next emits the not-found page
- * three times under `trailingSlash`: once at each spelling of 404, and once at the path
- * of its own `_not-found` route.
+ * twice under `trailingSlash`, once at each spelling.
  */
 const PUBLISHED_PAGES = new Set([
   "index.html",
   "docs/index.html",
   "404.html",
   "404/index.html",
-  "_not-found/index.html",
 ]);
+
+/**
+ * Next 16 also exports the not-found page at the path of its own internal `_not-found`
+ * route. A static host would serve that copy as a 200 at `/_not-found/`, a soft 404 that
+ * no link points to, so the directory is deleted before the allowlist check. The 404
+ * pages above are the ones a host serves for a missing path.
+ */
+const INTERNAL_ROUTE_DIRS = ["_not-found"];
 
 /**
  * Per-path response headers, in the `_headers` format Cloudflare Pages and Netlify read
@@ -161,6 +167,9 @@ try {
   runNextBuild(staging);
 
   const exportDir = path.join(staging, "out");
+  for (const dir of INTERNAL_ROUTE_DIRS) {
+    await fs.rm(path.join(exportDir, dir), { recursive: true, force: true });
+  }
   await fs.writeFile(path.join(exportDir, "_headers"), HEADERS_FILE);
   const pages = await assertPublishablePages(exportDir);
 

@@ -93,14 +93,20 @@ version covers the API, the worker, and the web app - they release together, and
   (#37) failed on the site build alone: it stages a copy of `apps/web` whose `node_modules` is
   a symlink back into the checkout, and Turbopack refuses to follow a link out of its project
   root. `next.config.mjs` now declares the real `apps/web` as an additional root for that build
-  only, and the export's extra `_not-found/index.html` (the same page as `404.html`) joins the
-  `PUBLISHED_PAGES` allowlist. Next 16 removed the `eslint` key from `next.config`, so the lint
-  setup moves to a flat `eslint.config.mjs`, which also takes over the ignore list from
-  `.eslintignore`. Next rewrote `tsconfig.json` to the automatic JSX runtime. `next-env.d.ts` is
-  no longer tracked, because `next dev` and `next build` now write different versions of it.
-  The minimum Node version is 20.9; the image and CI stay on Node 22. The rendered site does not
-  change: the landing and docs pages export pixel-identical to the 15.5 build, in light and dark
-  mode.
+  only. The export also gains a `_not-found/` copy of the 404 page, which a static host would
+  serve as a 200; the site build deletes it. Next 16 removed the `eslint` key from
+  `next.config`, so the lint setup moves to a flat `eslint.config.mjs`, which also takes over the
+  ignore list from `.eslintignore`. Next rewrote `tsconfig.json` to the automatic JSX runtime.
+  `next-env.d.ts` is no longer tracked, because `next dev` and `next build` now write different
+  versions of it. The minimum Node version is 20.9; the image and CI stay on Node 22. The
+  rendered site does not change: the landing and docs pages export pixel-identical to the 15.5
+  build, in light and dark mode. The link-preview card keeps its look by loading its own font,
+  the Noto Sans that `next/og` used to bundle (vendored with its OFL text), because Next 16
+  switched that default to Geist; only glyph anti-aliasing differs. `/opengraph-image` and
+  `/icon.svg` keep their year-long `Cache-Control`, which Next 16 dropped to `max-age=0`.
+  `next dev` no longer writes an `AGENTS.md` into `apps/web` when it detects an AI agent
+  (`agentRules: false`). Next 16 ships a larger React DOM, so every page loads 20-37 kB more
+  gzipped JavaScript, and `next build` no longer prints per-route sizes.
 - **The dashboard passes the React Compiler lint rules** that `eslint-plugin-react-hooks` 7
   enables by default. Most hits were state copied inside an effect, which renders once with
   the stale value and then again with the new one. Dialogs now reset their forms in the same

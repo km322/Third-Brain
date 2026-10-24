@@ -7,7 +7,7 @@ This product includes software developed as part of the Third Brain project
 Licensed under the Apache License, Version 2.0; see the LICENSE file at the root
 of this repository.
 
-This product bundles two typefaces, each licensed under the SIL Open Font License
+This product bundles three typefaces, each licensed under the SIL Open Font License
 1.1 rather than Apache-2.0. The OFL covers only these font files and no other part
 of Third Brain. The font files live in apps/web/app/fonts/; their licence texts are
 in apps/web/public/fonts/, which ships them with every redistribution - this
@@ -20,3 +20,7 @@ repository, the published static site, and the web container image:
   JetBrains Mono Copyright (c) 2020 The JetBrains Mono Project Authors
                  https://github.com/JetBrains/JetBrainsMono
                  apps/web/public/fonts/jetbrains-mono-LICENSE.txt
+
+  Noto Sans      Copyright 2022 The Noto Project Authors
+                 https://github.com/notofonts/latin-greek-cyrillic
+                 apps/web/public/fonts/noto-sans-LICENSE.txt
