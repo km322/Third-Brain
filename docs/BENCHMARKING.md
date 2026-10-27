@@ -115,7 +115,7 @@ evidence the lexical path and permissions work; it is not evidence about semanti
 ```bash
 # 1. Install the API package with the dev extra (the harness has no runtime dependency of
 #    its own; the metrics are pure Python and the LLM-judge reuses the app's LLM layer)
-cd apps/api && pip install -e ".[dev]"
+cd apps/api && uv sync --locked --extra dev && source .venv/bin/activate
 
 # 2. Bring up Postgres(+pgvector) and Redis and apply migrations. `make up` starts the whole
 #    stack; `make migrate` creates the schema the harness writes into. Zero keys are needed -

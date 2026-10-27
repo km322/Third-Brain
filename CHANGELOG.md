@@ -186,6 +186,14 @@ version covers the API, the worker, and the web app - they release together, and
   short-lived hijacked releases out of the lockfiles. Security updates are exempt.
 - **The web image installs strictly from the lockfile.** The Dockerfile no longer falls back to
   `npm install` when `package-lock.json` is absent.
+- **The API has a lockfile.** `apps/api/uv.lock` pins every Python dependency with hashes, and
+  the image, CI and the documented local setup all install it with `uv sync --locked`. Before,
+  each build resolved `pyproject.toml`'s `>=` ranges fresh, so a hijacked PyPI release went
+  straight into the next image unreviewed, and the published v2.1.0 API image carries known
+  advisories in `certifi`, `pypdf`, `PyJWT`, `urllib3` and `opentelemetry-api`. The lock takes
+  the fixed versions and OSV reports no advisory for any of its 117 packages. The image no
+  longer upgrades pip or builds the project at install time, and Dependabot now updates the lock
+  through its `uv` ecosystem.
 
 ## [2.1.0] - 2026-09-07
 
