@@ -103,7 +103,8 @@ benchmark: ## Measure retrieval, answer and permission-correctness quality on th
 .PHONY: fmt
 fmt: ## Format backend (ruff) and frontend (prettier)
 	# ruff runs on the host, not in the api container: it lives in the `dev` extra and the
-	# image installs `pip install .` only, so `compose exec api ruff` is "not found".
+	# image installs only the locked runtime dependencies, so `compose exec api ruff` is
+	# "not found".
 	cd apps/api && ruff format app tests
 	cd apps/web && npm run format
 

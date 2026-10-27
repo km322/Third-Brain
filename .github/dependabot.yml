@@ -12,8 +12,8 @@
 # updates are not delayed - Dependabot exempts them from the cooldown.
 version: 2
 updates:
-  # ---- Backend API (Python / pip via pyproject.toml) ----------------------- #
-  - package-ecosystem: pip
+  # ---- Backend API (Python / uv: pyproject.toml + uv.lock) ---------------- #
+  - package-ecosystem: uv
     directory: /apps/api
     schedule:
       interval: weekly

@@ -101,10 +101,10 @@ STORAGE_LOCAL_PATH=./var/uploads
 ```bash
 cd apps/api
 
-# Create a virtualenv and install the package with dev extras.
-python3.11 -m venv .venv
+# Create .venv with the exact versions in uv.lock, plus the dev extra
+# (install uv: https://docs.astral.sh/uv/getting-started/installation/).
+uv sync --locked --python 3.11 --extra dev
 source .venv/bin/activate
-pip install -e ".[dev]"
 
 # Apply migrations (uses the sync psycopg URL derived from your .env).
 alembic upgrade head
@@ -266,7 +266,7 @@ the HTTP surface, and [`PERMISSIONS.md`](./PERMISSIONS.md) for the access model.
   or check the `worker` container's logs (`make logs`).
 - **Alembic can't connect** - migrations use the **sync** psycopg URL derived from your
   env. Ensure `psycopg[binary]` is installed (it is a required runtime dependency, pulled
-  in by `pip install -e .`) and the DB host is right.
+  in by `uv sync`) and the DB host is right.
 - **`Can't locate revision identified by '0002_drop_waitlist'`** (or `'0003_drop_org_plan'`,
   or a pre-1.0 id such as `'0002_device_authorizations'`) - v2.0.0 folded the whole history into a
   single `0001_initial` baseline, so your dev DB is stamped at a revision that no longer exists.

@@ -94,7 +94,7 @@ run is a verdict rather than a wall of numbers.
 
 ```bash
 # 1. Install the API package with the load extra (locust is not a runtime dependency)
-cd apps/api && pip install -e ".[dev,load]"
+cd apps/api && uv sync --locked --extra dev --extra load && source .venv/bin/activate
 
 # 2. Start Postgres(+pgvector), Redis, API and worker: `make up`, or run the pieces
 #    directly per docs/DEVELOPMENT.md. Zero keys needed; the offline stub provider

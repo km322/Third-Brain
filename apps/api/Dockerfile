@@ -24,16 +24,23 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         build-essential \
     && rm -rf /var/lib/apt/lists/*
 
-# Self-contained virtualenv we can copy wholesale into the runtime stage.
-RUN python -m venv /opt/venv
-ENV PATH="/opt/venv/bin:$PATH"
+# uv, pinned by digest, installs the exact hash-checked set in uv.lock.
+COPY --from=ghcr.io/astral-sh/uv:0.13.1@sha256:4a1f3666816dafadd20ceb71eac9a7d56d7ef30279f7d64048519ab901ada336 /uv /usr/local/bin/uv
+
+# Self-contained virtualenv we can copy wholesale into the runtime stage, built with the
+# image's own interpreter (never a downloaded one).
+ENV UV_PROJECT_ENVIRONMENT=/opt/venv \
+    UV_PYTHON_DOWNLOADS=never \
+    UV_LINK_MODE=copy \
+    PATH="/opt/venv/bin:$PATH"
 
 WORKDIR /app
 
-# Install runtime dependencies + the project itself (no dev extras).
-COPY pyproject.toml ./
-COPY app ./app
-RUN pip install --upgrade pip && pip install .
+# Runtime dependencies only, exactly as locked: no dev or load extras, and no build of the
+# project itself - the runtime stage runs the source from /app (see PYTHONPATH below).
+# --locked fails the build if uv.lock no longer matches pyproject.toml.
+COPY pyproject.toml uv.lock ./
+RUN uv sync --locked --no-install-project
 
 # ---- runtime: minimal image, non-root ----
 FROM python:3.11-slim AS runtime
@@ -41,6 +48,7 @@ FROM python:3.11-slim AS runtime
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PATH="/opt/venv/bin:$PATH" \
+    PYTHONPATH=/app \
     UVICORN_WORKERS=4
 
 # Unprivileged runtime user; fixed uid/gid for predictable volume ownership.
