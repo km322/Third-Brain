@@ -40,14 +40,14 @@ services:
     ports:
       - "6379:6379"
 
-  # One-shot runner: install dev deps into the image's venv, migrate, run the
-  # integration tier, then exit with pytest's status.
+  # One-shot runner: add the locked dev deps to the builder stage's venv, migrate, run
+  # the integration tier, then exit with pytest's status. The builder stage carries uv;
+  # the runtime stage does not.
   tests:
     build:
       context: ./apps/api
       dockerfile: Dockerfile
-    # Root so pip can write into the venv and setuptools can emit egg-info.
-    user: root
+      target: builder
     working_dir: /app
     depends_on:
       db:
@@ -68,4 +68,4 @@ services:
     command:
       - sh
       - -lc
-      - "pip install -e '.[dev]' && alembic upgrade head && pytest -q -m integration"
+      - "uv sync --locked --extra dev --no-install-project && alembic upgrade head && pytest -q -m integration"

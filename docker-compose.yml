@@ -73,10 +73,9 @@ services:
     environment:
       POSTGRES_HOST: db
       REDIS_URL: redis://redis:6379/0
-      # arq only appends CWD to sys.path, so the `app` package baked into the image's
-      # site-packages would shadow the bind-mounted source and the worker would run stale
-      # code. Put the mounted /app first so edits take effect on restart (matches the API,
-      # where uvicorn --reload already inserts CWD at the front).
+      # The image already sets this (it runs the source from /app and installs no `app`
+      # package); kept explicit so the worker never picks up anything but the bind-mounted
+      # source, whatever the image does.
       PYTHONPATH: /app
     depends_on:
       db:

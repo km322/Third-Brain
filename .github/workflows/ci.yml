@@ -69,18 +69,21 @@ jobs:
           python-version: "3.11"
 
       - name: Set up uv
-        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
-          version: "0.13.1"
+          # Keep in step with the uv stage in apps/api/Dockerfile (Dependabot bumps that one).
+          version: "0.13.5"
           enable-cache: false
 
       # The exact hash-checked set in uv.lock; --locked fails the job if the lock is stale.
+      # The project itself is not built (that would fetch an unpinned setuptools): pytest
+      # and alembic import the source from the working directory.
       - name: Install dev dependencies
         env:
           UV_PYTHON: "3.11"
           UV_PYTHON_DOWNLOADS: never
         run: |
-          uv sync --locked --extra dev
+          uv sync --locked --extra dev --no-install-project
           echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
 
       - name: Ruff lint
@@ -151,18 +154,21 @@ jobs:
           python-version: "3.11"
 
       - name: Set up uv
-        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
-          version: "0.13.1"
+          # Keep in step with the uv stage in apps/api/Dockerfile (Dependabot bumps that one).
+          version: "0.13.5"
           enable-cache: false
 
       # The exact hash-checked set in uv.lock; --locked fails the job if the lock is stale.
+      # The project itself is not built (that would fetch an unpinned setuptools): pytest
+      # and alembic import the source from the working directory.
       - name: Install dev dependencies
         env:
           UV_PYTHON: "3.11"
           UV_PYTHON_DOWNLOADS: never
         run: |
-          uv sync --locked --extra dev
+          uv sync --locked --extra dev --no-install-project
           echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
 
       - name: Apply database migrations

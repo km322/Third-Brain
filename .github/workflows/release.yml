@@ -37,12 +37,17 @@ concurrency:
 
 jobs:
   # --------------------------------------------------------------------------- #
-  # Gate: tag == VERSION == every other version literal, and CI is green.
+  # Gate: tag == VERSION == every other version literal, and CI is green on main.
+  #
+  # Runs in the `release` environment, which waits for a maintainer's approval, so a
+  # pushed tag alone publishes nothing: every image push and the GitHub release depend
+  # on this job. npm-publish has its own approval as well (see below).
   # --------------------------------------------------------------------------- #
   verify:
     name: Verify tag, versions and CI status
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    environment: release
     permissions:
       contents: read
       actions: read   # query the CI run status for the tagged commit
@@ -89,12 +94,19 @@ jobs:
           echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
           echo "owner=$(echo "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
 
-      - name: Require green CI on the tagged commit
+      # Only main's history is releasable, and only a CI run from a push to main counts:
+      # a pull_request run is green for code main's branch protection never admitted.
+      - name: Require the tagged commit on main with green CI
         env:
           GH_TOKEN: ${{ github.token }}
           SHA: ${{ steps.meta.outputs.sha }}
         run: |
-          conclusion="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?head_sha=$SHA&status=completed" -q '.workflow_runs[0].conclusion')"
+          on_main="$(gh api "repos/$GITHUB_REPOSITORY/compare/main...$SHA" -q '.status')"
+          if [ "$on_main" != "behind" ] && [ "$on_main" != "identical" ]; then
+            echo "::error::$SHA is not on main (compare status: $on_main). Release only commits that have landed on main."
+            exit 1
+          fi
+          conclusion="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?head_sha=$SHA&event=push&branch=main&status=completed" -q '.workflow_runs[0].conclusion')"
           if [ "$conclusion" != "success" ]; then
             echo "::error::CI has not passed on $SHA (found: ${conclusion:-no completed run}). Let CI go green on main for this commit, then re-run this workflow."
             exit 1
@@ -111,8 +123,10 @@ jobs:
   # that has no images and no GitHub release, recoverable only by burning a version.
   #
   # Gated by the `npm` environment, which requires a maintainer's approval before the
-  # job starts and is bound in the npm Trusted Publisher settings, so a pushed tag
-  # alone (e.g. from a stolen GitHub credential) cannot publish.
+  # job starts and is bound in the npm Trusted Publisher settings. The approval lives on
+  # this job, not only on verify, because npm trusts any run of this workflow file in
+  # that environment: a tag on a commit that edits release.yml could drop the verify
+  # gate, but not an environment's protection rules.
   # --------------------------------------------------------------------------- #
   npm-publish:
     name: Publish third-brain-mcp to npm

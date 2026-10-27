@@ -4,7 +4,7 @@ Runs the Locust scenarios in ``loadtests/locustfile.py`` as a subprocess, stream
 output through, then parses the CSV stats it wrote and enforces the thresholds below.
 Exits 0 when every threshold holds and 1 otherwise, so CI can gate on it. This module
 never imports locust; it only needs locust installed in the interpreter's environment
-(``pip install -e .[load]``).
+(``uv sync --locked --extra load``).
 
 Environment (defaults in parentheses):
 * ``LOAD_USERS`` (50), ``LOAD_SPAWN_RATE`` (10), ``LOAD_DURATION`` (3m)

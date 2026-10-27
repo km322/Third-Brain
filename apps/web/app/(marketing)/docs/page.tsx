@@ -354,7 +354,8 @@ export default function DocsPage() {
               />
               <p>
                 Under the hood each client is pointed at{" "}
-                <Mono>npx third-brain-mcp serve</Mono>, the stdio-to-HTTP bridge that
+                <Mono>npx third-brain-mcp@&lt;version&gt; serve</Mono>, pinned to the CLI
+                version that ran <Mono>install</Mono>, the stdio-to-HTTP bridge that
                 relays MCP traffic to your server - you rarely run it by hand. Run{" "}
                 <Mono>npx third-brain-mcp status</Mono> any time to sanity-check the saved
                 connection.

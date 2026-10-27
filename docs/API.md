@@ -1142,7 +1142,8 @@ npx third-brain-mcp status           # sanity-check the saved connection
 
 `install claude` and `install cursor` write the client config for you; `install claude-code`
 prints the `claude mcp add` one-liner to paste. Each points the client at
-`npx third-brain-mcp serve`, the stdio-to-HTTP bridge that relays MCP traffic to `POST /mcp` with
+`npx -y third-brain-mcp@<version> serve` - pinned to the CLI version that ran `install` - the
+stdio-to-HTTP bridge that relays MCP traffic to `POST /mcp` with
 your saved key. Once connected, ask your assistant to *"write up the decision we just made into
 Engineering / Decisions"* or *"search the company brain for the on-call runbook"* - every call is
 scoped to what the key's principal may see and do.
