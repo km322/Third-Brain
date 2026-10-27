@@ -12,7 +12,14 @@ import {
   SERVER_KEY,
 } from "../lib/install.js";
 
-const EXPECTED_ENTRY = { command: "npx", args: ["-y", "third-brain-mcp", "serve"] };
+/** Read independently of lib/install.js: the entry pins the version that installed it. */
+const PKG_VERSION = JSON.parse(
+  fs.readFileSync(new URL("../package.json", import.meta.url), "utf8"),
+).version;
+const EXPECTED_ENTRY = {
+  command: "npx",
+  args: ["-y", `third-brain-mcp@${PKG_VERSION}`, "serve"],
+};
 
 /**
  * Pinned literally (not via the shared constant) so a wording change or deletion in
@@ -132,7 +139,7 @@ test("runInstall for claude-code prints the exact one-liner", () => {
   assert.ok(
     lines.some(
       (line) =>
-        line.trim() === "claude mcp add third-brain -- npx -y third-brain-mcp serve",
+        line.trim() === `claude mcp add third-brain -- npx -y third-brain-mcp@${PKG_VERSION} serve`,
     ),
   );
 });
@@ -142,7 +149,7 @@ test("runInstall for claude-code prints the agent-write notice after the one-lin
   runInstall("claude-code", { log: (line) => lines.push(line) });
   const oneLiner = lines.findIndex(
     (line) =>
-      line.trim() === "claude mcp add third-brain -- npx -y third-brain-mcp serve",
+      line.trim() === `claude mcp add third-brain -- npx -y third-brain-mcp@${PKG_VERSION} serve`,
   );
   const notice = lines.indexOf(NOTICE_LINES[0]);
   assert.deepEqual(lines.slice(notice, notice + NOTICE_LINES.length), NOTICE_LINES);

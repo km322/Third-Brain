@@ -9,8 +9,19 @@ import { printAgentWriteNotice } from "./notice.js";
 export const SERVER_KEY = "third-brain";
 export const CLIENTS = ["claude", "claude-code", "cursor"];
 
+const { name, version } = JSON.parse(
+  fs.readFileSync(new URL("../package.json", import.meta.url), "utf8"),
+);
+
+/**
+ * The exact release running `install`. Clients launch the bridge with `npx -y` on every
+ * start, so an unpinned name would silently run whatever npm serves as latest next time;
+ * pinning means a new version only runs after the user re-runs install.
+ */
+export const PACKAGE_SPEC = `${name}@${version}`;
+
 export function serverEntry() {
-  return { command: "npx", args: ["-y", "third-brain-mcp", "serve"] };
+  return { command: "npx", args: ["-y", PACKAGE_SPEC, "serve"] };
 }
 
 export function clientConfigPath(
@@ -107,7 +118,7 @@ export function runInstall(client, { log = console.log } = {}) {
   if (client === "claude-code") {
     log("Claude Code manages its own MCP registry. Run this in your project:");
     log("");
-    log("  claude mcp add third-brain -- npx -y third-brain-mcp serve");
+    log(`  claude mcp add third-brain -- npx -y ${PACKAGE_SPEC} serve`);
     log("");
     printAgentWriteNotice(log);
     return;
