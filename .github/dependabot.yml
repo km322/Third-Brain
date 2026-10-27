@@ -28,6 +28,12 @@ updates:
       backend-dependencies:
         patterns: ["*"]
         update-types: ["minor", "patch"]
+    ignore:
+      # arq bounds redis-py (0.28 requires redis<6), and the resolver satisfies a redis
+      # major bump by silently downgrading arq to 0.25, the last release with no bound.
+      # Move redis together with an arq release that supports it, by hand.
+      - dependency-name: "redis"
+        update-types: ["version-update:semver-major"]
 
   # ---- Frontend web app (npm) --------------------------------------------- #
   - package-ecosystem: npm

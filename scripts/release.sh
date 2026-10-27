@@ -20,6 +20,13 @@ if [[ ! "$V" =~ $SEMVER_RE ]]; then
   echo "error: '$V' is not a semver version (X.Y.Z with optional -prerelease)" >&2
   exit 1
 fi
+# The release workflow publishes only X.Y.Z tags (a pre-release would otherwise take npm's
+# `latest` tag), and release tags are protected from deletion, so a pre-release tag pushed
+# by mistake could never be removed. Refuse it here, before anything is committed.
+if [[ "$V" == *-* ]]; then
+  echo "error: pre-release versions are not released by the pipeline; use X.Y.Z" >&2
+  exit 1
+fi
 
 BRANCH="$(git rev-parse --abbrev-ref HEAD)"
 if [[ "$BRANCH" != "main" ]]; then

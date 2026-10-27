@@ -167,13 +167,19 @@ version covers the API, the worker, and the web app - they release together, and
   and `postcss-selector-parser` overridden to 7.1.x. Tailwind 3's chain asks for 6.x, which has
   no fix; the compiled stylesheet is byte-identical under both. `npm audit` now reports zero
   vulnerabilities.
-- **Publishing to npm now needs a maintainer's approval.** The `npm-publish` job runs in a new
-  `npm` GitHub environment with a required reviewer, so pushing a `v*` tag - including with a
-  stolen GitHub credential - no longer publishes `third-brain-mcp` on its own. The job also stops
-  installing npm from the registry (Node 24 bundles a trusted-publishing npm) and publishes with
-  `--provenance`, so a missing attestation fails the release instead of passing silently.
+- **A release now needs a maintainer's approval twice.** `verify` runs in a new `release`
+  environment, so a pushed `v*` tag alone builds and publishes nothing, and `npm-publish` runs
+  in an `npm` environment bound in npm's Trusted Publisher settings, so even a tag on a commit
+  that rewrites `release.yml` cannot reach npm without approval. This stops a token without
+  deployment rights or a mistaken tag; it does not stop someone holding the maintainer's own
+  credentials, who can approve the run. The publish job also stops installing npm from the
+  registry (Node 24 bundles a trusted-publishing npm) and publishes with `--provenance`, so a
+  missing attestation fails the release instead of passing silently.
 - **Every release job builds the commit `verify` approved**, not whatever the tag points at when
-  the job starts, and a manual run accepts only a `vX.Y.Z` tag, never a branch or a SHA.
+  the job starts, and a manual run accepts only a `vX.Y.Z` tag, never a branch or a SHA. The
+  commit must be on `main` with a green CI run from a push to `main` - a green pull-request run
+  no longer counts. Release tags are protected from moving or deletion, so `release.sh` now
+  refuses pre-release versions, which the pipeline never published.
 - **Every GitHub Action is pinned to a full commit SHA**, with the release in a trailing comment
   for Dependabot to update. A retagged action (the tj-actions attack) can no longer run inside a
   job that pushes images or mints an npm credential. No checkout persists the job token in
@@ -192,8 +198,11 @@ version covers the API, the worker, and the web app - they release together, and
   straight into the next image unreviewed, and the published v2.1.0 API image carries known
   advisories in `certifi`, `pypdf`, `PyJWT`, `urllib3` and `opentelemetry-api`. The lock takes
   the fixed versions and OSV reports no advisory for any of its 117 packages. The image no
-  longer upgrades pip or builds the project at install time, and Dependabot now updates the lock
-  through its `uv` ecosystem.
+  longer upgrades pip or builds the project at install time (CI no longer builds it either, which
+  fetched an unpinned `setuptools`), still ships compiled bytecode, and Dependabot now updates the
+  lock through its `uv` ecosystem and the digest-pinned uv 0.13.5 image. `make test-integration`
+  installs the same lock. Dependabot no longer proposes redis-py majors, which it could only
+  satisfy by silently downgrading `arq` to 0.25.
 
 ## [2.1.0] - 2026-09-07
 

@@ -58,9 +58,16 @@ annotated tag `vX.Y.Z`. Then:
 3. `git push origin vX.Y.Z` - the tag triggers the **Release** workflow
    (`.github/workflows/release.yml`), which builds and publishes
    `ghcr.io/km322/third-brain-api` and `ghcr.io/km322/third-brain-web` tagged `vX.Y.Z`.
-4. Watch the Release workflow to completion.
-5. Verify: both images are visible on GHCR, and a deployed API reports the new version at
+4. **Approve the run twice** (Actions -> the run -> *Review deployments*): once for the
+   `release` environment, before anything is built, and once for `npm`, before the CLI is
+   published. Nothing is published until you do.
+5. Watch the Release workflow to completion.
+6. Verify: both images are visible on GHCR, and a deployed API reports the new version at
    `GET /api/v1/version` (`version`, `git_commit`, `build_time`, `environment`).
+
+> **Release tags are permanent.** A ruleset blocks moving or deleting `v*` tags, so a tag
+> pushed by mistake cannot be undone and its version is spent - bump to the next patch.
+> Only `X.Y.Z` tags release; `scripts/release.sh` refuses pre-release versions.
 
 > **The tag-before-CI race.** The Release workflow's verify job fails if CI has not
 > completed successfully for the tagged SHA. If you push the tag too early, wait for CI
@@ -127,8 +134,16 @@ The release workflow publishes `packages/mcp-cli` to npm with
 [trusted publishing](https://docs.npmjs.com/trusted-publishers) (OIDC) - no token,
 secret, or one-time password involved. One-time setup on npmjs.com: the
 `third-brain-mcp` package's **Settings -> Trusted Publisher** must list GitHub Actions
-with owner `km322`, repository `Third-Brain`, and workflow filename `release.yml`. The
-publish step is idempotent: an already-published version is skipped, never overwritten.
+with owner `km322`, repository `Third-Brain`, workflow filename `release.yml`, and
+environment `npm`, and **Publishing access** should be "Require two-factor authentication
+and disallow tokens". The publish step is idempotent: an already-published version is
+skipped, never overwritten.
+
+The `release` and `npm` environments (Settings -> Environments) require the maintainer's
+approval and accept deployments only from `v*.*.*` tags and `main`. They stop a pushed tag
+or a token without deployment rights from publishing on its own. They do not stop someone
+holding the maintainer's own credentials, who can approve the run, so keep that account on
+a hardware-key 2FA and keep long-lived tokens out of reach.
 
 A tag-push run executes the workflow as of the tagged commit. To re-run a release for an
 existing tag with the **current** workflow definition (e.g. after fixing `release.yml`),

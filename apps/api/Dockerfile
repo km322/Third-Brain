@@ -3,35 +3,40 @@
 # ============================================================================
 # Third Brain - API (FastAPI) production image.
 #
-# Two stages:
-#   builder -> compiles any wheels and installs the project into a virtualenv
+# Three stages:
+#   uv      -> the pinned uv binary (a stage of its own so Dependabot tracks the digest)
+#   builder -> installs the locked dependencies into a virtualenv, compiling any wheels
 #   runtime -> slim image that only carries the venv + application source
 #
 # The same image runs the API (uvicorn), the arq worker, and one-shot
 # `alembic upgrade head` migrations - the process is chosen via the command.
 # ============================================================================
 
-# ---- builder: build wheels + install into an isolated virtualenv ----
+# ---- uv: pinned by digest; the builder copies the binary out of it ----
+FROM ghcr.io/astral-sh/uv:0.13.5@sha256:32a7bb39b496babbd997b0a39a4d66c126bdaf5661b302bf6f06abda8deca6ff AS uv
+
+# ---- builder: install the locked dependencies into an isolated virtualenv ----
 FROM python:3.11-slim AS builder
 
 ENV PYTHONUNBUFFERED=1 \
-    PYTHONDONTWRITEBYTECODE=1 \
-    PIP_NO_CACHE_DIR=1 \
-    PIP_DISABLE_PIP_VERSION_CHECK=1
+    PYTHONDONTWRITEBYTECODE=1
 
 # Toolchain for any packages without a manylinux wheel (bcrypt, cryptography, …).
 RUN apt-get update && apt-get install -y --no-install-recommends \
         build-essential \
     && rm -rf /var/lib/apt/lists/*
 
-# uv, pinned by digest, installs the exact hash-checked set in uv.lock.
-COPY --from=ghcr.io/astral-sh/uv:0.13.1@sha256:4a1f3666816dafadd20ceb71eac9a7d56d7ef30279f7d64048519ab901ada336 /uv /usr/local/bin/uv
+# uv installs the exact hash-checked set in uv.lock.
+COPY --from=uv /uv /usr/local/bin/uv
 
 # Self-contained virtualenv we can copy wholesale into the runtime stage, built with the
-# image's own interpreter (never a downloaded one).
+# image's own interpreter (never a downloaded one). Bytecode is compiled here because the
+# runtime sets PYTHONDONTWRITEBYTECODE: without it every process start recompiles the
+# whole dependency tree.
 ENV UV_PROJECT_ENVIRONMENT=/opt/venv \
     UV_PYTHON_DOWNLOADS=never \
     UV_LINK_MODE=copy \
+    UV_COMPILE_BYTECODE=1 \
     PATH="/opt/venv/bin:$PATH"
 
 WORKDIR /app
