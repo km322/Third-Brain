@@ -167,6 +167,25 @@ version covers the API, the worker, and the web app - they release together, and
   and `postcss-selector-parser` overridden to 7.1.x. Tailwind 3's chain asks for 6.x, which has
   no fix; the compiled stylesheet is byte-identical under both. `npm audit` now reports zero
   vulnerabilities.
+- **Publishing to npm now needs a maintainer's approval.** The `npm-publish` job runs in a new
+  `npm` GitHub environment with a required reviewer, so pushing a `v*` tag - including with a
+  stolen GitHub credential - no longer publishes `third-brain-mcp` on its own. The job also stops
+  installing npm from the registry (Node 24 bundles a trusted-publishing npm) and publishes with
+  `--provenance`, so a missing attestation fails the release instead of passing silently.
+- **Every release job builds the commit `verify` approved**, not whatever the tag points at when
+  the job starts, and a manual run accepts only a `vX.Y.Z` tag, never a branch or a SHA.
+- **Every GitHub Action is pinned to a full commit SHA**, with the release in a trailing comment
+  for Dependabot to update. A retagged action (the tj-actions attack) can no longer run inside a
+  job that pushes images or mints an npm credential. No checkout persists the job token in
+  `.git/config` any more.
+- **`third-brain-mcp install` pins the version it writes.** Clients start the bridge with
+  `npx -y` on every launch, so the unpinned entry meant whatever npm served as latest could run
+  with the user's saved API key. The entry (and the printed `claude mcp add` line) is now
+  `third-brain-mcp@<the installing version>`.
+- **Dependabot waits 7 days before proposing a new version** in every ecosystem, which keeps
+  short-lived hijacked releases out of the lockfiles. Security updates are exempt.
+- **The web image installs strictly from the lockfile.** The Dockerfile no longer falls back to
+  `npm install` when `package-lock.json` is absent.
 
 ## [2.1.0] - 2026-09-07
 

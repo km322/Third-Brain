@@ -19,9 +19,10 @@ FROM node:22-alpine AS deps
 WORKDIR /app
 # libc6-compat helps some native deps run on Alpine's musl.
 RUN apk add --no-cache libc6-compat
-COPY package.json package-lock.json* ./
-# Use the lockfile when present for reproducible installs; fall back otherwise.
-RUN if [ -f package-lock.json ]; then npm ci; else npm install; fi
+COPY package.json package-lock.json ./
+# Lockfile only: `npm ci` fails rather than resolving fresh versions if the lock is missing
+# or out of sync with package.json, so a build never takes dependencies nobody reviewed.
+RUN npm ci
 
 # ---- dev: hot-reloading dev server with the FULL dependency tree ----
 # docker-compose (dev) targets this stage. The production `runner` stage ships only the

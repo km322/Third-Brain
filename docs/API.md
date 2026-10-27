@@ -1166,14 +1166,15 @@ be pointed straight at it:
 ```
 
 For a stdio-only desktop client, run the bridge as the server command instead (this is exactly
-what `third-brain-mcp install` writes):
+what `third-brain-mcp install` writes, pinned to the CLI version that ran it so a new npm release
+never runs until you re-run `install`):
 
 ```json
 {
   "mcpServers": {
     "third-brain": {
       "command": "npx",
-      "args": ["-y", "third-brain-mcp", "serve"]
+      "args": ["-y", "third-brain-mcp@<version>", "serve"]
     }
   }
 }

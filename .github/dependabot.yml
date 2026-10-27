@@ -5,6 +5,11 @@
 # when one is missing it applies none of them and comments "The following labels could not
 # be found" on every pull request it opens. The set in use here is `dependencies`, plus one
 # of `backend` / `frontend`, plus `docker` or `ci` where the ecosystem is one of those.
+#
+# Every ecosystem has a 7-day cooldown: a version is only proposed once it has been public
+# for a week. Hijacked releases (npm worms, compromised maintainer tokens, retagged actions)
+# are usually caught and pulled within days, so this keeps them out of the lockfiles. Security
+# updates are not delayed - Dependabot exempts them from the cooldown.
 version: 2
 updates:
   # ---- Backend API (Python / pip via pyproject.toml) ----------------------- #
@@ -13,6 +18,8 @@ updates:
     schedule:
       interval: weekly
       day: monday
+    cooldown:
+      default-days: 7
     open-pull-requests-limit: 5
     labels: ["dependencies", "backend"]
     commit-message:
@@ -28,6 +35,8 @@ updates:
     schedule:
       interval: weekly
       day: monday
+    cooldown:
+      default-days: 7
     open-pull-requests-limit: 5
     labels: ["dependencies", "frontend"]
     commit-message:
@@ -83,6 +92,8 @@ updates:
     schedule:
       interval: weekly
       day: monday
+    cooldown:
+      default-days: 7
     open-pull-requests-limit: 5
     labels: ["dependencies", "backend", "docker"]
     commit-message:
@@ -102,6 +113,8 @@ updates:
     schedule:
       interval: weekly
       day: monday
+    cooldown:
+      default-days: 7
     open-pull-requests-limit: 5
     labels: ["dependencies", "frontend", "docker"]
     commit-message:
@@ -116,6 +129,8 @@ updates:
     schedule:
       interval: weekly
       day: monday
+    cooldown:
+      default-days: 7
     open-pull-requests-limit: 5
     labels: ["dependencies", "ci"]
     commit-message:

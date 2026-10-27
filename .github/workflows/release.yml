@@ -52,10 +52,24 @@ jobs:
       tag: ${{ steps.meta.outputs.tag }}
       sha: ${{ steps.meta.outputs.sha }}
     steps:
-      - uses: actions/checkout@v7
+      # A manual run must name a release tag, not a branch or a SHA: without this, any ref
+      # whose VERSION file matches could be published as a release.
+      - name: Require a vX.Y.Z tag
+        env:
+          TAG_INPUT: ${{ inputs.tag }}
+        run: |
+          tag="${TAG_INPUT:-$GITHUB_REF_NAME}"
+          if ! printf '%s' "$tag" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::'$tag' is not a vX.Y.Z release tag."
+            exit 1
+          fi
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          # Tag pushes check out the tag by default; manual runs must ask for it.
-          ref: ${{ inputs.tag || github.ref }}
+          persist-credentials: false
+          # Tag pushes check out the tag by default; manual runs must ask for it. The
+          # explicit refs/tags/ prefix keeps a same-named branch from being checked out.
+          ref: ${{ inputs.tag && format('refs/tags/{0}', inputs.tag) || github.ref }}
 
       - name: Check the tag against the repo version literals
         id: meta
@@ -95,12 +109,17 @@ jobs:
   # irreversible step in the release: a published npm version can never be reused,
   # so publishing it before the image build could leave the CLI live at a version
   # that has no images and no GitHub release, recoverable only by burning a version.
+  #
+  # Gated by the `npm` environment, which requires a maintainer's approval before the
+  # job starts and is bound in the npm Trusted Publisher settings, so a pushed tag
+  # alone (e.g. from a stolen GitHub credential) cannot publish.
   # --------------------------------------------------------------------------- #
   npm-publish:
     name: Publish third-brain-mcp to npm
     runs-on: ubuntu-latest
     timeout-minutes: 10
     needs: [verify, merge-manifests]
+    environment: npm
     permissions:
       contents: read
       id-token: write # mint the OIDC token npm exchanges for publish credentials
@@ -108,19 +127,23 @@ jobs:
       run:
         working-directory: packages/mcp-cli
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ needs.verify.outputs.tag }}
+          persist-credentials: false
+          # The commit verify approved, not the tag: a tag moved mid-release must not
+          # put unverified code into the published artifacts.
+          ref: ${{ needs.verify.outputs.sha }}
 
-      - name: Set up Node 22
-        uses: actions/setup-node@v7
+      # Trusted publishing needs npm >= 11.5.1. Node 24 bundles it, so nothing is fetched
+      # from the registry into the job that holds the publish credential.
+      - name: Set up Node 24
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: "22"
+          node-version: "24"
           registry-url: https://registry.npmjs.org
-
-      # Trusted publishing needs npm >= 11.5.1; Node 22 bundles npm 10.
-      - name: Update npm
-        run: npm install -g npm@11
+          # No dependency cache in the job that holds the publish credential: a cache
+          # written by another run must never be restored here.
+          package-manager-cache: false
 
       - name: Publish to npm
         run: |
@@ -131,7 +154,8 @@ jobs:
           if npm view "third-brain-mcp@${version}" version >/dev/null 2>&1; then
             echo "third-brain-mcp@${version} is already published - skipping."
           else
-            npm publish
+            # --provenance makes a missing attestation a failed publish, not a silent one.
+            npm publish --provenance
           fi
 
   # --------------------------------------------------------------------------- #
@@ -173,15 +197,18 @@ jobs:
             runner: ubuntu-24.04-arm
             arch: arm64
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ needs.verify.outputs.tag }}
+          persist-credentials: false
+          # The commit verify approved, not the tag: a tag moved mid-release must not
+          # put unverified code into the published artifacts.
+          ref: ${{ needs.verify.outputs.sha }}
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
       - name: Log in to GHCR
-        uses: docker/login-action@v4
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -193,7 +220,7 @@ jobs:
 
       - name: Build and push by digest
         id: build
-        uses: docker/build-push-action@v7
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: ${{ matrix.context }}
           file: ${{ matrix.context }}/Dockerfile
@@ -222,7 +249,7 @@ jobs:
           touch "/tmp/digests/${DIGEST#sha256:}"
 
       - name: Upload digest
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: digest-${{ matrix.image }}-${{ matrix.arch }}
           path: /tmp/digests/*
@@ -245,17 +272,17 @@ jobs:
         image: [third-brain-api, third-brain-web]
     steps:
       - name: Download digests
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: digest-${{ matrix.image }}-*
           merge-multiple: true
           path: /tmp/digests
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
       - name: Log in to GHCR
-        uses: docker/login-action@v4
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -306,9 +333,12 @@ jobs:
     permissions:
       contents: write   # create the GitHub release
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ needs.verify.outputs.tag }}
+          persist-credentials: false
+          # The commit verify approved, not the tag: a tag moved mid-release must not
+          # put unverified code into the published artifacts.
+          ref: ${{ needs.verify.outputs.sha }}
 
       - name: Extract release notes from CHANGELOG.md
         env:
