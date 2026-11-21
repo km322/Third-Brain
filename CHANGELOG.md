@@ -157,6 +157,9 @@ version covers the API, the worker, and the web app - they release together, and
 
 ### Security
 
+- **soupsieve 4.1** (GHSA-mmhr-3c5m-f64f, GHSA-6655-6qjp-jx7x, GHSA-7g44-g9rc-x53w). Every fixed
+  release needs Python 3.11.5, so the API's `requires-python` is now `>=3.11.5`; the lock kept
+  the vulnerable 2.10 for 3.11.0-3.11.4 before.
 - **Next.js 15.5.25 -> 15.5.28**, the current 15.x backport. It fixes a critical
   unauthenticated remote code execution in the Image Optimization API when SVG files are used
   (GHSA-2464-fhr4-w9xw), a high-severity Server Actions denial of service (GHSA-p3m5-59mp-jv5r)
